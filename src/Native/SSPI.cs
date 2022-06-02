@@ -54,7 +54,7 @@ internal static partial class Helpers
     {
         public UInt32 cbBuffer;
         public UInt32 BufferType;
-        public IntPtr pvBuffer;
+        public unsafe byte* pvBuffer;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -154,8 +154,8 @@ internal static class SSPI
         UInt32 MessageSeqNo);
 
     [DllImport("Secur32.dll")]
-    public static extern Int32 FreeContextBuffer(
-        IntPtr pvContextBuffer);
+    public unsafe static extern Int32 FreeContextBuffer(
+        byte* pvContextBuffer);
 
     [DllImport("Secur32.dll")]
     public static extern Int32 FreeCredentialsHandle(
@@ -371,7 +371,7 @@ internal static class SSPI
                             continue;
 
                         byte[] data = new byte[buffer.cbBuffer];
-                        Marshal.Copy(buffer.pvBuffer, data, 0, data.Length);
+                        Marshal.Copy((IntPtr)buffer.pvBuffer, data, 0, data.Length);
                         outputTokens.Add(data);
                     }
 
@@ -382,7 +382,7 @@ internal static class SSPI
                 {
                     foreach (Helpers.SecBuffer buffer in output)
                     {
-                        if (buffer.pvBuffer != IntPtr.Zero)
+                        if (buffer.pvBuffer != null)
                             FreeContextBuffer(buffer.pvBuffer);
                     }
                 }

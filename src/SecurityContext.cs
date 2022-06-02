@@ -2,6 +2,7 @@ using PSWSMan.Native;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 
 namespace PSWSMan;
@@ -30,8 +31,8 @@ internal abstract class SecurityContext : IDisposable
     public virtual ChannelBindings? ChannelBindings { set { return; } }
 
     public abstract byte[] Step(byte[]? inputToken = null);
-    public abstract byte[] Wrap(ReadOnlySpan<byte> data, bool encrypt);
-    public abstract byte[] Unwrap(ReadOnlySpan<byte> data);
+    public abstract (byte[], byte[], int) Wrap(Span<byte> data);
+    public abstract Span<byte> Unwrap(Span<byte> data, int headerLength);
     public virtual void SetChannelBindings(ChannelBindings? bindings) { return; }
 
     public abstract void Dispose();
@@ -47,6 +48,7 @@ internal class GssapiContext : SecurityContext
         GssapiContextFlags.GSS_C_SEQUENCE_FLAG | GssapiContextFlags.GSS_C_INTEG_FLAG |
         GssapiContextFlags.GSS_C_CONF_FLAG;
     private SafeGssapiSecContext? _context;
+    private byte[]? _negotiatedMech;
     private ChannelBindings? _bindingData;
 
     public GssapiContext(string? username, string? password, AuthenticationMethod method, string target)
@@ -97,27 +99,111 @@ internal class GssapiContext : SecurityContext
         if (!res.MoreNeeded)
         {
             Complete = true;
+            _negotiatedMech = res.MechType;
         }
 
         return res.OutputToken ?? Array.Empty<byte>();
     }
 
-    public override byte[] Wrap(ReadOnlySpan<byte> data, bool encrypt)
+    public override (byte[], byte[], int) Wrap(Span<byte> data)
     {
         if (_context == null || !Complete)
             throw new InvalidOperationException("Cannot wrap without a completed context");
 
-        (byte[] wrappedData, bool _) = GSSAPI.Wrap(_context, encrypt, 0, data);
-        return wrappedData;
+        if (_negotiatedMech?.SequenceEqual(GSSAPI.NTLM) == true)
+        {
+            // NTLM doesn't support gss_wrap_iov but luckily the header is always 16 bytes and there is no padding so
+            // gss_wrap can be used instead.
+            (byte[] wrappedData, bool _) = GSSAPI.Wrap(_context, true, 0, data);
+            Span<byte> wrappedSpan = wrappedData.AsSpan();
+
+            return (wrappedSpan[..16].ToArray(), wrappedData[16..].ToArray(), 0);
+        }
+        else
+        {
+            unsafe
+            {
+                fixed (byte* dataPtr = data)
+                {
+                    Span<IOVBuffer> iov = stackalloc IOVBuffer[3];
+                    iov[0].Flags = IOVBufferFlags.GSS_IOV_BUFFER_FLAG_ALLOCATE;
+                    iov[0].Type = IOVBufferType.GSS_IOV_BUFFER_TYPE_HEADER;
+                    iov[0].Data = IntPtr.Zero;
+                    iov[0].Length = 0;
+
+                    iov[1].Flags = IOVBufferFlags.NONE;
+                    iov[1].Type = IOVBufferType.GSS_IOV_BUFFER_TYPE_DATA;
+                    iov[1].Data = (IntPtr)dataPtr;
+                    iov[1].Length = data.Length;
+
+                    iov[2].Flags = IOVBufferFlags.GSS_IOV_BUFFER_FLAG_ALLOCATE;
+                    iov[2].Type = IOVBufferType.GSS_IOV_BUFFER_TYPE_PADDING;
+                    iov[2].Data = IntPtr.Zero;
+                    iov[2].Length = 0;
+
+                    using IOVResult res = GSSAPI.WrapIOV(_context, true, 0, iov);
+                    byte[] header = new byte[iov[0].Length];
+                    Marshal.Copy(iov[0].Data, header, 0, header.Length);
+
+                    Span<byte> encData = new(iov[1].Data.ToPointer(), iov[1].Length);
+
+                    return (header, encData.ToArray(), iov[2].Length);
+                }
+            }
+        }
     }
 
-    public override byte[] Unwrap(ReadOnlySpan<byte> data)
+    public override Span<byte> Unwrap(Span<byte> data, int headerLength)
     {
         if (_context == null || !Complete)
             throw new InvalidOperationException("Cannot unwrap without a completed context");
 
-        (byte[] unwrappedData, bool _1, int _2) = GSSAPI.Unwrap(_context, data);
-        return unwrappedData;
+        /*
+            Using Unwrap is required for NTLM as it does not support IOV buffers and by chance it also works for
+            Kerberos when using AES encryption. Kerberos RC4 encryption requires the use of UnwrapIOV due to the
+            padding that is used on the algorithm. UnwrapIOV also works with Kerberos AES but there is a bug on Heimdal
+            that breaks UnwrapIOV with how WinRM payloads are encrypted. Until Heimdal has been updated to v8+ this
+            code will continue to use Unwrap for NTLM and Kerb on Heimdal and will use UnwrapIOV for Kerb on MIT. This
+            ensures that AES is supported on all main platforms and RC4 works on at least MIT based systems. If
+            affected by this, just don't use RC4 encryption!
+            https://github.com/heimdal/heimdal/issues/739
+        */
+
+        if (_negotiatedMech?.SequenceEqual(GSSAPI.NTLM) == true || GlobalState.GssapiProvider != GssapiProvider.MIT)
+        {
+            (byte[] unwrappedData, bool _1, int _2) = GSSAPI.Unwrap(_context, data);
+            return unwrappedData;
+        }
+        else
+        {
+            Span<byte> header = data[..headerLength];
+            Span<byte> encData = data[headerLength..];
+
+            unsafe
+            {
+                fixed (byte* headerPtr = header, encDataPtr = encData)
+                {
+                    Span<IOVBuffer> iov = stackalloc IOVBuffer[3];
+                    iov[0].Flags = IOVBufferFlags.NONE;
+                    iov[0].Type = IOVBufferType.GSS_IOV_BUFFER_TYPE_HEADER;
+                    iov[0].Data = (IntPtr)headerPtr;
+                    iov[0].Length = headerLength;
+
+                    iov[1].Flags = IOVBufferFlags.NONE;
+                    iov[1].Type = IOVBufferType.GSS_IOV_BUFFER_TYPE_DATA;
+                    iov[1].Data = (IntPtr)encDataPtr;
+                    iov[1].Length = encData.Length;
+
+                    iov[2].Flags = IOVBufferFlags.GSS_IOV_BUFFER_FLAG_ALLOCATE;
+                    iov[2].Type = IOVBufferType.GSS_IOV_BUFFER_TYPE_DATA;
+                    iov[2].Data = IntPtr.Zero;
+                    iov[2].Length = 0;
+
+                    using IOVResult res = GSSAPI.UnwrapIOV(_context, iov);
+                    return new Span<byte>(iov[1].Data.ToPointer(), iov[1].Length);
+                }
+            }
+        }
     }
 
     public override void SetChannelBindings(ChannelBindings? bindings)
@@ -188,7 +274,7 @@ internal class SspiContext : SecurityContext
                 {
                     inputBuffers[idx].cbBuffer = (UInt32)inputToken.Length;
                     inputBuffers[idx].BufferType = (UInt32)SecBufferType.SECBUFFER_TOKEN;
-                    inputBuffers[idx].pvBuffer = (IntPtr)input;
+                    inputBuffers[idx].pvBuffer = input;
                     idx++;
                 }
 
@@ -196,7 +282,7 @@ internal class SspiContext : SecurityContext
                 {
                     inputBuffers[idx].cbBuffer = (UInt32)_bindingData.Length;
                     inputBuffers[idx].BufferType = (UInt32)SecBufferType.SECBUFFER_CHANNEL_BINDINGS;
-                    inputBuffers[idx].pvBuffer = (IntPtr)cbBuffer;
+                    inputBuffers[idx].pvBuffer = cbBuffer;
                 }
 
                 SspiSecContext context = SSPI.InitializeSecurityContext(_credential, _context, _targetSpn, _flags,
@@ -223,7 +309,7 @@ internal class SspiContext : SecurityContext
         }
     }
 
-    public override byte[] Wrap(ReadOnlySpan<byte> data, bool encrypt)
+    public override (byte[], byte[], int) Wrap(Span<byte> data)
     {
         if (_context == null || !Complete)
             throw new InvalidOperationException("Cannot wrap without a completed context");
@@ -232,80 +318,63 @@ internal class SspiContext : SecurityContext
         {
             ArrayPool<byte> shared = ArrayPool<byte>.Shared;
             byte[] token = shared.Rent((int)_trailerSize);
-            byte[] padding = shared.Rent((int)_blockSize);
 
             try
             {
-                fixed (byte* tokenPtr = token, dataPtr = data, paddingPtr = padding)
+                fixed (byte* tokenPtr = token, dataPtr = data)
                 {
-                    Span<Helpers.SecBuffer> buffers = stackalloc Helpers.SecBuffer[3];
+                    Span<Helpers.SecBuffer> buffers = stackalloc Helpers.SecBuffer[2];
                     buffers[0].BufferType = (UInt32)SecBufferType.SECBUFFER_TOKEN;
                     buffers[0].cbBuffer = _trailerSize;
-                    buffers[0].pvBuffer = (IntPtr)tokenPtr;
+                    buffers[0].pvBuffer = tokenPtr;
 
                     buffers[1].BufferType = (UInt32)SecBufferType.SECBUFFER_DATA;
                     buffers[1].cbBuffer = (UInt32)data.Length;
-                    buffers[1].pvBuffer = (IntPtr)dataPtr;
+                    buffers[1].pvBuffer = dataPtr;
 
-                    buffers[2].BufferType = (UInt32)SecBufferType.SECBUFFER_PADDING;
-                    buffers[2].cbBuffer = _blockSize;
-                    buffers[2].pvBuffer = (IntPtr)paddingPtr;
+                    SSPI.EncryptMessage(_context, 0, buffers, NextSeqNo());
 
-                    UInt32 qop = encrypt ? 0 : 0x80000001; // SECQOP_WRAP_NO_ENCRYPT
-                    SSPI.EncryptMessage(_context, qop, buffers, NextSeqNo());
+                    byte[] header = new byte[buffers[0].cbBuffer];
+                    Buffer.BlockCopy(token, 0, header, 0, (int)buffers[0].cbBuffer);
 
-                    byte[] wrapped = new byte[buffers[0].cbBuffer + buffers[1].cbBuffer + buffers[2].cbBuffer];
-                    int offset = 0;
-                    if (buffers[0].cbBuffer > 0)
-                    {
-                        Buffer.BlockCopy(token, 0, wrapped, offset, (int)buffers[0].cbBuffer);
-                        offset += (int)buffers[0].cbBuffer;
-                    }
+                    byte[] encData = new byte[buffers[1].cbBuffer];
+                    Marshal.Copy((IntPtr)dataPtr, encData, 0, (int)buffers[1].cbBuffer);
 
-                    Marshal.Copy((IntPtr)dataPtr, wrapped, offset, (int)buffers[1].cbBuffer);
-                    offset += (int)buffers[1].cbBuffer;
-
-                    if (buffers[2].cbBuffer > 0)
-                    {
-                        Buffer.BlockCopy(padding, 0, wrapped, offset, (int)buffers[2].cbBuffer);
-                        offset += (int)buffers[2].cbBuffer;
-                    }
-
-                    return wrapped;
+                    return (header, encData, 0);
                 }
             }
             finally
             {
                 shared.Return(token);
-                shared.Return(padding);
             }
         }
     }
 
-    public override byte[] Unwrap(ReadOnlySpan<byte> data)
+    public override Span<byte> Unwrap(Span<byte> data, int headerLength)
     {
         if (_context == null || !Complete)
             throw new InvalidOperationException("Cannot wrap without a completed context");
 
+        Span<byte> encHeader = data[..headerLength];
+        Span<byte> encData = data[headerLength..];
+
         unsafe
         {
-            fixed (byte* dataPtr = data)
+            fixed (byte* headerPtr = encHeader, dataPtr = encData)
             {
                 Span<Helpers.SecBuffer> buffers = stackalloc Helpers.SecBuffer[2];
-                buffers[0].BufferType = (UInt32)SecBufferType.SECBUFFER_STREAM;
-                buffers[0].cbBuffer = (UInt32)data.Length;
-                buffers[0].pvBuffer = (IntPtr)dataPtr;
+                buffers[0].BufferType = (UInt32)SecBufferType.SECBUFFER_TOKEN;
+                buffers[0].cbBuffer = (UInt32)encHeader.Length;
+                buffers[0].pvBuffer = headerPtr;
 
                 buffers[1].BufferType = (UInt32)SecBufferType.SECBUFFER_DATA;
-                buffers[1].cbBuffer = 0;
-                buffers[1].pvBuffer = IntPtr.Zero;
+                buffers[1].cbBuffer = (UInt32)encData.Length;
+                buffers[1].pvBuffer = dataPtr;
 
                 SSPI.DecryptMessage(_context, buffers, NextSeqNo());
 
-                byte[] unwrapped = new byte[buffers[1].cbBuffer];
-                Marshal.Copy(buffers[1].pvBuffer, unwrapped, 0, unwrapped.Length);
-
-                return unwrapped;
+                // Data is decrypted in place, just return a span that points to the decrypted payload.
+                return encData[..(int)buffers[1].cbBuffer];
             }
         }
     }

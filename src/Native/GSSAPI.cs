@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.Authentication;
 using System.Text;
@@ -18,9 +19,9 @@ internal static partial class Helpers
         public gss_buffer_desc application_data;
     }
 
-    // GSS.framework on x86_64 macOS is defined with pack(2) which complicates things a bit more. This is the only
-    // struct that would be affected by this so needs special runtime handling when creating the struct. Note this
-    // does not apply to the arm64 macOS, the define only applies to PowerPC (no longer relevant) and x86_64.
+    // GSS.framework on x86_64 macOS is defined with pack(2) which complicates things a bit more. It needs special
+    // runtime handling when creating the struct. Note this does not apply to the arm64 macOS, the define only applies
+    // to PowerPC (no longer relevant) and x86_64.
     // https://github.com/apple-oss-distributions/Heimdal/blob/5a776844a50fc09d714ba82ff7a88973c035b42b/lib/gssapi/gssapi/gssapi.h#L64-L67
     [StructLayout(LayoutKind.Sequential, Pack = 2)]
     public struct gss_channel_bindings_struct_macos
@@ -30,6 +31,21 @@ internal static partial class Helpers
         public int acceptor_addrtype;
         public gss_buffer_desc acceptor_address;
         public gss_buffer_desc application_data;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct gss_iov_buffer_desc
+    {
+        public int type;
+        public gss_buffer_desc buffer;
+    }
+
+    // Same as above, needs a special macos def for GSS.framework packing
+    [StructLayout(LayoutKind.Sequential, Pack = 2)]
+    public struct gss_iov_buffer_desc_macos
+    {
+        public int type;
+        public gss_buffer_desc buffer;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -140,6 +156,27 @@ internal class GssapiSecContext
         TimeToLive = ttl;
         MoreNeeded = moreNeeded;
     }
+}
+
+internal class IOVResult : IDisposable
+{
+    private readonly SafeHandle _raw;
+
+    public int ConfState { get; }
+
+    public IOVResult(SafeHandle raw, int confState)
+    {
+        _raw = raw;
+        ConfState = confState;
+    }
+
+    public void Dispose()
+    {
+        GSSAPI.gss_release_iov_buffer.Value(out var _, _raw, 0);
+        _raw.Dispose();
+        GC.SuppressFinalize(this);
+    }
+    ~IOVResult() => Dispose();
 }
 
 internal static class GSSAPI
@@ -278,6 +315,37 @@ internal static class GSSAPI
         ref Helpers.gss_buffer_desc input_message,
         out int conf_state,
         ref Helpers.gss_buffer_desc output_message);
+
+    public delegate int gss_unwrap_iov_func(
+        out int minor_status,
+        SafeGssapiSecContext context_handle,
+        out int conf_state,
+        out int qop_state,
+        SafeHandle iov,
+        int iov_count);
+
+    public static Lazy<gss_unwrap_iov_func> gss_unwrap_iov => new(()
+        => LoadIOVFunc<gss_unwrap_iov_func>("gss_unwrap_iov"));
+
+    public delegate int gss_wrap_iov_func(
+        out int minor_status,
+        SafeGssapiSecContext context_handle,
+        int conf_eq,
+        int qop_req,
+        out int conf_state,
+        SafeHandle iov,
+        int iov_count);
+
+    public static Lazy<gss_wrap_iov_func> gss_wrap_iov => new(()
+        => LoadIOVFunc<gss_wrap_iov_func>("gss_wrap_iov"));
+
+    public delegate int gss_release_iov_buffer_func(
+        out int minor_status,
+        SafeHandle iov,
+        int iov_count);
+
+    public static Lazy<gss_release_iov_buffer_func> gss_release_iov_buffer => new(()
+        => LoadIOVFunc<gss_release_iov_buffer_func>("gss_release_iov_buffer"));
 
     /// <summary>Acquire GSSAPI credential.</summary>
     /// <param name="name">The principal to get the cred for, if null the default principal is used.</param>
@@ -577,6 +645,19 @@ internal static class GSSAPI
         }
     }
 
+    public static IOVResult UnwrapIOV(SafeGssapiSecContext context, Span<IOVBuffer> buffer)
+    {
+        SafeHandle iovBuffers = CreateIOVSet(buffer);
+        int majorStatus = gss_unwrap_iov.Value(out var minorStatus, context, out var confState, out var _, iovBuffers,
+            buffer.Length);
+
+        if (majorStatus != 0)
+            throw new GSSAPIException(majorStatus, minorStatus, "gss_wrap_iov");
+
+        ProcessIOVResult(buffer, iovBuffers);
+        return new IOVResult(iovBuffers, confState);
+    }
+
     /// <summary>Wraps (signs or encrypts) a message to send to the peer.</summary>
     /// <param name="context">The context handle that is used to wrap the message.</param>
     /// <param name="confReq">Whether to encrypt the message or just sign it.</param>
@@ -621,6 +702,19 @@ internal static class GSSAPI
         {
             gss_release_buffer(out var _, ref outputBuffer);
         }
+    }
+
+    public static IOVResult WrapIOV(SafeGssapiSecContext context, bool confReq, int qopReq, Span<IOVBuffer> buffer)
+    {
+        SafeHandle iovBuffers = CreateIOVSet(buffer);
+        int majorStatus = gss_wrap_iov.Value(out var minorStatus, context, confReq ? 1 : 0, qopReq,
+            out var confState, iovBuffers, buffer.Length);
+
+        if (majorStatus != 0)
+            throw new GSSAPIException(majorStatus, minorStatus, "gss_wrap_iov");
+
+        ProcessIOVResult(buffer, iovBuffers);
+        return new IOVResult(iovBuffers, confState);
     }
 
     private static unsafe SafeHandle CreateChanBindingBuffer(ChannelBindings? bindings, byte* initiatorAddr,
@@ -690,6 +784,76 @@ internal static class GSSAPI
         }
     }
 
+    private static SafeHandle CreateIOVSet(Span<IOVBuffer> buffers)
+    {
+        unsafe
+        {
+            if (IsIntelMacOS())
+            {
+                SafeMemoryBuffer buffer = new(Marshal.SizeOf<Helpers.gss_iov_buffer_desc_macos>() * buffers.Length);
+                Span<Helpers.gss_iov_buffer_desc_macos> iovBuffers = new(buffer.DangerousGetHandle().ToPointer(),
+                    buffers.Length);
+
+                for (int i = 0; i < buffers.Length; i++)
+                {
+                    iovBuffers[i].type = (int)buffers[i].Type | (int)buffers[i].Flags;
+                    iovBuffers[i].buffer.length = (IntPtr)buffers[i].Length;
+                    iovBuffers[i].buffer.value = buffers[i].Data;
+                }
+
+                return buffer;
+            }
+            else
+            {
+                SafeMemoryBuffer buffer = new(Marshal.SizeOf<Helpers.gss_iov_buffer_desc>() * buffers.Length);
+                Span<Helpers.gss_iov_buffer_desc> iovBuffers = new(buffer.DangerousGetHandle().ToPointer(),
+                    buffers.Length);
+
+                for (int i = 0; i < buffers.Length; i++)
+                {
+                    iovBuffers[i].type = (int)buffers[i].Type | (int)buffers[i].Flags;
+                    iovBuffers[i].buffer.length = (IntPtr)buffers[i].Length;
+                    iovBuffers[i].buffer.value = buffers[i].Data;
+                }
+
+                return buffer;
+            }
+        }
+    }
+
+    private static void ProcessIOVResult(Span<IOVBuffer> buffers, SafeHandle raw)
+    {
+        unsafe
+        {
+            if (IsIntelMacOS())
+            {
+                Span<Helpers.gss_iov_buffer_desc_macos> iovSet = new(raw.DangerousGetHandle().ToPointer(),
+                    buffers.Length);
+
+                for (int i = 0; i < iovSet.Length; i++)
+                {
+                    buffers[i].Flags = (IOVBufferFlags)(iovSet[i].type & unchecked((int)0xFFFF0000));
+                    buffers[i].Type = (IOVBufferType)(iovSet[i].type & 0x0000FFFF);
+                    buffers[i].Data = iovSet[i].buffer.value;
+                    buffers[i].Length = iovSet[i].buffer.length.ToInt32();
+                }
+            }
+            else
+            {
+                Span<Helpers.gss_iov_buffer_desc> iovSet = new(raw.DangerousGetHandle().ToPointer(),
+                    buffers.Length);
+
+                for (int i = 0; i < iovSet.Length; i++)
+                {
+                    buffers[i].Flags = (IOVBufferFlags)(iovSet[i].type & unchecked((int)0xFFFF0000));
+                    buffers[i].Type = (IOVBufferType)(iovSet[i].type & 0x0000FFFF);
+                    buffers[i].Data = iovSet[i].buffer.value;
+                    buffers[i].Length = iovSet[i].buffer.length.ToInt32();
+                }
+            }
+        }
+    }
+
     private static unsafe Helpers.gss_OID_set_desc* CreateOIDSet(IList<byte[]>? oids)
     {
         if (oids == null)
@@ -728,6 +892,18 @@ internal static class GSSAPI
             RuntimeInformation.ProcessArchitecture == Architecture.X86 ||
             RuntimeInformation.ProcessArchitecture == Architecture.X64
         );
+    }
+
+    private static T LoadIOVFunc<T>(string name)
+    {
+        ArgumentNullException.ThrowIfNull(GlobalState.GssapiLib);
+
+        // macOS GSS.Framework puts the IOV functions behind a "private" symbol. This dynamically loads that if using
+        // that framework rather than MIT or pure Heimdal.
+        name = GlobalState.GssapiProvider == GssapiProvider.GSSFramework ? $"__ApplePrivate_{name}" : name;
+
+        IntPtr funcPtr = NativeLibrary.GetExport(GlobalState.GssapiLib.Handle, name);
+        return Marshal.GetDelegateForFunctionPointer<T>(funcPtr);
     }
 }
 
@@ -783,6 +959,27 @@ internal enum GssapiCredUsage
     GSS_C_BOTH = 0,
     GSS_C_INITIATE = 1,
     GSS_C_ACCEPT = 2,
+}
+
+internal enum IOVBufferType
+{
+    GSS_IOV_BUFFER_TYPE_EMPTY = 0,
+    GSS_IOV_BUFFER_TYPE_DATA = 1,
+    GSS_IOV_BUFFER_TYPE_HEADER = 2,
+    GSS_IOV_BUFFER_TYPE_MECH_PARAMS = 3,
+    GSS_IOV_BUFFER_TYPE_TRAILER = 7,
+    GSS_IOV_BUFFER_TYPE_PADDING = 9,
+    GSS_IOV_BUFFER_TYPE_STREAM = 10,
+    GSS_IOV_BUFFER_TYPE_SIGN_ONLY = 11,
+    GSS_IOV_BUFFER_TYPE_MIC_TOKEN = 12,
+}
+
+[Flags]
+internal enum IOVBufferFlags
+{
+    NONE = 0x00000000,
+    GSS_IOV_BUFFER_FLAG_ALLOCATE = 0x00010000,
+    GSS_IOV_BUFFER_FLAG_ALLOCATED = 0x00020000,
 }
 
 internal class SafeGssapiCred : SafeHandle
@@ -864,4 +1061,12 @@ internal class SafeMemoryBuffer : SafeHandle
         Marshal.FreeHGlobal(handle);
         return true;
     }
+}
+
+internal struct IOVBuffer
+{
+    public IOVBufferFlags Flags;
+    public IOVBufferType Type;
+    public IntPtr Data;
+    public int Length;
 }

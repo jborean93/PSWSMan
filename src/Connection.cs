@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -31,9 +30,12 @@ internal class WSManInitialRequest : HttpRequestMessage
 
 internal class WSManConnection : IDisposable
 {
+    private const string CONTENT_TYPE = "application/soap+xml";
+
     private readonly AuthenticationProvider _authProvider;
     private readonly Uri _connectionUri;
     private readonly SslClientAuthenticationOptions? _sslOptions;
+
     private HttpClient? _http;
 
     public WSManConnection(Uri connectionUri, AuthenticationProvider authProvider,
@@ -46,58 +48,71 @@ internal class WSManConnection : IDisposable
 
     public async Task<string> SendMessage(string message)
     {
-        HttpContent content;
         HttpRequestMessage request;
-        HttpResponseMessage response;
+
+        HttpContent? content = null;
+        HttpResponseMessage? response = null;
 
         if (_http == null)
         {
             _http = GetWSManHttpClient();
 
-            // If doing HTTP encryption, the initial content must be nothing to avoid disclosing the information.
             content = PrepareContent(message);
+            response = await Authenticate(_http, content);
 
-            // The WSMan http client is set to call the authentication provider and add the first token once the socket
-            // is connected and TLS negotiated (if needed). This is required as some auth providers require the TLS
-            // channel binding tokens before creating the first token. Subsequent authentication steps are done here
-            // after the connection is set up.
-            request = new WSManInitialRequest(
-                HttpMethod.Post,
-                _connectionUri,
-                _authProvider,
-                _sslOptions);
-            request.Content = content;
-            response = await _http.SendAsync(request).ConfigureAwait(false);
-
-            while (!_authProvider.Complete)
+            // If doing HTTP encryption, the response isn't the final response as the request need to be resent with
+            // encryption
+            if (_authProvider.WillEncrypt)
             {
-                request = new HttpRequestMessage(HttpMethod.Post, _connectionUri);
-                request.Content = content;
-                if (!_authProvider.AddAuthenticationHeaders(request, response))
-                {
-                    // No more rounds needed to authenticate with the remote host.
-                    break;
-                }
-                response = await _http.SendAsync(request).ConfigureAwait(false);
-            }
-
-            // FIXME: Check for WSManFault contents on a 500 and don't raise.
-            response.EnsureSuccessStatusCode();
-
-            // If not doing HTTP encryption, the response is the actual response which needs to be returned.
-            if (!_authProvider.WillEncrypt)
-            {
-                return await ProcessResponse(response).ConfigureAwait(false);
+                content = null;
+                response = null;
             }
         }
 
-        content = PrepareContent(message);
-        request = new(HttpMethod.Post, _connectionUri);
+        if (response is null)
+        {
+            content ??= PrepareContent(message);
+            request = new(HttpMethod.Post, _connectionUri);
+            request.Content = content;
+
+            response = await _http.SendAsync(request).ConfigureAwait(false);
+        }
+
+        string responseContent = await ProcessResponse(response).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(responseContent))
+        {
+            response.EnsureSuccessStatusCode();
+        }
+        return responseContent;
+    }
+
+    private async Task<HttpResponseMessage> Authenticate(HttpClient http, HttpContent content)
+    {
+        // The WSMan http client is set to call the authentication provider and add the first token once the socket
+        // is connected and TLS negotiated (if needed). This is required as some auth providers require the TLS
+        // channel binding tokens before creating the first token. Subsequent authentication steps are done here
+        // after the connection is set up.
+        HttpRequestMessage request = new WSManInitialRequest(
+            HttpMethod.Post,
+            _connectionUri,
+            _authProvider,
+            _sslOptions);
         request.Content = content;
+        HttpResponseMessage response = await http.SendAsync(request).ConfigureAwait(false);
 
-        response = await _http.SendAsync(request).ConfigureAwait(false);
+        while (!_authProvider.Complete)
+        {
+            request = new HttpRequestMessage(HttpMethod.Post, _connectionUri);
+            request.Content = content;
+            if (!_authProvider.AddAuthenticationHeaders(request, response))
+            {
+                // No more rounds needed to authenticate with the remote host.
+                break;
+            }
+            response = await http.SendAsync(request).ConfigureAwait(false);
+        }
 
-        return await ProcessResponse(response).ConfigureAwait(false);
+        return response;
     }
 
     private HttpContent PrepareContent(string message)
@@ -116,60 +131,62 @@ internal class WSManConnection : IDisposable
         }
         else
         {
-            return new StringContent(message, Encoding.UTF8, "application/soap+xml");
+            return new StringContent(message, Encoding.UTF8, CONTENT_TYPE);
         }
     }
 
     private HttpContent PrepareEncryptedContent(string message)
     {
+        // FUTURE: Use 16KiB blocks with multipart/x-multi-encryted when encrypting CredSSP.
+
         // This originally used MultipartContent but the output format didn't meet what WSMan expects.
-        string encryptionProtocol = "application/HTTP-SPNEGO-session-encrypted";
+        string encryptionProtocol = _authProvider.EncryptionProtocol;
         string boundary = "Encrypted Boundary";
         string contentType = $"multipart/encrypted;protocol=\"{encryptionProtocol}\";boundary=\"{boundary}\"";
 
-        // FIXME: Call WrapIOV to get this properly for Kerberos.
-        byte[] encBytes = _authProvider.Wrap(Encoding.UTF8.GetBytes(message));
-        int signatureLength = 16;
+        (byte[] encHeader, byte[] encData, int paddingLength) = _authProvider.Wrap(Encoding.UTF8.GetBytes(message));
+        int signatureLength = encHeader.Length;
+
+        // The original length value must include any padding the encryption may have added to the plaintext.
+        int msgLength = message.Length + paddingLength;
 
         StringBuilder multipartBuilder = new();
         multipartBuilder.AppendFormat("--{0}\r\n", boundary);
         multipartBuilder.AppendFormat("Content-Type: {0}\r\n", encryptionProtocol);
-        multipartBuilder.AppendFormat("OriginalContent: type=application/soap+xml;charset=UTF-8;Length={0}\r\n", message.Length);
+        multipartBuilder.AppendFormat("OriginalContent: type={0};charset=UTF-8;Length={1}\r\n",
+            CONTENT_TYPE, msgLength);
         multipartBuilder.AppendFormat("--{0}\r\n", boundary);
         multipartBuilder.Append("Content-Type: application/octet-stream\r\n");
         byte[] multipartHeader = Encoding.UTF8.GetBytes(multipartBuilder.ToString());
         byte[] multipartFooter = Encoding.UTF8.GetBytes($"--{boundary}--\r\n");
 
-        ArrayPool<byte> shared = ArrayPool<byte>.Shared;
-        byte[] rentedArray = shared.Rent(multipartHeader.Length + 4 + encBytes.Length + multipartFooter.Length);
-        try
-        {
-            int offset = 0;
-            Buffer.BlockCopy(multipartHeader, 0, rentedArray, 0, multipartHeader.Length);
-            offset += multipartBuilder.Length;
+        int bufferLength = multipartHeader.Length + 4 + encHeader.Length + encData.Length + multipartFooter.Length;
+        byte[] buffer = new byte[bufferLength];
+        int offset = 0;
 
-            rentedArray[offset] = (byte)signatureLength;
-            rentedArray[offset + 1] = (byte)(signatureLength >> 8);
-            rentedArray[offset + 2] = (byte)(signatureLength >> 16);
-            rentedArray[offset + 3] = (byte)(signatureLength >> 24);
-            offset += 4;
+        Buffer.BlockCopy(multipartHeader, 0, buffer, 0, multipartHeader.Length);
+        offset += multipartBuilder.Length;
 
-            Buffer.BlockCopy(encBytes, 0, rentedArray, multipartHeader.Length + 4, encBytes.Length);
-            offset += encBytes.Length;
+        buffer[offset] = (byte)signatureLength;
+        buffer[offset + 1] = (byte)(signatureLength >> 8);
+        buffer[offset + 2] = (byte)(signatureLength >> 16);
+        buffer[offset + 3] = (byte)(signatureLength >> 24);
+        offset += 4;
 
-            Buffer.BlockCopy(multipartFooter, 0, rentedArray, offset, multipartFooter.Length);
-            offset += multipartFooter.Length;
+        Buffer.BlockCopy(encHeader, 0, buffer, offset, encHeader.Length);
+        offset += encHeader.Length;
 
-            ByteArrayContent content = new(rentedArray, 0, offset);
-            content.Headers.Remove("Content-Type");
-            content.Headers.TryAddWithoutValidation("Content-Type", contentType);
+        Buffer.BlockCopy(encData, 0, buffer, offset, encData.Length);
+        offset += encData.Length;
 
-            return content;
-        }
-        finally
-        {
-            shared.Return(rentedArray);
-        }
+        Buffer.BlockCopy(multipartFooter, 0, buffer, offset, multipartFooter.Length);
+        offset += multipartFooter.Length;
+
+        ByteArrayContent content = new(buffer, 0, offset);
+        content.Headers.Remove("Content-Type");
+        content.Headers.TryAddWithoutValidation("Content-Type", contentType);
+
+        return content;
     }
 
     private async Task<string> ProcessResponse(HttpResponseMessage response)
@@ -213,7 +230,6 @@ internal class WSManConnection : IDisposable
         while ((boundaryIdx = payload.IndexOf(boundaryPattern)) != -1)
         {
             string entry = Encoding.UTF8.GetString(payload[..boundaryIdx]).Trim('\r', '\n', '-');
-            string a;
             if (entry.StartsWith($"Content-Type: {protocol}"))
             {
                 Match m = Regex.Match(entry, "Length=(\\d+)", RegexOptions.IgnoreCase);
@@ -239,7 +255,7 @@ internal class WSManConnection : IDisposable
             throw new Exception("FIXME: Failed to decrypt encrypted MIME payload");
         }
 
-        byte[] decData = _authProvider.Unwrap(encryptedData.ToArray());
+        Span<byte> decData = _authProvider.Unwrap(encryptedData, (int)signatureLength);
         string decPayload = Encoding.UTF8.GetString(decData);
         if (decPayload.Length != expectedLength)
         {

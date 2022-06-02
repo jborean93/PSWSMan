@@ -92,21 +92,21 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
         }
         else
         {
-            LibraryInfo? gssapiLib = Resolver.CacheLibrary(GSSAPI.LIB_GSSAPI, new[] {
+            GlobalState.GssapiLib = Resolver.CacheLibrary(GSSAPI.LIB_GSSAPI, new[] {
                 MACOS_GSS_FRAMEWORK, // macOS GSS Framework (technically Heimdal)
                 "libgssapi_krb5.so.2", // MIT krb5
                 "libgssapi.so.3", "libgssapi.so", // Heimdal
             });
 
-            if (gssapiLib is null)
+            if (GlobalState.GssapiLib is null)
             {
                 GlobalState.GssapiProvider = GssapiProvider.None;
             }
-            else if (gssapiLib.Path == MACOS_GSS_FRAMEWORK)
+            else if (GlobalState.GssapiLib.Path == MACOS_GSS_FRAMEWORK)
             {
                 GlobalState.GssapiProvider = GssapiProvider.GSSFramework;
             }
-            else if (NativeLibrary.TryGetExport(gssapiLib.Handle, "krb5_xfree", out var _))
+            else if (NativeLibrary.TryGetExport(GlobalState.GssapiLib.Handle, "krb5_xfree", out var _))
             {
                 // While technically exported by the krb5 lib the Heimdal GSSAPI lib depends on it so the same
                 // symbol will be exported there and we can use that to detect if Heimdal is in use.

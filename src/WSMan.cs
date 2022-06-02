@@ -318,22 +318,97 @@ internal class WSManResponsePayload : WSManPayload
     }
 }
 
+internal class WSManCommandResponse : WSManResponsePayload
+{
+    public Guid CommandId { get; }
+
+    public WSManCommandResponse(XElement envelope) : base(envelope)
+    {
+        CheckAction(WSManAction.CommandResponse);
+
+        CommandId = new(envelope.Elements(WSManNamespace.s + "Body")
+            .Elements(WSManNamespace.rsp + "CommandResponse")
+            .Elements(WSManNamespace.rsp + "CommandId")
+            .First().Value);
+    }
+}
+
 internal class WSManCreateResponse : WSManResponsePayload
 {
     public SelectorSet Selectors { get; }
     public Guid ShellId { get; }
     public string ResourceUri { get; }
-    public string State { get; }
+    public string? State { get; }
 
     public WSManCreateResponse(XElement envelope) : base(envelope)
     {
         CheckAction(WSManAction.CreateResponse);
         XElement body = envelope.Elements(WSManNamespace.s + "Body").First();
 
-        Selectors = new(body.Descendants(WSManNamespace.wsman + "SelectorSet").First());
-        ShellId = new(body.Descendants(WSManNamespace.rsp + "ShellId").First().Value);
-        ResourceUri = body.Descendants(WSManNamespace.rsp + "ResourceUri").First().Value;
-        State = body.Descendants(WSManNamespace.rsp + "State").First().Value;
+        Selectors = new(body.Elements(WSManNamespace.wst + "ResourceCreated")
+            .Elements(WSManNamespace.wsa + "ReferenceParameters")
+            .Elements(WSManNamespace.wsman + "SelectorSet")
+            .First());
+
+        XElement shell = body.Elements(WSManNamespace.rsp + "Shell").First();
+        ShellId = new(shell.Elements(WSManNamespace.rsp + "ShellId").First().Value);
+        ResourceUri = shell.Elements(WSManNamespace.rsp + "ResourceUri").First().Value;
+        State = shell.Elements(WSManNamespace.rsp + "State").FirstOrDefault()?.Value;
+    }
+}
+
+internal class WSManReceiveResponse : WSManResponsePayload
+{
+    public CommandState? State { get; }
+    public int? ExitCode { get; }
+    public Dictionary<string, byte[][]> Streams { get; } = new();
+
+    public WSManReceiveResponse(XElement envelope) : base(envelope)
+    {
+        CheckAction(WSManAction.ReceiveResponse);
+
+        XElement resp = envelope.Elements(WSManNamespace.s + "Body")
+            .Elements(WSManNamespace.rsp + "ReceiveResponse")
+            .First();
+
+        Dictionary<string, List<byte[]>> rawStreams = new();
+        foreach (XElement stream in resp.Elements(WSManNamespace.rsp + "Stream"))
+        {
+            string streamName = stream.Attributes("Name").First().Value;
+            if (!rawStreams.ContainsKey(streamName)) {
+                rawStreams[streamName] = new();
+            }
+
+            rawStreams[streamName].Add(Convert.FromBase64String(stream.Value));
+        }
+
+        foreach (KeyValuePair<string, List<byte[]>> kvp in rawStreams) {
+            Streams[kvp.Key] = kvp.Value.ToArray();
+        }
+
+        XElement? commandState = resp.Elements(WSManNamespace.rsp + "CommandState").FirstOrDefault();
+        if (commandState is not null)
+        {
+            string? rawRC = commandState.Elements(WSManNamespace.rsp + "ExitCode").FirstOrDefault()?.Value;
+            if (!string.IsNullOrWhiteSpace(rawRC))
+            {
+                ExitCode = int.Parse(rawRC);
+            }
+
+            string state = commandState.Attributes("State").First().Value;
+            if (state == CommandState.Done.WSManValue())
+            {
+                State = CommandState.Done;
+            }
+            else if (state == CommandState.Pending.WSManValue())
+            {
+                State = CommandState.Pending;
+            }
+            else if (state == CommandState.Running.WSManValue())
+            {
+                State = CommandState.Running;
+            }
+        }
     }
 }
 
@@ -342,6 +417,22 @@ internal class WSManDeleteResponse : WSManResponsePayload
     public WSManDeleteResponse(XElement envelope) : base(envelope)
     {
         CheckAction(WSManAction.DeleteResponse);
+    }
+}
+
+internal class WSManSendResponse : WSManResponsePayload
+{
+    public WSManSendResponse(XElement envelope) : base(envelope)
+    {
+        CheckAction(WSManAction.SendResponse);
+    }
+}
+
+internal class WSManSignalResponse : WSManResponsePayload
+{
+    public WSManSignalResponse(XElement envelope) : base(envelope)
+    {
+        CheckAction(WSManAction.SignalResponse);
     }
 }
 
@@ -384,13 +475,29 @@ internal class WSManClient
         {
             payload = new WSManResponsePayload(envelope);
         }
+        else if (typeof(T) == typeof(WSManCommandResponse))
+        {
+            payload = new WSManCommandResponse(envelope);
+        }
         else if (typeof(T) == typeof(WSManCreateResponse))
         {
             payload = new WSManCreateResponse(envelope);
         }
+        else if (typeof(T) == typeof(WSManReceiveResponse))
+        {
+            payload = new WSManReceiveResponse(envelope);
+        }
         else if (typeof(T) == typeof(WSManDeleteResponse))
         {
             payload = new WSManDeleteResponse(envelope);
+        }
+        else if (typeof(T) == typeof(WSManSendResponse))
+        {
+            payload = new WSManSendResponse(envelope);
+        }
+        else if (typeof(T) == typeof(WSManSignalResponse))
+        {
+            payload = new WSManSignalResponse(envelope);
         }
         else
         {
@@ -399,6 +506,14 @@ internal class WSManClient
 
         return (T)payload;
     }
+
+    public string Command(string resourceUri, XElement resource, OptionSet? options = null,
+        SelectorSet? selectors = null, int? timeout = null)
+    {
+        return CreateEnvelope(WSManAction.Command, resourceUri, new[] { resource }, options: options,
+            selectors: selectors, timeout: timeout);
+    }
+
 
     public string Create(string resourceUri, XElement resource, OptionSet? options = null,
         SelectorSet? selectors = null, int? timeout = null)
@@ -414,6 +529,27 @@ internal class WSManClient
             selectors: selectors, timeout: timeout);
     }
 
+    public string Receive(string resourceUri, XElement resource, OptionSet? options = null,
+        SelectorSet? selectors = null, int? timeout = null)
+    {
+        return CreateEnvelope(WSManAction.Receive, resourceUri, new[] { resource }, options: options,
+            selectors: selectors, timeout: timeout);
+    }
+
+    public string Send(string resourceUri, XElement resource, OptionSet? options = null,
+        SelectorSet? selectors = null, int? timeout = null)
+    {
+        return CreateEnvelope(WSManAction.Send, resourceUri, new[] { resource }, options: options,
+            selectors: selectors, timeout: timeout);
+    }
+
+    public string Signal(string resourceUri, XElement resource, OptionSet? options = null,
+        SelectorSet? selectors = null, int? timeout = null)
+    {
+        return CreateEnvelope(WSManAction.Signal, resourceUri, new[] { resource }, options: options,
+            selectors: selectors, timeout: timeout);
+    }
+
     private string CreateEnvelope(WSManAction action, string resourceUri, object[] body, OptionSet? options,
         SelectorSet? selectors, int? timeout = null)
     {
@@ -424,7 +560,7 @@ internal class WSManClient
             new XAttribute(XNamespace.Xmlns + "wsman", WSManNamespace.wsman),
             new XAttribute(XNamespace.Xmlns + "wsmv", WSManNamespace.wsmv),
             new XAttribute(XNamespace.Xmlns + "xml", WSManNamespace.xml),
-            CreateHeader(action, resourceUri, out var messageId, options: options, selectors: selectors,
+            CreateHeader(action, resourceUri, out var _, options: options, selectors: selectors,
                 timeout: timeout),
             new XElement(WSManNamespace.s + "Body", body)
         );

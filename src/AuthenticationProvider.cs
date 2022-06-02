@@ -29,11 +29,12 @@ internal abstract class AuthenticationProvider
 {
     public abstract bool Complete { get; }
     public abstract bool WillEncrypt { get; }
+    public virtual string EncryptionProtocol => throw new NotImplementedException();
 
     public abstract bool AddAuthenticationHeaders(HttpRequestMessage request, HttpResponseMessage? response);
     public virtual void SetChannelBindings(ChannelBindings? bindings) { }
-    public virtual byte[] Wrap(byte[] data) => throw new NotImplementedException();
-    public virtual byte[] Unwrap(byte[] data) => throw new NotImplementedException();
+    public virtual (byte[], byte[], int) Wrap(Span<byte> data) => throw new NotImplementedException();
+    public virtual Span<byte> Unwrap(Span<byte> data, int headerLength) => throw new NotImplementedException();
 }
 
 internal class BasicAuthProvider : AuthenticationProvider
@@ -75,6 +76,15 @@ internal class NegotiateAuthProvider : AuthenticationProvider
 
     public override bool WillEncrypt => _encrypt;
 
+    public override string EncryptionProtocol
+    {
+        get
+        {
+            string authProtocol = _authHeaderName == "Kerberos" ? "Kerberos" : "SPNEGO";
+            return $"application/HTTP-{authProtocol}-session-encrypted";
+        }
+    }
+
     public NegotiateAuthProvider(string? username, string? password, string service, string hostname,
         AuthenticationMethod method, string authHeaderName, bool encrypt)
     {
@@ -115,6 +125,11 @@ internal class NegotiateAuthProvider : AuthenticationProvider
             }
             inputToken = Convert.FromBase64String(respAuthHeader.Parameter ?? "");
         }
+        else if (response is not null)
+        {
+            // Nothing more to process
+            return false;
+        }
 
         byte[] outputToken = _secContext.Step(inputToken);
         if (outputToken.Length == 0)
@@ -127,14 +142,14 @@ internal class NegotiateAuthProvider : AuthenticationProvider
         return true;
     }
 
-    public override byte[] Wrap(byte[] data)
+    public override (byte[], byte[], int) Wrap(Span<byte> data)
     {
-        return _secContext.Wrap(data, true);
+        return _secContext.Wrap(data);
     }
 
-    public override byte[] Unwrap(byte[] data)
+    public override Span<byte> Unwrap(Span<byte> data, int headerLength)
     {
-        return _secContext.Unwrap(data);
+        return _secContext.Unwrap(data, headerLength);
     }
 
     public override void SetChannelBindings(ChannelBindings? bindings)
