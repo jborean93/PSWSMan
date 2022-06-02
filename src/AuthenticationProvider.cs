@@ -25,7 +25,7 @@ public enum AuthenticationMethod
     CredSSP
 }
 
-internal abstract class AuthenticationProvider
+internal abstract class AuthenticationProvider : IDisposable
 {
     public abstract bool Complete { get; }
     public abstract bool WillEncrypt { get; }
@@ -35,6 +35,9 @@ internal abstract class AuthenticationProvider
     public virtual void SetChannelBindings(ChannelBindings? bindings) { }
     public virtual (byte[], byte[], int) Wrap(Span<byte> data) => throw new NotImplementedException();
     public virtual Span<byte> Unwrap(Span<byte> data, int headerLength) => throw new NotImplementedException();
+
+    public virtual void Dispose() { }
+    ~AuthenticationProvider() => Dispose();
 }
 
 internal class BasicAuthProvider : AuthenticationProvider
@@ -155,5 +158,11 @@ internal class NegotiateAuthProvider : AuthenticationProvider
     public override void SetChannelBindings(ChannelBindings? bindings)
     {
         _secContext.SetChannelBindings(bindings);
+    }
+
+    public override void Dispose()
+    {
+        _secContext.Dispose();
+        GC.SuppressFinalize(this);
     }
 }
