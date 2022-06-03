@@ -127,7 +127,25 @@ public class NewWSManSession : PSCmdlet
         }
         else if (Authentication == AuthenticationMethod.CredSSP)
         {
-            throw new NotImplementedException(Authentication.ToString());
+            if (Credential == null)
+            {
+                throw new Exception("FIXME: Credential must be set for CredSSP auth");
+            }
+
+            string domainName = "";
+            string username = Credential.UserName;
+            string password = Credential.GetNetworkCredential().Password;
+            if (username.Contains('\\'))
+            {
+                string[] stringSplit = username.Split('\\', 2);
+                domainName = stringSplit[0];
+                username = stringSplit[1];
+            }
+
+            SecurityContext subAuth = new GssapiContext(Credential.UserName, password, AuthenticationMethod.Negotiate,
+                $"host@{Uri.DnsSafeHost}");
+            TSPasswordCreds credSSPCreds = new(domainName, username, password);
+            authProvider = new CredSSPAuthProvider(credSSPCreds, subAuth, !(UseTLS || NoEncryption), null);
         }
         else
         {

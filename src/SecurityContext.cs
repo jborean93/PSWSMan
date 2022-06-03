@@ -31,8 +31,10 @@ internal abstract class SecurityContext : IDisposable
     public virtual ChannelBindings? ChannelBindings { set { return; } }
 
     public abstract byte[] Step(byte[]? inputToken = null);
-    public abstract (byte[], byte[], int) Wrap(Span<byte> data);
-    public abstract Span<byte> Unwrap(Span<byte> data, int headerLength);
+    public abstract byte[] Wrap(Span<byte> data);
+    public abstract (byte[], byte[], int) WrapWinRM(Span<byte> data);
+    public abstract byte[] Unwrap(Span<byte> data);
+    public abstract Span<byte> UnwrapWinRM(Span<byte> data, int headerLength);
     public virtual void SetChannelBindings(ChannelBindings? bindings) { return; }
 
     public abstract void Dispose();
@@ -105,7 +107,16 @@ internal class GssapiContext : SecurityContext
         return res.OutputToken ?? Array.Empty<byte>();
     }
 
-    public override (byte[], byte[], int) Wrap(Span<byte> data)
+    public override byte[] Wrap(Span<byte> data)
+    {
+        if (_context == null || !Complete)
+            throw new InvalidOperationException("Cannot wrap without a completed context");
+
+        (byte[] wrappedData, bool _) = GSSAPI.Wrap(_context, true, 0, data);
+        return wrappedData;
+    }
+
+    public override (byte[], byte[], int) WrapWinRM(Span<byte> data)
     {
         if (_context == null || !Complete)
             throw new InvalidOperationException("Cannot wrap without a completed context");
@@ -114,10 +125,9 @@ internal class GssapiContext : SecurityContext
         {
             // NTLM doesn't support gss_wrap_iov but luckily the header is always 16 bytes and there is no padding so
             // gss_wrap can be used instead.
-            (byte[] wrappedData, bool _) = GSSAPI.Wrap(_context, true, 0, data);
-            Span<byte> wrappedSpan = wrappedData.AsSpan();
+            Span<byte> wrappedSpan = Wrap(data).AsSpan();
 
-            return (wrappedSpan[..16].ToArray(), wrappedData[16..].ToArray(), 0);
+            return (wrappedSpan[..16].ToArray(), wrappedSpan[16..].ToArray(), 0);
         }
         else
         {
@@ -153,7 +163,16 @@ internal class GssapiContext : SecurityContext
         }
     }
 
-    public override Span<byte> Unwrap(Span<byte> data, int headerLength)
+    public override byte[] Unwrap(Span<byte> data)
+    {
+        if (_context == null || !Complete)
+            throw new InvalidOperationException("Cannot unwrap without a completed context");
+
+        (byte[] unwrappedData, bool _1, int _2) = GSSAPI.Unwrap(_context, data);
+        return unwrappedData;
+    }
+
+    public override Span<byte> UnwrapWinRM(Span<byte> data, int headerLength)
     {
         if (_context == null || !Complete)
             throw new InvalidOperationException("Cannot unwrap without a completed context");
@@ -171,8 +190,7 @@ internal class GssapiContext : SecurityContext
 
         if (_negotiatedMech?.SequenceEqual(GSSAPI.NTLM) == true || GlobalState.GssapiProvider != GssapiProvider.MIT)
         {
-            (byte[] unwrappedData, bool _1, int _2) = GSSAPI.Unwrap(_context, data);
-            return unwrappedData;
+            return Unwrap(data);
         }
         else
         {
@@ -309,7 +327,65 @@ internal class SspiContext : SecurityContext
         }
     }
 
-    public override (byte[], byte[], int) Wrap(Span<byte> data)
+    public override byte[] Wrap(Span<byte> data)
+    {
+        if (_context == null || !Complete)
+            throw new InvalidOperationException("Cannot wrap without a completed context");
+
+        unsafe
+        {
+            ArrayPool<byte> shared = ArrayPool<byte>.Shared;
+            byte[] token = shared.Rent((int)_trailerSize);
+            byte[] padding = shared.Rent((int)_blockSize);
+
+            try
+            {
+                fixed (byte* tokenPtr = token, dataPtr = data, paddingPtr = padding)
+                {
+                    Span<Helpers.SecBuffer> buffers = stackalloc Helpers.SecBuffer[3];
+                    buffers[0].BufferType = (UInt32)SecBufferType.SECBUFFER_TOKEN;
+                    buffers[0].cbBuffer = _trailerSize;
+                    buffers[0].pvBuffer = tokenPtr;
+
+                    buffers[1].BufferType = (UInt32)SecBufferType.SECBUFFER_DATA;
+                    buffers[1].cbBuffer = (UInt32)data.Length;
+                    buffers[1].pvBuffer = dataPtr;
+
+                    buffers[2].BufferType = (UInt32)SecBufferType.SECBUFFER_PADDING;
+                    buffers[2].cbBuffer = _blockSize;
+                    buffers[2].pvBuffer = paddingPtr;
+
+                    SSPI.EncryptMessage(_context, 0, buffers, NextSeqNo());
+
+                    byte[] wrapped = new byte[buffers[0].cbBuffer + buffers[1].cbBuffer + buffers[2].cbBuffer];
+                    int offset = 0;
+                    if (buffers[0].cbBuffer > 0)
+                    {
+                        Buffer.BlockCopy(token, 0, wrapped, offset, (int)buffers[0].cbBuffer);
+                        offset += (int)buffers[0].cbBuffer;
+                    }
+
+                    Marshal.Copy((IntPtr)dataPtr, wrapped, offset, (int)buffers[1].cbBuffer);
+                    offset += (int)buffers[1].cbBuffer;
+
+                    if (buffers[2].cbBuffer > 0)
+                    {
+                        Buffer.BlockCopy(padding, 0, wrapped, offset, (int)buffers[2].cbBuffer);
+                        offset += (int)buffers[2].cbBuffer;
+                    }
+
+                    return wrapped;
+                }
+            }
+            finally
+            {
+                shared.Return(token);
+                shared.Return(padding);
+            }
+        }
+    }
+
+    public override (byte[], byte[], int) WrapWinRM(Span<byte> data)
     {
         if (_context == null || !Complete)
             throw new InvalidOperationException("Cannot wrap without a completed context");
@@ -350,7 +426,35 @@ internal class SspiContext : SecurityContext
         }
     }
 
-    public override Span<byte> Unwrap(Span<byte> data, int headerLength)
+    public override byte[] Unwrap(Span<byte> data)
+    {
+        if (_context == null || !Complete)
+            throw new InvalidOperationException("Cannot wrap without a completed context");
+
+        unsafe
+        {
+            fixed (byte* dataPtr = data)
+            {
+                Span<Helpers.SecBuffer> buffers = stackalloc Helpers.SecBuffer[2];
+                buffers[0].BufferType = (UInt32)SecBufferType.SECBUFFER_STREAM;
+                buffers[0].cbBuffer = (UInt32)data.Length;
+                buffers[0].pvBuffer = dataPtr;
+
+                buffers[1].BufferType = (UInt32)SecBufferType.SECBUFFER_DATA;
+                buffers[1].cbBuffer = 0;
+                buffers[1].pvBuffer = null;
+
+                SSPI.DecryptMessage(_context, buffers, NextSeqNo());
+
+                byte[] unwrapped = new byte[buffers[1].cbBuffer];
+                Marshal.Copy((IntPtr)buffers[1].pvBuffer, unwrapped, 0, unwrapped.Length);
+
+                return unwrapped;
+            }
+        }
+    }
+
+    public override Span<byte> UnwrapWinRM(Span<byte> data, int headerLength)
     {
         if (_context == null || !Complete)
             throw new InvalidOperationException("Cannot wrap without a completed context");

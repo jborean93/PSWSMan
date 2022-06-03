@@ -147,12 +147,12 @@ internal class NegotiateAuthProvider : AuthenticationProvider
 
     public override (byte[], byte[], int) Wrap(Span<byte> data)
     {
-        return _secContext.Wrap(data);
+        return _secContext.WrapWinRM(data);
     }
 
     public override Span<byte> Unwrap(Span<byte> data, int headerLength)
     {
-        return _secContext.Unwrap(data, headerLength);
+        return _secContext.UnwrapWinRM(data, headerLength);
     }
 
     public override void SetChannelBindings(ChannelBindings? bindings)
