@@ -1,5 +1,3 @@
-using System;
-
 namespace PSWSMan;
 
 internal static class GlobalState

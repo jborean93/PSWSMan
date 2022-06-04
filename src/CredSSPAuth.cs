@@ -351,8 +351,9 @@ internal class TSPasswordCreds : TSCredentialBase
 
 internal class TlsBIOStream : Stream
 {
-    private readonly byte[] _incomingBuffer = new byte[16 * 1024];
-    private readonly byte[] _outgoingBuffer = new byte[16 * 1024];
+    // Max TLS record size is 16KiB + 2KiB extra info.
+    private readonly byte[] _incomingBuffer = new byte[18432];
+    private readonly byte[] _outgoingBuffer = new byte[18432];
     private readonly BlockingCollection<int> _incoming = new();
     private readonly BlockingCollection<int> _outgoing = new();
 
@@ -412,9 +413,8 @@ internal enum CredSSPStage
     Complete
 }
 
-internal class CredSSPAuthProvider : AuthenticationProvider
+internal class CredSSPAuthProvider : AuthenticationProvider, IWinRMEncryptor
 {
-    private readonly bool _encrypt;
     private readonly TSCredentialBase _credential;
     private readonly SecurityContext _secContext;
     private readonly TlsBIOStream _bio;
@@ -426,16 +426,15 @@ internal class CredSSPAuthProvider : AuthenticationProvider
 
     public override bool Complete => _stage == CredSSPStage.Complete;
 
-    public override bool WillEncrypt => _encrypt;
+    public int MaxEncryptionChunkSize => 16384;
 
-    public override string EncryptionProtocol => "application/HTTP-CredSSP-session-encrypted";
+    public string EncryptionProtocol => "application/HTTP-CredSSP-session-encrypted";
 
-    public CredSSPAuthProvider(TSCredentialBase credential, SecurityContext subAuthContext, bool encrypt,
+    public CredSSPAuthProvider(TSCredentialBase credential, SecurityContext subAuthContext,
         SslClientAuthenticationOptions? sslOptions = null)
     {
         _credential = credential;
         _secContext = subAuthContext;
-        _encrypt = encrypt;
 
         if (sslOptions == null)
         {
@@ -667,8 +666,10 @@ internal class CredSSPAuthProvider : AuthenticationProvider
         _stage = CredSSPStage.Complete;
     }
 
-    public override (byte[], byte[], int) Wrap(Span<byte> data)
+    public byte[] Encrypt(Span<byte> data, out int paddingLength)
     {
+        paddingLength = 0;
+
         int trailerLength = _trailerLength ?? GetTlsTrailerLength(data.Length, _ssl.SslProtocol,
             _ssl.NegotiatedCipherSuite, _ssl.HashAlgorithm, _ssl.CipherAlgorithm);
         _trailerLength = trailerLength;
@@ -676,12 +677,24 @@ internal class CredSSPAuthProvider : AuthenticationProvider
         _ssl.Write(data);
         ReadOnlySpan<byte> wrappedData = _bio.BioRead();
 
-        return (wrappedData[..trailerLength].ToArray(), wrappedData[trailerLength..].ToArray(), 0);
+        // Unfortunately the TLS "header" for WinRM is the trailing data, so the data needs to be rearranged in the
+        // order that
+        // int trailerOffset = wrappedData.Length - trailerLength;
+        // byte[] encrypted = new byte[wrappedData.Length];
+        // wrappedData.Slice(wrappedData.Length - trailerLength).CopyTo(encrypted.AsSpan());
+        // wrappedData.Slice(0, wrappedData.Length - trailerLength).CopyTo(encrypted.AsSpan(trailerLength));
+
+        byte[] encData = new byte[4 + wrappedData.Length];
+        BitConverter.TryWriteBytes(encData.AsSpan(0, 4),trailerLength);
+        wrappedData.CopyTo(encData.AsSpan(4));
+
+        return encData;
     }
 
-    public override Span<byte> Unwrap(Span<byte> data, int headerLength)
+    public Span<byte> Decrypt(Span<byte> data)
     {
-        _bio.BioWrite(data);
+        // Ignore the 4 byte header signature.
+        _bio.BioWrite(data[4..]);
         int read = _ssl.Read(data);
         return data[..read];
     }

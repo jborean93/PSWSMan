@@ -1,4 +1,6 @@
 using System;
+using System.Buffers;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -35,15 +37,25 @@ internal class WSManConnection : IDisposable
     private readonly AuthenticationProvider _authProvider;
     private readonly Uri _connectionUri;
     private readonly SslClientAuthenticationOptions? _sslOptions;
+    private readonly IWinRMEncryptor? _encryptor;
 
     private HttpClient? _http;
 
     public WSManConnection(Uri connectionUri, AuthenticationProvider authProvider,
-        SslClientAuthenticationOptions? sslOptions)
+        SslClientAuthenticationOptions? sslOptions, bool encrypt)
     {
         _connectionUri = connectionUri;
         _authProvider = authProvider;
         _sslOptions = sslOptions;
+
+        if (encrypt)
+        {
+            if (authProvider is not IWinRMEncryptor)
+            {
+                throw new Exception("Requested message encryption without a supporting auth provider");
+            }
+            _encryptor = (IWinRMEncryptor)authProvider;
+        }
     }
 
     public async Task<string> SendMessage(string message)
@@ -62,7 +74,7 @@ internal class WSManConnection : IDisposable
 
             // If doing HTTP encryption, the response isn't the final response as the request need to be resent with
             // encryption
-            if (_authProvider.WillEncrypt)
+            if (_encryptor is not null)
             {
                 content = null;
                 response = null;
@@ -117,11 +129,11 @@ internal class WSManConnection : IDisposable
 
     private HttpContent PrepareContent(string message)
     {
-        if (_authProvider.WillEncrypt)
+        if (_encryptor is not null)
         {
             if (_authProvider.Complete)
             {
-                return PrepareEncryptedContent(message);
+                return PrepareEncryptedContent(message, _encryptor);
             }
             else
             {
@@ -135,58 +147,53 @@ internal class WSManConnection : IDisposable
         }
     }
 
-    private HttpContent PrepareEncryptedContent(string message)
+    private HttpContent PrepareEncryptedContent(string message, IWinRMEncryptor encryptor)
     {
-        // FUTURE: Use 16KiB blocks with multipart/x-multi-encryted when encrypting CredSSP.
+        const string boundary = "Encrypted Boundary";
 
-        // This originally used MultipartContent but the output format didn't meet what WSMan expects.
-        string encryptionProtocol = _authProvider.EncryptionProtocol;
-        string boundary = "Encrypted Boundary";
-        string contentType = $"multipart/encrypted;protocol=\"{encryptionProtocol}\";boundary=\"{boundary}\"";
+        Span<byte> toEncrypt = new(Encoding.UTF8.GetBytes(message));
+        int chunkSize = encryptor.MaxEncryptionChunkSize == -1 ? toEncrypt.Length : encryptor.MaxEncryptionChunkSize;
 
-        (byte[] encHeader, byte[] encData, int paddingLength) = _authProvider.Wrap(Encoding.UTF8.GetBytes(message));
-        int signatureLength = encHeader.Length;
+        // I tried using the .NET MultipartContent but the format is just different enough to not work for WinRM so
+        // this code manually builds the MIME payload as a byte[] array.
+        List<(byte[], int)> chunks = new();
+        int finalSize = 0;
+        ArrayPool<byte> pool = ArrayPool<byte>.Shared;
+        try
+        {
+            while (toEncrypt.Length > 0)
+            {
+                int msgSize = Math.Min(toEncrypt.Length, chunkSize);
+                (byte[] chunk, int encChunkSize) = EncryptWSManChunk(boundary, encryptor, toEncrypt[..msgSize], pool);
+                chunks.Add((chunk, encChunkSize));
+                finalSize += encChunkSize;
+                toEncrypt = toEncrypt[msgSize..];
+            }
 
-        // The original length value must include any padding the encryption may have added to the plaintext.
-        int msgLength = message.Length + paddingLength;
+            byte[] contentBytes = new byte[finalSize];
+            int contentOffset = 0;
+            foreach ((byte[] chunk, int chunkLength) in chunks)
+            {
+                Buffer.BlockCopy(chunk, 0, contentBytes, contentOffset, chunkLength);
+                contentOffset += chunkLength;
+            }
 
-        StringBuilder multipartBuilder = new();
-        multipartBuilder.AppendFormat("--{0}\r\n", boundary);
-        multipartBuilder.AppendFormat("Content-Type: {0}\r\n", encryptionProtocol);
-        multipartBuilder.AppendFormat("OriginalContent: type={0};charset=UTF-8;Length={1}\r\n",
-            CONTENT_TYPE, msgLength);
-        multipartBuilder.AppendFormat("--{0}\r\n", boundary);
-        multipartBuilder.Append("Content-Type: application/octet-stream\r\n");
-        byte[] multipartHeader = Encoding.UTF8.GetBytes(multipartBuilder.ToString());
-        byte[] multipartFooter = Encoding.UTF8.GetBytes($"--{boundary}--\r\n");
+            string contentSubType = chunks.Count == 1 ? "multipart/encrypted" : "multipart/x-multi-encrypted";
+            string contentType =
+                $"{contentSubType};protocol=\"{encryptor.EncryptionProtocol}\";boundary=\"{boundary}\"";
+            ByteArrayContent content = new(contentBytes);
+            content.Headers.Remove("Content-Type");
+            content.Headers.TryAddWithoutValidation("Content-Type", contentType);
 
-        int bufferLength = multipartHeader.Length + 4 + encHeader.Length + encData.Length + multipartFooter.Length;
-        byte[] buffer = new byte[bufferLength];
-        int offset = 0;
-
-        Buffer.BlockCopy(multipartHeader, 0, buffer, 0, multipartHeader.Length);
-        offset += multipartBuilder.Length;
-
-        buffer[offset] = (byte)signatureLength;
-        buffer[offset + 1] = (byte)(signatureLength >> 8);
-        buffer[offset + 2] = (byte)(signatureLength >> 16);
-        buffer[offset + 3] = (byte)(signatureLength >> 24);
-        offset += 4;
-
-        Buffer.BlockCopy(encHeader, 0, buffer, offset, encHeader.Length);
-        offset += encHeader.Length;
-
-        Buffer.BlockCopy(encData, 0, buffer, offset, encData.Length);
-        offset += encData.Length;
-
-        Buffer.BlockCopy(multipartFooter, 0, buffer, offset, multipartFooter.Length);
-        offset += multipartFooter.Length;
-
-        ByteArrayContent content = new(buffer, 0, offset);
-        content.Headers.Remove("Content-Type");
-        content.Headers.TryAddWithoutValidation("Content-Type", contentType);
-
-        return content;
+            return content;
+        }
+        finally
+        {
+            foreach ((byte[] array, int _) in chunks)
+            {
+                pool.Return(array);
+            }
+        }
     }
 
     private async Task<string> ProcessResponse(HttpResponseMessage response)
@@ -195,6 +202,10 @@ internal class WSManConnection : IDisposable
         if (!(contentType == "multipart/encrypted" || contentType == "multipart/x-multi-encrypted"))
         {
             return await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+        }
+        else if (_encryptor is null)
+        {
+            throw new Exception("Received unexpected encrypted result");
         }
 
         string? protocol = response.Content.Headers.ContentType?.Parameters
@@ -213,61 +224,95 @@ internal class WSManConnection : IDisposable
         }
 
         byte[] encData = await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-        return DecryptMimePayload(protocol, boundary, encData.AsSpan());
+        return DecryptMimePayload(boundary, encData.AsSpan(), _encryptor);
     }
 
-    private string DecryptMimePayload(string protocol, string boundary, Span<byte> payload)
+    private string DecryptMimePayload(string boundary, Span<byte> payload, IWinRMEncryptor encryptor)
     {
-        // Starting to Exchange has a space after the '--' so just split by the boundary itself.
+        // The MIME payload from Exchange has a space after the '--' so just split by the boundary itself.
+        Span<byte> mimeSeparator = stackalloc byte[] { 45, 45 };
         Span<byte> boundaryPattern = Encoding.UTF8.GetBytes(boundary).AsSpan();
 
+        // Ignore the start -- and end --\r\n
         int boundaryIdx = payload.IndexOf(boundaryPattern);
-        payload = payload[(boundaryIdx + boundaryPattern.Length)..];
+        payload = payload[(boundaryIdx + boundaryPattern.Length)..(payload.Length - 4)];
+        StringBuilder response = new();
 
-        int? expectedLength = null;
-        int? signatureLength = null;
-        Span<byte> encryptedData = default;
-        while ((boundaryIdx = payload.IndexOf(boundaryPattern)) != -1)
+        while (payload.Length > 0)
         {
+            // First MIME part contains the metadata, including the length of the plaintext data.
+            boundaryIdx = payload.IndexOf(boundaryPattern);
             string entry = Encoding.UTF8.GetString(payload[..boundaryIdx]).Trim('\r', '\n', '-');
-            if (entry.StartsWith($"Content-Type: {protocol}"))
+            Match m = Regex.Match(entry, "Length=(\\d+)", RegexOptions.IgnoreCase);
+            if (!m.Success)
             {
-                Match m = Regex.Match(entry, "Length=(\\d+)", RegexOptions.IgnoreCase);
-                if (m.Success)
-                {
-                    expectedLength = int.Parse(m.Groups[1].Value);
-                }
+                throw new Exception("Failed to find encrypted chunk size");
             }
-            else if (entry.StartsWith("Content-Type: application/octet-stream"))
-            {
-                // Length here is the Content-Type entry + \r\n on either side.
-                int startIdx = 42;
-                int endIdx = payload[..boundaryIdx].LastIndexOf(new byte[] { 45, 45 }.AsSpan());
-                signatureLength = BitConverter.ToInt32(payload[startIdx..(startIdx + 4)]);
-                encryptedData = payload[(startIdx + 4)..endIdx];
-            }
-
+            int expectedLength = int.Parse(m.Groups[1].Value);
             payload = payload[(boundaryIdx + boundaryPattern.Length)..];
+
+            // Second MIME part contains a known header and encrypted contents.
+            boundaryIdx = payload.IndexOf(boundaryPattern);
+
+            // Length here is the '\r\nContent-Type: application/octet-stream\r\n' entry.
+            const int startIdx = 42;
+            int endIdx = payload[..boundaryIdx].LastIndexOf(mimeSeparator);
+            Span<byte> encryptedData = payload[startIdx..endIdx];
+            payload = payload[(boundaryIdx + boundaryPattern.Length)..];
+
+            Span<byte> decData = encryptor.Decrypt(encryptedData);
+            if (decData.Length != expectedLength)
+            {
+                throw new Exception("FIXME: Unexpected decrypted length");
+            }
+            response.Append(Encoding.UTF8.GetString(decData));
         }
 
-        if (expectedLength == null || signatureLength == null || encryptedData.Length == 0)
+        return response.ToString();
+    }
+
+    private (byte[], int) EncryptWSManChunk(string boundary, IWinRMEncryptor encryptor, Span<byte> chunk,
+        ArrayPool<byte> arrayPool)
+    {
+        byte[] encData = encryptor.Encrypt(chunk, out var paddingLength);
+
+        StringBuilder mpHeader = new();
+        mpHeader.AppendFormat("--{0}\r\n", boundary);
+        mpHeader.AppendFormat("Content-Type: {0}\r\n", encryptor.EncryptionProtocol);
+        mpHeader.AppendFormat("OriginalContent: type={0};charset=UTF-8;Length={1}\r\n", CONTENT_TYPE,
+            chunk.Length + paddingLength);
+        mpHeader.AppendFormat("--{0}\r\n", boundary);
+        mpHeader.Append("Content-Type: application/octet-stream\r\n");
+        byte[] multipartHeader = Encoding.UTF8.GetBytes(mpHeader.ToString());
+        byte[] multipartFooter = Encoding.UTF8.GetBytes($"--{boundary}--\r\n");
+
+        int encryptedLength = multipartHeader.Length + encData.Length + multipartFooter.Length;
+        byte[] buffer = arrayPool.Rent(encryptedLength);
+        try
         {
-            throw new Exception("FIXME: Failed to decrypt encrypted MIME payload");
-        }
+            int offset = 0;
 
-        Span<byte> decData = _authProvider.Unwrap(encryptedData, (int)signatureLength);
-        string decPayload = Encoding.UTF8.GetString(decData);
-        if (decPayload.Length != expectedLength)
+            Buffer.BlockCopy(multipartHeader, 0, buffer, 0, multipartHeader.Length);
+            offset += multipartHeader.Length;
+
+            Buffer.BlockCopy(encData, 0, buffer, offset, encData.Length);
+            offset += encData.Length;
+
+            Buffer.BlockCopy(multipartFooter, 0, buffer, offset, multipartFooter.Length);
+
+            return (buffer, encryptedLength);
+        }
+        catch
         {
-            throw new Exception("FIXME: Unexpected decrypted length");
+            arrayPool.Return(buffer);
+            throw;
         }
-
-        return decPayload;
     }
 
     public void Dispose()
     {
         _http?.Dispose();
+        _authProvider.Dispose();
         GC.SuppressFinalize(this);
     }
     ~WSManConnection() { Dispose(); }

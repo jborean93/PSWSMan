@@ -55,6 +55,9 @@ public class NewWSManSession : PSCmdlet
     [Parameter()]
     public SwitchParameter NoEncryption { get; set; }
 
+    [Parameter()]
+    public SwitchParameter KerberosDelegate { get; set; }
+
     private CancellationTokenSource? CurrentCancelToken { get; set; }
 
     protected override void ProcessRecord()
@@ -91,6 +94,7 @@ public class NewWSManSession : PSCmdlet
         // string payload = winrs.Create(extra: creationXml, options: psrpOptions);
         string payload = winrs.Create();
 
+        bool encrypt = !(UseTLS || NoEncryption);
         SslClientAuthenticationOptions? sslOptions = null;
         if (UseTLS)
         {
@@ -114,6 +118,7 @@ public class NewWSManSession : PSCmdlet
         AuthenticationProvider authProvider;
         if (Authentication == AuthenticationMethod.Basic)
         {
+            encrypt = false;
             authProvider = new BasicAuthProvider(
                 Credential?.UserName,
                 Credential?.GetNetworkCredential()?.Password
@@ -123,6 +128,7 @@ public class NewWSManSession : PSCmdlet
         {
             // Need to set the relevant sslOptions for this somehow.
             // request.Headers.Add("Authorization", "http://schemas.dmtf.org/wbem/wsman/1/wsman/secprofile/https/mutual");
+            encrypt = false;
             throw new NotImplementedException(Authentication.ToString());
         }
         else if (Authentication == AuthenticationMethod.CredSSP)
@@ -142,10 +148,10 @@ public class NewWSManSession : PSCmdlet
                 username = stringSplit[1];
             }
 
-            SecurityContext subAuth = new GssapiContext(Credential.UserName, password, AuthenticationMethod.Negotiate,
-                $"host@{Uri.DnsSafeHost}");
+            SecurityContext subAuth = SecurityContext.GetPlatformSecurityContext(Credential.UserName, password,
+                AuthenticationMethod.Negotiate, "host", Uri.DnsSafeHost, false);
             TSPasswordCreds credSSPCreds = new(domainName, username, password);
-            authProvider = new CredSSPAuthProvider(credSSPCreds, subAuth, !(UseTLS || NoEncryption), null);
+            authProvider = new CredSSPAuthProvider(credSSPCreds, subAuth, null);
         }
         else
         {
@@ -156,13 +162,12 @@ public class NewWSManSession : PSCmdlet
                 Uri.DnsSafeHost,
                 Authentication,
                 Authentication == AuthenticationMethod.Kerberos ? "Kerberos" : "Negotiate",
-                !(UseTLS || NoEncryption)
-            );
+                KerberosDelegate);
         }
 
         using (CurrentCancelToken = new CancellationTokenSource())
         {
-            using WSManConnection client = new(Uri, authProvider, sslOptions);
+            using WSManConnection client = new(Uri, authProvider, sslOptions, encrypt);
             string response = client.SendMessage(payload).GetAwaiter().GetResult();
             WriteObject(winrs.ReceiveData<WSManCreateResponse>(response));
 
@@ -172,8 +177,8 @@ public class NewWSManSession : PSCmdlet
             WSManCommandResponse cmdResponse = winrs.ReceiveData<WSManCommandResponse>(response);
             WriteObject(cmdResponse);
 
-            payload = winrs.Send("stdin", Encoding.UTF8.GetBytes("input data"), commandId: cmdResponse.CommandId,
-                end: true);
+            payload = winrs.Send("stdin", Encoding.UTF8.GetBytes("Café"),
+                commandId: cmdResponse.CommandId, end: true);
             response = client.SendMessage(payload).GetAwaiter().GetResult();
             WriteObject(winrs.ReceiveData<WSManSendResponse>(response));
 

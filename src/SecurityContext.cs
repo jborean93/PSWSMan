@@ -9,10 +9,19 @@ namespace PSWSMan;
 
 internal enum GssapiProvider
 {
+    /// <summary>No GSSAPI provider is available, no Negotiate, NTLM, Kerberos, or CredSSP auth is available.</summary>
     None,
+
+    /// <summary>Uses the MIT krb5 GSSAPI implementation.</summary>
     MIT,
+
+    /// <summary>Uses the Heimdal GSSAPI implementation.</summary>
     Heimdal,
+
+    /// <summary>Uses the macOS GSS.Framework (based on Heimdal) implementation.</summary>
     GSSFramework,
+
+    /// <summary>Uses the Windows only SSPI implementation.</summary>
     SSPI,
 }
 
@@ -25,20 +34,93 @@ internal class ChannelBindings
     public byte[]? ApplicationData { get; set; }
 }
 
+/// <summary>Abstract class that exposes a platform agnostic GSSAPI/SSPI implementation.</summary>
 internal abstract class SecurityContext : IDisposable
 {
+    /// <summary>States whether the auth context is authenticated and ready for wrapping/unwrapping.</summary>
     public bool Complete { get; internal set; }
-    public virtual ChannelBindings? ChannelBindings { set { return; } }
 
+    /// <summary>Process the optional incoming auth token and generate an output token.</summary>
+    /// <param name="inputToken">The input token from the peer to process, or null for the first call.</summary>
+    /// <returns>The auth token to send to the peer, may be an empty array if no more tokens need to be sent.</returns>
     public abstract byte[] Step(byte[]? inputToken = null);
+
+    /// <summary>Wraps the data as a single stream.</summary>
+    /// <remarks>
+    /// Some platforms may mutate the input data while others won't. Don't rely on the input data to not change and
+    /// always use the return value to reference the newly wrapped data.
+    /// </remarks>
+    /// <param name="data">The data to wrap.</summary>
+    /// <returns>The wrapped data.</returns>
     public abstract byte[] Wrap(Span<byte> data);
-    public abstract (byte[], byte[], int) WrapWinRM(Span<byte> data);
+
+    /// <summary>Wraps the data for use with WinRM.</summary>
+    /// <remarks>
+    /// The input data will be mutated as the data is encrypted in place. Use the encryptedLength out parameter to
+    /// determine the length of the newly encrypted data in the span passed in.
+    /// </remarks>
+    /// <param name="data">The data to wrap.</summary>
+    /// <param name="encryptedLength">The number of bytes in data that has been encrypted.</summary>
+    /// <param name="paddingLength">The number of bytes that was padded to the plaintext during encryption.</summary>
+    /// <returns>The encryption header bytes.</returns>
+    public abstract byte[] WrapWinRM(Span<byte> data, out int encryptedLength, out int paddingLength);
+
+    /// <summary>Unwraps the data as a single stream.</summary>
+    /// <remarks>
+    /// Some platforms may mutate the input data while others won't. Don't rely on the input data to not change and
+    /// always use the return value to reference the newly unwrapped data.
+    /// </remarks>
+    /// <param name="data">The data to unwrap.</summary>
+    /// <returns>The unwrapped data.</returns>
     public abstract byte[] Unwrap(Span<byte> data);
-    public abstract Span<byte> UnwrapWinRM(Span<byte> data, int headerLength);
-    public virtual void SetChannelBindings(ChannelBindings? bindings) { return; }
+
+    /// <summary>Unwraps the data from a WinRM exchange.</summary>
+    /// <remarks>
+    /// The input data will be mutated as the data is decrypted in place. Use the return value to determine where in
+    /// input data span the decrypted data is located.
+    /// </remarks>
+    /// <param name="data">The data to decrypt, this should contain the header and 4 byte signature marker.</summary>
+    /// <returns>The span pointing to the decrypted data.</returns>
+    public abstract Span<byte> UnwrapWinRM(Span<byte> data);
+
+    /// <summary>Sets the channel bindings to use for authentication.</summary>
+    /// <param name="bindings">The channel bindings to set on the security context.</summary>
+    public virtual void SetChannelBindings(ChannelBindings? bindings)
+    { }
 
     public abstract void Dispose();
     ~SecurityContext() => Dispose();
+
+    /// <summary>Gets the relevant security provider for the platform at runtime.</summary>
+    /// <param name="username">The username to authenticate with or null for the current user context.</param>
+    /// <param name="password">The password to authenticate with or null to rely on a cached credential.</param>
+    /// <param name="method">The Negotiate authentication method to use.</param>
+    /// <param name="service">The SPN service part, e.g. host, cifs, ldap.</param>
+    /// <param name="target">The SPN principal part, i.e. the hostname.</param>
+    /// <param name="requestDelegate">Request a delegatable ticket, used with Kerberos auth only.</param>
+    /// <returns>The SecurityContext that can be used for Negotiate authentication.</returns>
+    public static SecurityContext GetPlatformSecurityContext(string? username, string? password,
+        AuthenticationMethod method, string service, string target, bool requestDelegate)
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return new SspiContext(
+                username,
+                password,
+                method,
+                $"{service}/{target}",
+                requestDelegate);
+        }
+        else
+        {
+            return new GssapiContext(
+                username,
+                password,
+                method,
+                $"{service}@{target}",
+                requestDelegate);
+        }
+    }
 }
 
 internal class GssapiContext : SecurityContext
@@ -53,7 +135,8 @@ internal class GssapiContext : SecurityContext
     private byte[]? _negotiatedMech;
     private ChannelBindings? _bindingData;
 
-    public GssapiContext(string? username, string? password, AuthenticationMethod method, string target)
+    public GssapiContext(string? username, string? password, AuthenticationMethod method, string target,
+        bool requestDelegate)
     {
         _mech = method switch
         {
@@ -90,6 +173,11 @@ internal class GssapiContext : SecurityContext
             using (name)
                 _credential = GSSAPI.AcquireCred(name, 0, mechList, GssapiCredUsage.GSS_C_INITIATE).Creds;
         }
+
+        if (requestDelegate)
+        {
+            _flags |= GssapiContextFlags.GSS_C_DELEG_FLAG;
+        }
     }
 
     public override byte[] Step(byte[]? inputToken = null)
@@ -116,7 +204,7 @@ internal class GssapiContext : SecurityContext
         return wrappedData;
     }
 
-    public override (byte[], byte[], int) WrapWinRM(Span<byte> data)
+    public override byte[] WrapWinRM(Span<byte> data, out int encryptedLength, out int paddingLength)
     {
         if (_context == null || !Complete)
             throw new InvalidOperationException("Cannot wrap without a completed context");
@@ -124,10 +212,16 @@ internal class GssapiContext : SecurityContext
         if (_negotiatedMech?.SequenceEqual(GSSAPI.NTLM) == true)
         {
             // NTLM doesn't support gss_wrap_iov but luckily the header is always 16 bytes and there is no padding so
-            // gss_wrap can be used instead.
-            Span<byte> wrappedSpan = Wrap(data).AsSpan();
+            // gss_wrap can be used instead. Because gss_wrap doesn't wrap in place we still need to copy the wrapped
+            // data to the input span.
+            byte[] wrappedData = Wrap(data);
+            byte[] header = wrappedData.AsSpan(0, 16).ToArray();
+            wrappedData.AsSpan(16).CopyTo(data);
 
-            return (wrappedSpan[..16].ToArray(), wrappedSpan[16..].ToArray(), 0);
+            encryptedLength = wrappedData.Length - 16;
+            paddingLength = 0;
+
+            return header;
         }
         else
         {
@@ -152,12 +246,12 @@ internal class GssapiContext : SecurityContext
                     iov[2].Length = 0;
 
                     using IOVResult res = GSSAPI.WrapIOV(_context, true, 0, iov);
-                    byte[] header = new byte[iov[0].Length];
-                    Marshal.Copy(iov[0].Data, header, 0, header.Length);
 
-                    Span<byte> encData = new(iov[1].Data.ToPointer(), iov[1].Length);
+                    byte[] header = new Span<byte>(iov[0].Data.ToPointer(), iov[0].Length).ToArray();
+                    encryptedLength = iov[1].Length;
+                    paddingLength = iov[2].Length;
 
-                    return (header, encData.ToArray(), iov[2].Length);
+                    return header;
                 }
             }
         }
@@ -172,7 +266,7 @@ internal class GssapiContext : SecurityContext
         return unwrappedData;
     }
 
-    public override Span<byte> UnwrapWinRM(Span<byte> data, int headerLength)
+    public override Span<byte> UnwrapWinRM(Span<byte> data)
     {
         if (_context == null || !Complete)
             throw new InvalidOperationException("Cannot unwrap without a completed context");
@@ -188,14 +282,23 @@ internal class GssapiContext : SecurityContext
             https://github.com/heimdal/heimdal/issues/739
         */
 
+        int headerLength = BitConverter.ToInt32(data[..4]);
+
         if (_negotiatedMech?.SequenceEqual(GSSAPI.NTLM) == true || GlobalState.GssapiProvider != GssapiProvider.MIT)
         {
-            return Unwrap(data);
+            // gss_unwrap doesn't decrypt in place which the caller is expecting. The output array needs to be copied
+            // back into the input span.
+            byte[] unwrappedData = Unwrap(data[4..]);
+
+            Span<byte> decData = data.Slice(4 + headerLength, unwrappedData.Length);
+            unwrappedData.CopyTo(decData);
+
+            return decData;
         }
         else
         {
-            Span<byte> header = data[..headerLength];
-            Span<byte> encData = data[headerLength..];
+            Span<byte> header = data.Slice(4, headerLength);
+            Span<byte> encData = data[(4 + headerLength)..];
 
             unsafe
             {
@@ -212,13 +315,18 @@ internal class GssapiContext : SecurityContext
                     iov[1].Data = (IntPtr)encDataPtr;
                     iov[1].Length = encData.Length;
 
+                    // Stores the padding info, we don't need to return this but it is necessary to have it in the IOV
+                    // buffer.
                     iov[2].Flags = IOVBufferFlags.GSS_IOV_BUFFER_FLAG_ALLOCATE;
                     iov[2].Type = IOVBufferType.GSS_IOV_BUFFER_TYPE_DATA;
                     iov[2].Data = IntPtr.Zero;
                     iov[2].Length = 0;
 
                     using IOVResult res = GSSAPI.UnwrapIOV(_context, iov);
-                    return new Span<byte>(iov[1].Data.ToPointer(), iov[1].Length);
+
+                    // IOV will decrypt the data in place, no need for a copy, just return a span that tells the caller
+                    // the location of the decrypted payload.
+                    return encData[..iov[1].Length];
                 }
             }
         }
@@ -250,7 +358,8 @@ internal class SspiContext : SecurityContext
     private UInt32 _trailerSize = 0;
     private UInt32 _seqNo = 0;
 
-    public SspiContext(string? username, string? password, AuthenticationMethod method, string target)
+    public SspiContext(string? username, string? password, AuthenticationMethod method, string target,
+        bool requestDelegate)
     {
         _targetSpn = target;
 
@@ -270,6 +379,11 @@ internal class SspiContext : SecurityContext
         }
         _credential = SSPI.AcquireCredentialsHandle(null, package, CredentialUse.SECPKG_CRED_OUTBOUND,
             identity).Creds;
+
+        if (requestDelegate)
+        {
+            _flags |= InitiatorContextRequestFlags.ISC_REQ_DELEGATE;
+        }
     }
 
     public override byte[] Step(byte[]? inputToken = null)
@@ -385,7 +499,7 @@ internal class SspiContext : SecurityContext
         }
     }
 
-    public override (byte[], byte[], int) WrapWinRM(Span<byte> data)
+    public override byte[] WrapWinRM(Span<byte> data, out int encryptedLength, out int paddingLength)
     {
         if (_context == null || !Complete)
             throw new InvalidOperationException("Cannot wrap without a completed context");
@@ -410,13 +524,11 @@ internal class SspiContext : SecurityContext
 
                     SSPI.EncryptMessage(_context, 0, buffers, NextSeqNo());
 
-                    byte[] header = new byte[buffers[0].cbBuffer];
-                    Buffer.BlockCopy(token, 0, header, 0, (int)buffers[0].cbBuffer);
+                    byte[] header = new Span<byte>(buffers[0].pvBuffer, (int)buffers[0].cbBuffer).ToArray();
+                    encryptedLength = (int)buffers[1].cbBuffer;
+                    paddingLength = 0;
 
-                    byte[] encData = new byte[buffers[1].cbBuffer];
-                    Marshal.Copy((IntPtr)dataPtr, encData, 0, (int)buffers[1].cbBuffer);
-
-                    return (header, encData, 0);
+                    return header;
                 }
             }
             finally
@@ -454,13 +566,14 @@ internal class SspiContext : SecurityContext
         }
     }
 
-    public override Span<byte> UnwrapWinRM(Span<byte> data, int headerLength)
+    public override Span<byte> UnwrapWinRM(Span<byte> data)
     {
         if (_context == null || !Complete)
             throw new InvalidOperationException("Cannot wrap without a completed context");
 
-        Span<byte> encHeader = data[..headerLength];
-        Span<byte> encData = data[headerLength..];
+        int headerLength = BitConverter.ToInt32(data[..4]);
+        Span<byte> encHeader = data.Slice(4, headerLength);
+        Span<byte> encData = data[(4 + headerLength)..];
 
         unsafe
         {

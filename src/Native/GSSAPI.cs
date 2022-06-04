@@ -158,10 +158,13 @@ internal class GssapiSecContext
     }
 }
 
+/// <summary>Result of <c>WrapIOV</c> and <c>UnwrapIOV</c>.</summary>
+/// <remarks>This should be disposed when the results are no longer needed to cleanup unmanaged memory.</remarks>
 internal class IOVResult : IDisposable
 {
     private readonly SafeHandle _raw;
 
+    /// <summary>The confidentiality state of the IOV wrapping operation.</summary>
     public int ConfState { get; }
 
     public IOVResult(SafeHandle raw, int confState)
@@ -645,6 +648,12 @@ internal static class GSSAPI
         }
     }
 
+    /// <summary>Unwraps an IOV buffer from the peer.</summary>
+    /// <remarks>The IOV unwrapping will mutate the input buffer data in place.</remarks>
+    /// <param name="context">The context handle that was used to wrap the message.</param>
+    /// <param name="buffer">The IOV buffers to unwrap.</param>
+    /// <returns>The IOV result containing the unmanaged memory handle</returns>
+    /// <exception cref="GSSAPIException">Failed to initiate/step the security context.</exception>
     public static IOVResult UnwrapIOV(SafeGssapiSecContext context, Span<IOVBuffer> buffer)
     {
         SafeHandle iovBuffers = CreateIOVSet(buffer);
@@ -704,6 +713,14 @@ internal static class GSSAPI
         }
     }
 
+    /// <summary>Wraps an IOV buffer to send to the peer.</summary>
+    /// <remarks>The IOV wrapping will mutate the input buffer data in place.</remarks>
+    /// <param name="context">The context handle that was used to wrap the message.</param>
+    /// <param name="confReq">Whether to encrypt the message or just sign it.</param>
+    /// <param name="qopReq">The QOP requested for the message.</param>
+    /// <param name="buffer">The IOV buffers to unwrap.</param>
+    /// <returns>The IOV result containing the unmanaged memory handle</returns>
+    /// <exception cref="GSSAPIException">Failed to initiate/step the security context.</exception>
     public static IOVResult WrapIOV(SafeGssapiSecContext context, bool confReq, int qopReq, Span<IOVBuffer> buffer)
     {
         SafeHandle iovBuffers = CreateIOVSet(buffer);
