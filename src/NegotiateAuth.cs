@@ -33,22 +33,18 @@ internal class NegotiateAuthProvider : AuthenticationProvider, IWinRMEncryptor
     {
         if (Complete)
         {
-            throw new Exception("Auth provider is already completed");
+            return false;
         }
 
-        AuthenticationHeaderValue? respAuthHeader = response?.Headers.WwwAuthenticate.FirstOrDefault();
+        AuthenticationHeaderValue[]? respAuthHeader = response?.Headers.WwwAuthenticate.ToArray();
         byte[]? inputToken = null;
-        if (respAuthHeader is not null)
+        if (respAuthHeader?.Length == 1)
         {
-            if (respAuthHeader.Scheme != _authHeaderName)
-            {
-                throw new Exception($"Unexpected WWW-Authenticate header response {respAuthHeader.Scheme}");
-            }
-            inputToken = Convert.FromBase64String(respAuthHeader.Parameter ?? "");
+            inputToken = Convert.FromBase64String(respAuthHeader[0].Parameter ?? "");
         }
         else if (response is not null)
         {
-            // Nothing more to process
+            // This happens if the auth failed in the previous step failed, return the response as is.
             return false;
         }
 

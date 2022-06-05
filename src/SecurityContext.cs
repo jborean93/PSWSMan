@@ -197,7 +197,7 @@ internal class GssapiContext : SecurityContext
 
     public override byte[] Wrap(Span<byte> data)
     {
-        if (_context == null || !Complete)
+        if (_context == null)
             throw new InvalidOperationException("Cannot wrap without a completed context");
 
         (byte[] wrappedData, bool _) = GSSAPI.Wrap(_context, true, 0, data);
@@ -206,7 +206,7 @@ internal class GssapiContext : SecurityContext
 
     public override byte[] WrapWinRM(Span<byte> data, out int encryptedLength, out int paddingLength)
     {
-        if (_context == null || !Complete)
+        if (_context == null)
             throw new InvalidOperationException("Cannot wrap without a completed context");
 
         if (_negotiatedMech?.SequenceEqual(GSSAPI.NTLM) == true)
@@ -259,7 +259,7 @@ internal class GssapiContext : SecurityContext
 
     public override byte[] Unwrap(Span<byte> data)
     {
-        if (_context == null || !Complete)
+        if (_context == null)
             throw new InvalidOperationException("Cannot unwrap without a completed context");
 
         (byte[] unwrappedData, bool _1, int _2) = GSSAPI.Unwrap(_context, data);
@@ -268,7 +268,7 @@ internal class GssapiContext : SecurityContext
 
     public override Span<byte> UnwrapWinRM(Span<byte> data)
     {
-        if (_context == null || !Complete)
+        if (_context == null)
             throw new InvalidOperationException("Cannot unwrap without a completed context");
 
         /*
@@ -443,7 +443,7 @@ internal class SspiContext : SecurityContext
 
     public override byte[] Wrap(Span<byte> data)
     {
-        if (_context == null || !Complete)
+        if (_context == null)
             throw new InvalidOperationException("Cannot wrap without a completed context");
 
         unsafe
@@ -501,7 +501,7 @@ internal class SspiContext : SecurityContext
 
     public override byte[] WrapWinRM(Span<byte> data, out int encryptedLength, out int paddingLength)
     {
-        if (_context == null || !Complete)
+        if (_context == null)
             throw new InvalidOperationException("Cannot wrap without a completed context");
 
         unsafe
@@ -540,7 +540,7 @@ internal class SspiContext : SecurityContext
 
     public override byte[] Unwrap(Span<byte> data)
     {
-        if (_context == null || !Complete)
+        if (_context == null)
             throw new InvalidOperationException("Cannot wrap without a completed context");
 
         unsafe
@@ -568,7 +568,7 @@ internal class SspiContext : SecurityContext
 
     public override Span<byte> UnwrapWinRM(Span<byte> data)
     {
-        if (_context == null || !Complete)
+        if (_context == null)
             throw new InvalidOperationException("Cannot wrap without a completed context");
 
         int headerLength = BitConverter.ToInt32(data[..4]);

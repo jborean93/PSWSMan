@@ -135,7 +135,7 @@ public class NewWSManSession : PSCmdlet
         {
             if (Credential == null)
             {
-                throw new Exception("FIXME: Credential must be set for CredSSP auth");
+                throw new ArgumentException("FIXME: Credential must be set for CredSSP auth");
             }
 
             string domainName = "";

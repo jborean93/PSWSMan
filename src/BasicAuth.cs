@@ -1,5 +1,6 @@
 using System;
 using System.Net.Http;
+using System.Security.Authentication;
 using System.Text;
 
 namespace PSWSMan;
@@ -12,18 +13,15 @@ internal class BasicAuthProvider : AuthenticationProvider
     public override bool Complete => _complete;
 
     public BasicAuthProvider(string? username, string? password)
-        : this("Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes($"{username}:{password}"))) { }
-
-    public BasicAuthProvider(string authValue)
     {
-        _authValue = authValue;
+        _authValue = "Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes($"{username}:{password}"));
     }
 
     public override bool AddAuthenticationHeaders(HttpRequestMessage request, HttpResponseMessage? response)
     {
         if (Complete)
         {
-            throw new Exception("Auth provider is already completed");
+            return false;
         }
 
         request.Headers.Add("Authorization", _authValue);

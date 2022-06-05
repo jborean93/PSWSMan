@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Cryptography;
@@ -30,6 +31,7 @@ internal class WSManInitialRequest : HttpRequestMessage
     }
 }
 
+/// <summary>Raw WSMan HTTP connection class.</summary>
 internal class WSManConnection : IDisposable
 {
     private const string CONTENT_TYPE = "application/soap+xml";
@@ -41,6 +43,14 @@ internal class WSManConnection : IDisposable
 
     private HttpClient? _http;
 
+    /// <summary>Create connection for WSMan payloads</summary>
+    /// <param name="connectionUri">The connection URI.</param>
+    /// <param name="authProvider">The authentication provider used for the connection.</param>
+    /// <param name="sslOptions">Set the TLS connection options for a HTTPS connection.</param>
+    /// <param name="encrypt">
+    /// Encrypt the payloads using the authentication provider. If true the authProvider must implement
+    /// IWinRMEncryptor.
+    /// </param>
     public WSManConnection(Uri connectionUri, AuthenticationProvider authProvider,
         SslClientAuthenticationOptions? sslOptions, bool encrypt)
     {
@@ -52,12 +62,17 @@ internal class WSManConnection : IDisposable
         {
             if (authProvider is not IWinRMEncryptor)
             {
-                throw new Exception("Requested message encryption without a supporting auth provider");
+                string provClass = authProvider.GetType().Name;
+                throw new InvalidOperationException(
+                    $"Cannot encrypt WSMan payload as {provClass} does not support message encryption.");
             }
             _encryptor = (IWinRMEncryptor)authProvider;
         }
     }
 
+    /// <summary>Send a HTTP payload as a POST request.</summary>
+    /// <param name="message">The HTTP payload to send.</param>
+    /// <returns>The response for this request.</returns>
     public async Task<string> SendMessage(string message)
     {
         HttpRequestMessage request;
@@ -198,29 +213,26 @@ internal class WSManConnection : IDisposable
 
     private async Task<string> ProcessResponse(HttpResponseMessage response)
     {
-        string contentType = response.Content.Headers.ContentType?.MediaType ?? "";
-        if (!(contentType == "multipart/encrypted" || contentType == "multipart/x-multi-encrypted"))
+        MediaTypeHeaderValue? contentType = response.Content.Headers.ContentType;
+
+        string contentTypeBase = contentType?.MediaType ?? "";
+        if (!(contentTypeBase == "multipart/encrypted" || contentTypeBase == "multipart/x-multi-encrypted"))
         {
             return await response.Content.ReadAsStringAsync().ConfigureAwait(false);
         }
         else if (_encryptor is null)
         {
-            throw new Exception("Received unexpected encrypted result");
+            throw new ArgumentException("Received encrypted response but not encryption provider is set");
         }
 
-        string? protocol = response.Content.Headers.ContentType?.Parameters
-            .Where(p => p.Name == "protocol")
-            .Select(p => p.Value)
-            .FirstOrDefault()
-            ?.Trim('\\', '"');
-        string? boundary = response.Content.Headers.ContentType?.Parameters
+        string? boundary = contentType?.Parameters
             .Where(p => p.Name == "boundary")
             .Select(p => p.Value)
             .FirstOrDefault()
             ?.Trim('\\', '"');
-        if (string.IsNullOrWhiteSpace(protocol) || string.IsNullOrWhiteSpace(boundary))
+        if (string.IsNullOrWhiteSpace(boundary))
         {
-            throw new Exception("FIXME: unknown protocol or boundary");
+            throw new ArgumentException($"Failed to determine encryption boundary from '{contentType}'");
         }
 
         byte[] encData = await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
@@ -246,7 +258,7 @@ internal class WSManConnection : IDisposable
             Match m = Regex.Match(entry, "Length=(\\d+)", RegexOptions.IgnoreCase);
             if (!m.Success)
             {
-                throw new Exception("Failed to find encrypted chunk size");
+                throw new ArgumentException("Invalid WSMan encryption payload - failed to find plaintext lenght size");
             }
             int expectedLength = int.Parse(m.Groups[1].Value);
             payload = payload[(boundaryIdx + boundaryPattern.Length)..];
@@ -263,7 +275,7 @@ internal class WSManConnection : IDisposable
             Span<byte> decData = encryptor.Decrypt(encryptedData);
             if (decData.Length != expectedLength)
             {
-                throw new Exception("FIXME: Unexpected decrypted length");
+                throw new ArgumentException("Mismatched WSMan encryption payload length");
             }
             response.Append(Encoding.UTF8.GetString(decData));
         }

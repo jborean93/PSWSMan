@@ -150,7 +150,7 @@ internal static class WSManEnumMapper
         CommandState.Done => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/CommandState/Done",
         CommandState.Pending => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/CommandState/Pending",
         CommandState.Running => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/CommandState/Running",
-        _ => throw new ArgumentOutOfRangeException(nameof(state), $"Not expected CommandState value: {state}"),
+        _ => throw new ArgumentOutOfRangeException(nameof(state), $"Unknown CommandState value: {state}"),
     };
 
     internal static string WSManValue(this SignalCode code) => code switch
@@ -159,7 +159,7 @@ internal static class WSManEnumMapper
         SignalCode.CtrlBreak => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/signal/ctrl_break",
         SignalCode.Terminate => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/signal/Terminate",
         SignalCode.PSCtrlC => "powershell/signal/crtl_c",
-        _ => throw new ArgumentOutOfRangeException(nameof(code), $"Not expected SignalCode value: {code}"),
+        _ => throw new ArgumentOutOfRangeException(nameof(code), $"Unknown SignalCode value: {code}"),
     };
 
     internal static string WSManValue(this WSManAction action) => action switch
@@ -192,7 +192,7 @@ internal static class WSManEnumMapper
         WSManAction.SendResponse => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/SendResponse",
         WSManAction.Signal => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Signal",
         WSManAction.SignalResponse => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/SignalResponse",
-        _ => throw new ArgumentOutOfRangeException(nameof(action), $"Not expected WSManAction value: {action}"),
+        _ => throw new ArgumentOutOfRangeException(nameof(action), $"Unknown WSManAction value: {action}"),
     };
 }
 

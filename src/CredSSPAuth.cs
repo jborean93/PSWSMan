@@ -1,17 +1,13 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Formats.Asn1;
 using System.Linq;
-using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Security;
 using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace PSWSMan;
 
@@ -116,7 +112,7 @@ internal class TSRequest : CredSSPStructure
     {
         if (ErrorCode is not null && ErrorCode != 0)
         {
-            throw new Exception(string.Format("Received TSRequest error 0x{0:X8}", ErrorCode));
+            throw new AuthenticationException(string.Format("Received CredSSP TSRequest error 0x{0:X8}", ErrorCode));
         }
     }
 
@@ -349,66 +345,13 @@ internal class TSPasswordCreds : TSCredentialBase
     }
 }
 
-internal class TlsBIOStream : Stream
-{
-    // Max TLS record size is 16KiB + 2KiB extra info.
-    private readonly byte[] _incomingBuffer = new byte[18432];
-    private readonly byte[] _outgoingBuffer = new byte[18432];
-    private readonly BlockingCollection<int> _incoming = new();
-    private readonly BlockingCollection<int> _outgoing = new();
-
-    public override bool CanRead => true;
-
-    public override bool CanSeek => false;
-
-    public override bool CanTimeout => false;
-
-    public override bool CanWrite => true;
-
-    public override long Position { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-
-    public override long Length => throw new NotImplementedException();
-
-    public override long Seek(long offset, SeekOrigin origin) => throw new NotImplementedException();
-
-    public override void SetLength(long value) => throw new NotImplementedException();
-
-    public override void Write(byte[] buffer, int offset, int count)
-    {
-        buffer.AsSpan(offset, count).CopyTo(_outgoingBuffer.AsSpan());
-        _outgoing.Add(count);
-    }
-
-    public override int Read(byte[] buffer, int offset, int count)
-    {
-        // FIXME Deal with smaller count - SslStream has a buffer of 4096
-        int dataOffset = _incoming.Take();
-        _incomingBuffer.AsSpan(0, dataOffset).CopyTo(buffer.AsSpan(offset, count));
-        return dataOffset;
-    }
-
-    public override void Flush()
-    { }
-
-    public Span<byte> BioRead(CancellationToken? cancelToken = null)
-    {
-        int dataLength = _outgoing.Take(cancelToken ?? default);
-        return _outgoingBuffer.AsSpan(0, dataLength);
-    }
-
-    public void BioWrite(ReadOnlySpan<byte> data)
-    {
-        data.CopyTo(_incomingBuffer.AsSpan());
-        _incoming.Add(data.Length);
-    }
-}
-
 internal enum CredSSPStage
 {
     Start,
     TlsHandshake,
     Negotiate,
-    KeyAuth,
+    GenerateClientKey,
+    VerifyServerKey,
     Delegate,
     Complete
 }
@@ -417,12 +360,9 @@ internal class CredSSPAuthProvider : AuthenticationProvider, IWinRMEncryptor
 {
     private readonly TSCredentialBase _credential;
     private readonly SecurityContext _secContext;
-    private readonly TlsBIOStream _bio;
-    private readonly SslStream _ssl;
-    private readonly SslClientAuthenticationOptions _sslOptions;
+    private readonly TlsSecurityContext _tlsContext;
     private IEnumerator<string>? _tokenGenerator;
     private CredSSPStage _stage = CredSSPStage.Start;
-    private int? _trailerLength;
 
     public override bool Complete => _stage == CredSSPStage.Complete;
 
@@ -438,20 +378,15 @@ internal class CredSSPAuthProvider : AuthenticationProvider, IWinRMEncryptor
 
         if (sslOptions == null)
         {
-            _sslOptions = new()
+            sslOptions = new()
             {
                 TargetHost = "dummy",
             };
             // Default for CredSSP is to not do any certificate validation.
-            _sslOptions.RemoteCertificateValidationCallback = (_1, _2, _3, _4) => true;
-        }
-        else
-        {
-            _sslOptions = sslOptions;
+            sslOptions.RemoteCertificateValidationCallback = (_1, _2, _3, _4) => true;
         }
 
-        _bio = new();
-        _ssl = new(_bio);
+        _tlsContext = new(sslOptions);
     }
 
     public override bool AddAuthenticationHeaders(HttpRequestMessage request, HttpResponseMessage? response)
@@ -470,8 +405,7 @@ internal class CredSSPAuthProvider : AuthenticationProvider, IWinRMEncryptor
                 // it so the auth resets itself.
                 throw new Exception($"Unknown authentication failure at CredSSP stage {_stage}");
             }
-            byte[] inputToken = Convert.FromBase64String(respAuthHeader.Parameter ?? "");
-            _bio.BioWrite(inputToken);
+            _tlsContext.WriteInputToken(respAuthHeader.Parameter ?? "");
         }
 
         _tokenGenerator ??= TokenGenerator().GetEnumerator();
@@ -500,134 +434,52 @@ internal class CredSSPAuthProvider : AuthenticationProvider, IWinRMEncryptor
 
     private IEnumerable<string> TokenGenerator()
     {
-        // First stage is the TLS Handshake. The handshake operation is done in a background task as .NET doesn't
-        // have a non-blocking memory BIO method to perform the handshake. Each of the tokens to exchange are sent
-        // to the TlsBIOStream stream we can read and write from. The cancel token is used to let the code waiting
-        // on a BIORead to know when no more data is expected and the handshake is done.
+        // First stage is the TLS Handshake which needs to be exchanged with the peer.
         _stage = CredSSPStage.TlsHandshake;
-        using (CancellationTokenSource handshakeDone = new())
+        foreach (string token in _tlsContext.DoHandshake())
         {
-            Task handshakeTask = Task.Run(() =>
-            {
-                try
-                {
-                    _ssl.AuthenticateAsClient(_sslOptions);
-                }
-                finally
-                {
-                    handshakeDone.Cancel();
-                }
-            });
-
-            yield return Convert.ToBase64String(_bio.BioRead(handshakeDone.Token));
-
-            // Keep on exchanging the tokens until the handshake is complete
-            while (true)
-            {
-                ReadOnlySpan<byte> tlsPacket;
-                try
-                {
-                    tlsPacket = _bio.BioRead(handshakeDone.Token);
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-
-                yield return Convert.ToBase64String(tlsPacket);
-            }
-
-            // Check that no failures occurred when doing the TLS handshake before continuing.
-            handshakeTask.GetAwaiter().GetResult();
+            yield return token;
         }
 
-        int credSSPVersion = 0;
-        byte[] pubKeyBytes = _ssl.RemoteCertificate?.GetPublicKey() ?? Array.Empty<byte>();
-        AsnWriter asnWriter = new(AsnEncodingRules.DER);
-        byte[]? buffer = new byte[16 * 1024];
-
-        // Used to detect if the final msg is the NTLM auth token as that's sent with the pubKeyAuth info.
-        // NTLMSSP\x00\x03\x00\x00\x00
-        byte[] ntlm3Header = new byte[] { 78, 84, 76, 77, 83, 83, 80, 0, 3, 0, 0, 0 };
+        byte[] buffer = new byte[16384];
 
         // Second stage is the authentication exchange done over Negotiate, Kerberos, or NTLM. If the auth exchange
         // contains an odd amount (excluding 1) of tokens (NTLM), the final token is sent in step 3 as part of the
         // pubKeyAuth stage.
         _stage = CredSSPStage.Negotiate;
-        TSRequest tsRequest;
-        int read;
-        byte[] outputToken = _secContext.Step();
-        do
+
+        NegoData[]? negoTokens = null;
+        byte[]? clientNonce = null;
+        foreach ((TSRequest authRequest, bool isEnd) in DoAuthExchange(buffer))
         {
-            NegoData negoData = new(outputToken);
-            tsRequest = new(tokens: new[] { negoData });
-            tsRequest.ToBytes(asnWriter);
-            read = asnWriter.Encode(buffer);
-
-            _ssl.Write(buffer.AsSpan(0, read));
-            outputToken = Array.Empty<byte>();
-            yield return Convert.ToBase64String(_bio.BioRead());
-
-            read = _ssl.Read(buffer, 0, buffer.Length);
-            tsRequest = TSRequest.FromBytes(buffer.AsSpan(0, read), out var _);
-            tsRequest.CheckSuccess();
-            credSSPVersion = tsRequest.Version;
-
-            byte[]? inputToken = tsRequest.Tokens?[0]?.Token;
-            if (inputToken?.Length > 0)
+            if (isEnd)
             {
-                outputToken = _secContext.Step(inputToken);
+                if (Math.Min(TSRequest.CREDSSP_VERSION, authRequest.Version) > 4)
+                {
+                    clientNonce = RandomNumberGenerator.GetBytes(32);
+                }
+                negoTokens = authRequest.Tokens;
             }
-            else if (!_secContext.Complete)
+            else
             {
-                // This shouldn't ever happen but check it to ensure the loop doesn't run forever.
-                throw new Exception("FIXME: Expecting input token for CredSSP auth but receive none");
-            }
-
-            // Special case for NTLM wrapped in SPNEGO. The context is still expecting 1 more token so won't be
-            // complete but the NTLM auth message needs to be sent with the pubKeyAuth. The context is completed
-            // later down in that case.
-            if (outputToken.AsSpan().IndexOf(ntlm3Header) != -1)
-            {
-                break;
+                yield return WrapTSRequest(authRequest, buffer);
             }
         }
-        while (!_secContext.Complete);
 
         // Third stage is to exchange the public key information to ensure
-        _stage = CredSSPStage.KeyAuth;
-        int selectedVersion = Math.Min(credSSPVersion, TSRequest.CREDSSP_VERSION);
-        NegoData[]? pubKeyNegoData = null;
-        if (outputToken.Length > 0)
-        {
-            pubKeyNegoData = new NegoData[] { new(outputToken) };
-        }
+        _stage = CredSSPStage.GenerateClientKey;
 
-        byte[]? clientNonce = null;
-        if (selectedVersion > 4)
-        {
-            clientNonce = RandomNumberGenerator.GetBytes(32);
-        }
-
+        byte[] pubKeyBytes = _tlsContext.GetRemoteCertificate().GetPublicKey();
         byte[] pubKeyAuth = GetPubKeyAuth(pubKeyBytes, "initiate", clientNonce);
         pubKeyAuth = _secContext.Wrap(pubKeyAuth);
 
-        tsRequest = new(tokens: pubKeyNegoData, pubKeyAuth: pubKeyAuth, clientNonce: clientNonce);
-
-        asnWriter = new(AsnEncodingRules.DER);
-        tsRequest.ToBytes(asnWriter);
-        read = asnWriter.Encode(buffer);
-
-        _ssl.Write(buffer.AsSpan(0, read));
-        outputToken = Array.Empty<byte>();
-        yield return Convert.ToBase64String(_bio.BioRead());
+        TSRequest tsRequest = new(tokens: negoTokens, pubKeyAuth: pubKeyAuth, clientNonce: clientNonce);
+        yield return WrapTSRequest(tsRequest, buffer);
 
         // Fourth stage is to verify the server key auth and send the delegated credentials
-        _stage = CredSSPStage.Delegate;
-        read = _ssl.Read(buffer, 0, buffer.Length);
-        tsRequest = TSRequest.FromBytes(buffer.AsSpan(0, read), out var _);
-        tsRequest.CheckSuccess();
+        _stage = CredSSPStage.VerifyServerKey;
 
+        tsRequest = UnwrapTSRequest(buffer);
         if (tsRequest.Tokens?.Length > 0)
         {
             // NTLM over SPNEGO auth returned the mechListMIC for us to verify.
@@ -639,29 +491,23 @@ internal class CredSSPAuthProvider : AuthenticationProvider, IWinRMEncryptor
             throw new Exception("FIXME: Server did not response with pub key auth");
         }
         pubKeyAuth = _secContext.Unwrap(tsRequest.PubKeyAuth);
+
         byte[] expectedKey = GetPubKeyAuth(pubKeyBytes, "accept", clientNonce);
         if (!pubKeyAuth.SequenceEqual(expectedKey))
         {
             throw new Exception("FIXME: Public key verification failed");
         }
 
-        asnWriter = new(AsnEncodingRules.DER);
-        _credential.ToBytes(asnWriter);
-        read = asnWriter.Encode(buffer);
+        // Fifth stage is to wrap the credential and send to the peer.
+        _stage = CredSSPStage.Delegate;
 
+        int read = WrapCredSSPStructure(_credential, buffer);
         TSCredentials credentials = new(_credential.CredType, buffer.AsSpan(0, read).ToArray());
-        asnWriter = new(AsnEncodingRules.DER);
-        credentials.ToBytes(asnWriter);
-        read = asnWriter.Encode(buffer);
+        read = WrapCredSSPStructure(credentials, buffer);
         byte[] encCredentials = _secContext.Wrap(buffer.AsSpan(0, read));
 
         tsRequest = new(authInfo: encCredentials);
-        asnWriter = new(AsnEncodingRules.DER);
-        tsRequest.ToBytes(asnWriter);
-        read = asnWriter.Encode(buffer);
-
-        _ssl.Write(buffer.AsSpan(0, read));
-        yield return Convert.ToBase64String(_bio.BioRead());
+        yield return WrapTSRequest(tsRequest, buffer);
 
         _stage = CredSSPStage.Complete;
     }
@@ -669,20 +515,9 @@ internal class CredSSPAuthProvider : AuthenticationProvider, IWinRMEncryptor
     public byte[] Encrypt(Span<byte> data, out int paddingLength)
     {
         paddingLength = 0;
+        int trailerLength = _tlsContext.GetTlsTrailerLength(data.Length);
 
-        int trailerLength = _trailerLength ?? GetTlsTrailerLength(data.Length, _ssl.SslProtocol,
-            _ssl.NegotiatedCipherSuite, _ssl.HashAlgorithm, _ssl.CipherAlgorithm);
-        _trailerLength = trailerLength;
-
-        _ssl.Write(data);
-        ReadOnlySpan<byte> wrappedData = _bio.BioRead();
-
-        // Unfortunately the TLS "header" for WinRM is the trailing data, so the data needs to be rearranged in the
-        // order that
-        // int trailerOffset = wrappedData.Length - trailerLength;
-        // byte[] encrypted = new byte[wrappedData.Length];
-        // wrappedData.Slice(wrappedData.Length - trailerLength).CopyTo(encrypted.AsSpan());
-        // wrappedData.Slice(0, wrappedData.Length - trailerLength).CopyTo(encrypted.AsSpan(trailerLength));
+        Span<byte> wrappedData = _tlsContext.Encrypt(data);
 
         byte[] encData = new byte[4 + wrappedData.Length];
         BitConverter.TryWriteBytes(encData.AsSpan(0, 4),trailerLength);
@@ -694,9 +529,76 @@ internal class CredSSPAuthProvider : AuthenticationProvider, IWinRMEncryptor
     public Span<byte> Decrypt(Span<byte> data)
     {
         // Ignore the 4 byte header signature.
-        _bio.BioWrite(data[4..]);
-        int read = _ssl.Read(data);
-        return data[..read];
+        int length = _tlsContext.Decrypt(data[4..]);
+        return data.Slice(4, length);
+    }
+
+    private string WrapTSRequest(TSRequest request, Span<byte> buffer)
+    {
+        int read = WrapCredSSPStructure(request, buffer);
+        return Convert.ToBase64String(_tlsContext.Encrypt(buffer[..read]));
+    }
+
+    private TSRequest UnwrapTSRequest(Span<byte> buffer)
+    {
+        Span<byte> unwrappedData = _tlsContext.ReadInputToken(buffer);
+        TSRequest tsRequest = TSRequest.FromBytes(unwrappedData, out var _);
+        tsRequest.CheckSuccess();
+
+        return tsRequest;
+    }
+
+    private int WrapCredSSPStructure(CredSSPStructure obj, Span<byte> buffer)
+    {
+        AsnWriter writer = new(AsnEncodingRules.DER);
+        obj.ToBytes(writer);
+        return writer.Encode(buffer);
+    }
+
+    private IEnumerable<(TSRequest, bool)> DoAuthExchange(byte[] buffer)
+    {
+        // Used to detect if the final msg is the NTLM auth token as that's sent with the pubKeyAuth info.
+        // NTLMSSP\x00\x03\x00\x00\x00
+        byte[] ntlm3Header = new byte[] { 78, 84, 76, 77, 83, 83, 80, 0, 3, 0, 0, 0 };
+        int credSSPVersion = 0;
+
+        NegoData[]? negoDatas = new[] { new NegoData(_secContext.Step()) };
+        do
+        {
+            TSRequest tsRequest = new(tokens: negoDatas);
+            negoDatas = null; // Set to null for the end check
+            yield return (tsRequest, false);
+
+            tsRequest = UnwrapTSRequest(buffer);
+            credSSPVersion = tsRequest.Version;
+
+            byte[]? inputToken = tsRequest.Tokens?[0]?.Token;
+            if (inputToken?.Length > 0)
+            {
+                byte[] outputToken = _secContext.Step(inputToken);
+
+                if (outputToken.Length > 0)
+                {
+                    negoDatas = new[] { new NegoData(outputToken) };
+                }
+
+                // Special case for NTLM wrapped in SPNEGO. The context is still expecting 1 more token so won't be
+                // complete but the NTLM auth message needs to be sent with the pubKeyAuth. The context is completed
+                // later down in that case.
+                if (outputToken.AsSpan().IndexOf(ntlm3Header) != -1)
+                {
+                    break;
+                }
+            }
+            else if (!_secContext.Complete)
+            {
+                // This shouldn't ever happen but check it to ensure the loop doesn't run forever.
+                throw new Exception("FIXME: Expecting input token for CredSSP auth but receive none");
+            }
+        }
+        while (!_secContext.Complete);
+
+        yield return (new TSRequest(version: credSSPVersion, tokens: negoDatas), true);
     }
 
     private static byte[] GetPubKeyAuth(byte[] pubKey, string usage, byte[]? nonce)
@@ -725,45 +627,9 @@ internal class CredSSPAuthProvider : AuthenticationProvider, IWinRMEncryptor
 
     public override void Dispose()
     {
-        _ssl?.Dispose();
-        _bio?.Dispose();
         _secContext.Dispose();
+        _tlsContext.Dispose();
         _tokenGenerator?.Dispose();
         GC.SuppressFinalize(this);
-    }
-
-    private static int GetTlsTrailerLength(int dataLength, SslProtocols protocol, TlsCipherSuite cipherSuite,
-        HashAlgorithmType hashAlgorithm, CipherAlgorithmType cipherAlgorithm)
-    {
-        if (protocol == SslProtocols.Tls13)
-        {
-            // The 2 cipher suites MS supports (TLS_AES_*_GCM_SHA*) have a fixed length of 17.
-            return 17;
-        }
-        else if (cipherSuite.ToString().Contains("_GCM_"))
-        {
-            // GCM has a fixed length of 16 bytes
-            return 16;
-        }
-
-        int hashLength = hashAlgorithm switch
-        {
-            HashAlgorithmType.Md5 => 16,
-            HashAlgorithmType.Sha1 => 20,
-            HashAlgorithmType.Sha256 => 32,
-            HashAlgorithmType.Sha384 => 48,
-            _ => throw new NotImplementedException($"Unknown Cipher Suite {cipherSuite}"),
-        };
-
-        int prepadLength = dataLength + hashLength;
-        int paddingLength = cipherAlgorithm switch
-        {
-            CipherAlgorithmType.Rc4 => 0,
-            CipherAlgorithmType.Des => 8 - (prepadLength % 8),
-            CipherAlgorithmType.TripleDes => 8 - (prepadLength % 8),
-            _ => 16 - (prepadLength % 8),
-        };
-
-        return (prepadLength + paddingLength) - dataLength;
     }
 }
