@@ -49,11 +49,11 @@ public class StartWinRSProcess : PSCmdlet
 
     [Parameter()]
     [EncodingTransformer()]
-    public Encoding OutputEncoding { get; set; } = new UTF8Encoding(false);
+    public Encoding? OutputEncoding { get; set; } = new UTF8Encoding(false);
 
     [Parameter()]
     [EncodingTransformer()]
-    public Encoding InputEncoding { get; set; } = new UTF8Encoding(false);
+    public Encoding? InputEncoding { get; set; } = new UTF8Encoding(false);
 
     [Parameter()]
     public SwitchParameter DoNotStart { get; set; }
@@ -140,10 +140,10 @@ public class StartWinRSProcess : PSCmdlet
         {
             foreach (WSManSession s in Session)
             {
-                WinRSProcess process = new(s, FilePath, ArgumentList);
+                WinRSProcess process = new(s, FilePath, ArgumentList, OutputEncoding, InputEncoding);
                 if (!DoNotStart)
                 {
-                    process.Start(CurrentCancelToken.Token);
+                    process.StartAsync(CurrentCancelToken.Token).GetAwaiter().GetResult();
                 }
 
                 WriteObject(process);

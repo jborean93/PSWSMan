@@ -5,7 +5,7 @@ namespace PSWSMan;
 
 public class EncodingTransformer : ArgumentTransformationAttribute
 {
-    public override object Transform(EngineIntrinsics engineIntrinsics, object? inputData)
+    public override object? Transform(EngineIntrinsics engineIntrinsics, object? inputData)
     {
         if (inputData is Encoding inputEncoding)
         {
@@ -20,6 +20,7 @@ public class EncodingTransformer : ArgumentTransformationAttribute
 
         return inputStr.ToLowerInvariant() switch
         {
+            "raw" => null,
             "ascii" => Encoding.ASCII,
             "utf8" => new UTF8Encoding(false),
             "utf8nobom" => new UTF8Encoding(false),
