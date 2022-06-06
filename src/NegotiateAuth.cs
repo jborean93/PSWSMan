@@ -21,6 +21,14 @@ internal class NegotiateAuthProvider : AuthenticationProvider, IWinRMEncryptor
         }
     }
 
+    /// <summary>The Negotiate authentication provider.</summary>
+    /// <param name="username">Optional username to authenticate with, if null will use the current context.</param>
+    /// <param name="password">Optional password to authenticate with, if null will use the cached credentials.</param>
+    /// <param name="service">The SPN service part.</param>
+    /// <param name="hostname">The SPN hostname part.</param>
+    /// <param name="method">The negotiate authentication method to use through GSSAPI/SSPI.</param>
+    /// <param name="authHeaderName">The WinRM authentication header name.</param>
+    /// <param name="requestDelegate">Request a delegated ticket, Kerberos only.</param>
     public NegotiateAuthProvider(string? username, string? password, string service, string hostname,
         AuthenticationMethod method, string authHeaderName, bool requestDelegate)
     {
@@ -44,7 +52,7 @@ internal class NegotiateAuthProvider : AuthenticationProvider, IWinRMEncryptor
         }
         else if (response is not null)
         {
-            // This happens if the auth failed in the previous step failed, return the response as is.
+            // Pass back and let the connection code to handle it.
             return false;
         }
 

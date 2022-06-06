@@ -9,19 +9,13 @@ internal class WinRSClient
     private readonly WSManClient _wsman;
     private SelectorSet? _selectors;
 
-    public Guid? ShellId { get; internal set; }
     public string ResourceUri { get; }
-    public string InputStreams { get; }
-    public string OutputStreams { get; }
+    public Guid ShellId { get; internal set; } = Guid.Empty;
 
-    public WinRSClient(WSManClient wsman, string resourceUri, Guid? shellId = null, string inputStreams = "stdin",
-        string outputStreams = "stdout stderr")
+    public WinRSClient(WSManClient wsman, string resourceUri)
     {
         _wsman = wsman;
-        ShellId = shellId;
         ResourceUri = resourceUri;
-        InputStreams = inputStreams;
-        OutputStreams = outputStreams;
     }
 
     public T ReceiveData<T>(string data) where T : WSManPayload
@@ -65,15 +59,20 @@ internal class WinRSClient
         return _wsman.Command(ResourceUri, cmd, options: options, selectors: _selectors);
     }
 
-    public string Create(XElement? extra = null, OptionSet? options = null)
+    public string Create(
+        string inputStreams = "stdin",
+        string outputStreams = "stdout stderr",
+        Guid? shellId = null,
+        XElement? extra = null,
+        OptionSet? options = null)
     {
         XElement shell = new(WSManNamespace.rsp + "Shell",
-            new XElement(WSManNamespace.rsp + "InputStreams", InputStreams),
-            new XElement(WSManNamespace.rsp + "OutputStreams", OutputStreams)
+            new XElement(WSManNamespace.rsp + "InputStreams", inputStreams),
+            new XElement(WSManNamespace.rsp + "OutputStreams", outputStreams)
         );
-        if (ShellId is not null)
+        if (shellId is not null)
         {
-            shell.SetAttributeValue("ShellId", ShellId?.ToString()?.ToUpperInvariant());
+            shell.SetAttributeValue("ShellId", shellId?.ToString()?.ToUpperInvariant());
         }
         if (extra is not null)
         {

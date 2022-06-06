@@ -1,6 +1,5 @@
 using System;
 using System.Net.Http;
-using System.Security.Authentication;
 using System.Text;
 
 namespace PSWSMan;
@@ -12,6 +11,9 @@ internal class BasicAuthProvider : AuthenticationProvider
 
     public override bool Complete => _complete;
 
+    /// <summary>Basic authentication provider.</summary>
+    /// <param name="username">The username to authenticate as.</param>
+    /// <param name="password">The password to authenticate with.</param>
     public BasicAuthProvider(string? username, string? password)
     {
         _authValue = "Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes($"{username}:{password}"));

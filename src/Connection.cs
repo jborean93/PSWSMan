@@ -8,6 +8,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
@@ -63,7 +64,7 @@ internal class WSManConnection : IDisposable
             if (authProvider is not IWinRMEncryptor)
             {
                 string provClass = authProvider.GetType().Name;
-                throw new InvalidOperationException(
+                throw new ArgumentException(
                     $"Cannot encrypt WSMan payload as {provClass} does not support message encryption.");
             }
             _encryptor = (IWinRMEncryptor)authProvider;
@@ -72,8 +73,9 @@ internal class WSManConnection : IDisposable
 
     /// <summary>Send a HTTP payload as a POST request.</summary>
     /// <param name="message">The HTTP payload to send.</param>
+    /// <param name="cancelToken">The cancellation token for the request.</param>
     /// <returns>The response for this request.</returns>
-    public async Task<string> SendMessage(string message)
+    public async Task<string> SendMessage(string message, CancellationToken cancelToken)
     {
         HttpRequestMessage request;
 
@@ -85,7 +87,7 @@ internal class WSManConnection : IDisposable
             _http = GetWSManHttpClient();
 
             content = PrepareContent(message);
-            response = await Authenticate(_http, content);
+            response = await Authenticate(_http, content, cancelToken);
 
             // If doing HTTP encryption, the response isn't the final response as the request need to be resent with
             // encryption
@@ -102,18 +104,23 @@ internal class WSManConnection : IDisposable
             request = new(HttpMethod.Post, _connectionUri);
             request.Content = content;
 
-            response = await _http.SendAsync(request).ConfigureAwait(false);
+            response = await _http.SendAsync(request, cancelToken).ConfigureAwait(false);
         }
 
         string responseContent = await ProcessResponse(response).ConfigureAwait(false);
-        if (string.IsNullOrWhiteSpace(responseContent))
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            throw new AuthenticationException("WinRM authentication failure");
+        }
+        else if (string.IsNullOrWhiteSpace(responseContent))
         {
             response.EnsureSuccessStatusCode();
         }
         return responseContent;
     }
 
-    private async Task<HttpResponseMessage> Authenticate(HttpClient http, HttpContent content)
+    private async Task<HttpResponseMessage> Authenticate(HttpClient http, HttpContent content,
+        CancellationToken cancelToken)
     {
         // The WSMan http client is set to call the authentication provider and add the first token once the socket
         // is connected and TLS negotiated (if needed). This is required as some auth providers require the TLS
@@ -125,7 +132,7 @@ internal class WSManConnection : IDisposable
             _authProvider,
             _sslOptions);
         request.Content = content;
-        HttpResponseMessage response = await http.SendAsync(request).ConfigureAwait(false);
+        HttpResponseMessage response = await http.SendAsync(request, cancelToken).ConfigureAwait(false);
 
         while (!_authProvider.Complete)
         {
@@ -136,7 +143,7 @@ internal class WSManConnection : IDisposable
                 // No more rounds needed to authenticate with the remote host.
                 break;
             }
-            response = await http.SendAsync(request).ConfigureAwait(false);
+            response = await http.SendAsync(request, cancelToken).ConfigureAwait(false);
         }
 
         return response;

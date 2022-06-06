@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Formats.Asn1;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Security;
@@ -347,13 +348,23 @@ internal class TSPasswordCreds : TSCredentialBase
 
 internal enum CredSSPStage
 {
+    /// <summary>CredSSP context has not started.</summary>
     Start,
+
+    /// <summary>CredSSP is performing the TLS handshake.</summary>
     TlsHandshake,
+
+    /// <summary>CredSSP is performing the negotiate authentication.</summary>
     Negotiate,
+
+    /// <summary>CredSSP is generating the client public key data.</summary>
     GenerateClientKey,
+
+    /// <summary>CredSSP is verifying the server public key data.</summary>
     VerifyServerKey,
+
+    /// <summary>CredSSP is generating the credential delegation data.</summary>
     Delegate,
-    Complete
 }
 
 internal class CredSSPAuthProvider : AuthenticationProvider, IWinRMEncryptor
@@ -364,12 +375,17 @@ internal class CredSSPAuthProvider : AuthenticationProvider, IWinRMEncryptor
     private IEnumerator<string>? _tokenGenerator;
     private CredSSPStage _stage = CredSSPStage.Start;
 
-    public override bool Complete => _stage == CredSSPStage.Complete;
+    public override bool Complete => _stage == CredSSPStage.Delegate;
 
+    // Each chunk cannot exceed 16KiB which is the TLS record size.
     public int MaxEncryptionChunkSize => 16384;
 
     public string EncryptionProtocol => "application/HTTP-CredSSP-session-encrypted";
 
+    /// <summary>CredSSP authentication context</summary>
+    /// <param name="credential">The CredSSP credential that will be delegated.</param>
+    /// <param name="subAuthContext">The Negotiate authentication context used for authentication.</param>
+    /// <param name="sslOptions">Explicit SSL options to use for the CredSSP TLS context.</param>
     public CredSSPAuthProvider(TSCredentialBase credential, SecurityContext subAuthContext,
         SslClientAuthenticationOptions? sslOptions = null)
     {
@@ -393,19 +409,31 @@ internal class CredSSPAuthProvider : AuthenticationProvider, IWinRMEncryptor
     {
         if (Complete)
         {
-            throw new Exception("Auth provider is already completed");
+            return false;
         }
 
-        AuthenticationHeaderValue? respAuthHeader = response?.Headers.WwwAuthenticate.FirstOrDefault();
-        if (respAuthHeader is not null)
+        AuthenticationHeaderValue[]? respAuthHeader = response?.Headers.WwwAuthenticate.ToArray();
+        if (respAuthHeader?.Length == 1 && respAuthHeader[0].Scheme == "CredSSP")
         {
-            if (respAuthHeader.Scheme != "CredSSP")
+            // The input CredSSP token is sent to the inner TLS stream in order for the token generator to continue
+            // processing the data.
+            _tlsContext.WriteInputToken(respAuthHeader[0].Parameter ?? "");
+        }
+        else if (response is not null)
+        {
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 // This typically happens if the client sent a malformed CredSSP packet and the server couldn't process
-                // it so the auth resets itself.
-                throw new Exception($"Unknown authentication failure at CredSSP stage {_stage}");
+                // it so the auth resets itself. We can provide a more detailed error rather than the one the
+                // connection code applies.
+                throw new AuthenticationException(
+                    $"CredSSP server did not response to token during the stage {_stage}");
             }
-            _tlsContext.WriteInputToken(respAuthHeader.Parameter ?? "");
+            else
+            {
+                // Pass back and let the connection code to handle it.
+                return false;
+            }
         }
 
         _tokenGenerator ??= TokenGenerator().GetEnumerator();
@@ -415,101 +443,19 @@ internal class CredSSPAuthProvider : AuthenticationProvider, IWinRMEncryptor
         }
         catch (Exception e)
         {
-            throw new Exception($"CredSSP Auth exchange failed at {_stage}: {e.Message}", e);
+            throw new AuthenticationException(
+                $"CredSSP authentication failure during the stage {_stage}: {e.Message}", e);
         }
 
+        string authValue = _tokenGenerator.Current;
+        request.Headers.Add("Authorization", $"CredSSP {authValue}");
         if (Complete)
         {
             _tokenGenerator.Dispose();
             _tokenGenerator = null;
-            return false;
-        }
-        else
-        {
-            string authValue = _tokenGenerator.Current;
-            request.Headers.Add("Authorization", $"CredSSP {authValue}");
-            return true;
-        }
-    }
-
-    private IEnumerable<string> TokenGenerator()
-    {
-        // First stage is the TLS Handshake which needs to be exchanged with the peer.
-        _stage = CredSSPStage.TlsHandshake;
-        foreach (string token in _tlsContext.DoHandshake())
-        {
-            yield return token;
         }
 
-        byte[] buffer = new byte[16384];
-
-        // Second stage is the authentication exchange done over Negotiate, Kerberos, or NTLM. If the auth exchange
-        // contains an odd amount (excluding 1) of tokens (NTLM), the final token is sent in step 3 as part of the
-        // pubKeyAuth stage.
-        _stage = CredSSPStage.Negotiate;
-
-        NegoData[]? negoTokens = null;
-        byte[]? clientNonce = null;
-        foreach ((TSRequest authRequest, bool isEnd) in DoAuthExchange(buffer))
-        {
-            if (isEnd)
-            {
-                if (Math.Min(TSRequest.CREDSSP_VERSION, authRequest.Version) > 4)
-                {
-                    clientNonce = RandomNumberGenerator.GetBytes(32);
-                }
-                negoTokens = authRequest.Tokens;
-            }
-            else
-            {
-                yield return WrapTSRequest(authRequest, buffer);
-            }
-        }
-
-        // Third stage is to exchange the public key information to ensure
-        _stage = CredSSPStage.GenerateClientKey;
-
-        byte[] pubKeyBytes = _tlsContext.GetRemoteCertificate().GetPublicKey();
-        byte[] pubKeyAuth = GetPubKeyAuth(pubKeyBytes, "initiate", clientNonce);
-        pubKeyAuth = _secContext.Wrap(pubKeyAuth);
-
-        TSRequest tsRequest = new(tokens: negoTokens, pubKeyAuth: pubKeyAuth, clientNonce: clientNonce);
-        yield return WrapTSRequest(tsRequest, buffer);
-
-        // Fourth stage is to verify the server key auth and send the delegated credentials
-        _stage = CredSSPStage.VerifyServerKey;
-
-        tsRequest = UnwrapTSRequest(buffer);
-        if (tsRequest.Tokens?.Length > 0)
-        {
-            // NTLM over SPNEGO auth returned the mechListMIC for us to verify.
-            _secContext.Step(tsRequest.Tokens?[0]?.Token ?? Array.Empty<byte>());
-        }
-
-        if (tsRequest.PubKeyAuth == null)
-        {
-            throw new Exception("FIXME: Server did not response with pub key auth");
-        }
-        pubKeyAuth = _secContext.Unwrap(tsRequest.PubKeyAuth);
-
-        byte[] expectedKey = GetPubKeyAuth(pubKeyBytes, "accept", clientNonce);
-        if (!pubKeyAuth.SequenceEqual(expectedKey))
-        {
-            throw new Exception("FIXME: Public key verification failed");
-        }
-
-        // Fifth stage is to wrap the credential and send to the peer.
-        _stage = CredSSPStage.Delegate;
-
-        int read = WrapCredSSPStructure(_credential, buffer);
-        TSCredentials credentials = new(_credential.CredType, buffer.AsSpan(0, read).ToArray());
-        read = WrapCredSSPStructure(credentials, buffer);
-        byte[] encCredentials = _secContext.Wrap(buffer.AsSpan(0, read));
-
-        tsRequest = new(authInfo: encCredentials);
-        yield return WrapTSRequest(tsRequest, buffer);
-
-        _stage = CredSSPStage.Complete;
+        return true;
     }
 
     public byte[] Encrypt(Span<byte> data, out int paddingLength)
@@ -533,34 +479,140 @@ internal class CredSSPAuthProvider : AuthenticationProvider, IWinRMEncryptor
         return data.Slice(4, length);
     }
 
+    /// <summary>Start a CredSSP authentication exchange.</summary>
+    /// <remarks>
+    /// The TLS context <c>WriteInputToken</c> method should be called after each exchange to store the input CredSSP
+    /// token for the enumerable to process on each iteration.
+    /// </remarks>
+    /// <returns>The CredSSP tokens to exchange with the server.</returns>
+    private IEnumerable<string> TokenGenerator()
+    {
+        // First stage is the TLS Handshake which needs to be exchanged with the peer.
+        _stage = CredSSPStage.TlsHandshake;
+
+        foreach (string token in _tlsContext.DoHandshake())
+        {
+            yield return token;
+        }
+
+        byte[] buffer = new byte[16384];
+
+        // Second stage is the authentication exchange done over Negotiate, Kerberos, or NTLM. If the auth exchange
+        // contains an odd amount (excluding 1) of tokens (NTLM), the final token is sent in step 3 as part of the
+        // pubKeyAuth stage.
+        _stage = CredSSPStage.Negotiate;
+
+        NegoData[]? negoTokens = null;
+        byte[]? clientNonce = null;
+        foreach ((TSRequest authRequest, bool isEnd) in DoAuthExchange(buffer))
+        {
+            if (isEnd)
+            {
+                // The final TSRequest token contains the server CredSSP protocol version and any remaining negotiate
+                // tokens that need to be part of the pub key auth request stage. The CredSSP protocol version dictates
+                // whether a client nonce is used as part of the pub key auth.
+                if (Math.Min(TSRequest.CREDSSP_VERSION, authRequest.Version) > 4)
+                {
+                    clientNonce = RandomNumberGenerator.GetBytes(32);
+                }
+                negoTokens = authRequest.Tokens;
+            }
+            else
+            {
+                yield return WrapTSRequest(authRequest, buffer);
+            }
+        }
+
+        // Third stage is to exchange the public key information for MitM attack mitigations
+        _stage = CredSSPStage.GenerateClientKey;
+
+        byte[] pubKeyBytes = _tlsContext.GetRemoteCertificate().GetPublicKey();
+        byte[] pubKeyAuth = GetPubKeyAuth(pubKeyBytes, true, clientNonce);
+        pubKeyAuth = _secContext.Wrap(pubKeyAuth);
+
+        TSRequest tsRequest = new(tokens: negoTokens, pubKeyAuth: pubKeyAuth, clientNonce: clientNonce);
+        yield return WrapTSRequest(tsRequest, buffer);
+
+        // Fourth stage is to verify the server key auth
+        _stage = CredSSPStage.VerifyServerKey;
+
+        tsRequest = UnwrapTSRequest(buffer);
+        if (tsRequest.Tokens?.Length > 0)
+        {
+            // NTLM over SPNEGO auth returned the mechListMIC for us to verify.
+            _secContext.Step(tsRequest.Tokens?[0]?.Token ?? Array.Empty<byte>());
+        }
+
+        if (tsRequest.PubKeyAuth == null)
+        {
+            throw new AuthenticationException("CredSSP Server did not response with pub key auth information.");
+        }
+        pubKeyAuth = _secContext.Unwrap(tsRequest.PubKeyAuth);
+
+        byte[] expectedKey = GetPubKeyAuth(pubKeyBytes, false, clientNonce);
+        if (!pubKeyAuth.SequenceEqual(expectedKey))
+        {
+            throw new AuthenticationException("CredSSP Public key verification failed.");
+        }
+
+        // Fifth stage is to wrap the credential and send to the peer.
+        _stage = CredSSPStage.Delegate;
+
+        int read = EncodeCredSSPStructure(_credential, buffer);
+        TSCredentials credentials = new(_credential.CredType, buffer.AsSpan(0, read).ToArray());
+        read = EncodeCredSSPStructure(credentials, buffer);
+        byte[] encCredentials = _secContext.Wrap(buffer.AsSpan(0, read));
+
+        tsRequest = new(authInfo: encCredentials);
+        yield return WrapTSRequest(tsRequest, buffer);
+    }
+
+    /// <summary>Wrap a TSRequest into the output CredSSP token to exchange with a server.</summary>
+    /// <param name="request">The TSRequest to wrap.</param>
+    /// <param name="buffer">The buffer used to store the temp bytes for serialization.</param>
+    /// <returns>The base64 encoded CredSSP token to send to the server.</returns>
     private string WrapTSRequest(TSRequest request, Span<byte> buffer)
     {
-        int read = WrapCredSSPStructure(request, buffer);
+        int read = EncodeCredSSPStructure(request, buffer);
         return Convert.ToBase64String(_tlsContext.Encrypt(buffer[..read]));
     }
 
+    /// <summary>Unwrap a TSRequest from the input TLS buffer and check the error code.</summary>
+    /// <param name="buffer">The buffer that is used as a buffer for unwrapping the TSRequest.</param>
+    /// <returns>The TSRequest that was unwrapped.</returns>
     private TSRequest UnwrapTSRequest(Span<byte> buffer)
     {
-        Span<byte> unwrappedData = _tlsContext.ReadInputToken(buffer);
-        TSRequest tsRequest = TSRequest.FromBytes(unwrappedData, out var _);
+        int length = _tlsContext.ReadInputToken(buffer);
+        TSRequest tsRequest = TSRequest.FromBytes(buffer[..length], out var _);
         tsRequest.CheckSuccess();
 
         return tsRequest;
     }
 
-    private int WrapCredSSPStructure(CredSSPStructure obj, Span<byte> buffer)
+    /// <summary>Encode a CredSSP ASN.1 structure to the input buffer.</summary>
+    /// <param name="obj">The CredSSP ASN.1 structure to encode.</param>
+    /// <param name="buffer">THe buffer to encode the structure to.</param>
+    /// <returns>The number of bytes that were encoded in the input buffer.</returns>
+    private static int EncodeCredSSPStructure(CredSSPStructure obj, Span<byte> buffer)
     {
         AsnWriter writer = new(AsnEncodingRules.DER);
         obj.ToBytes(writer);
         return writer.Encode(buffer);
     }
 
+    /// <summary>Start a negotiate authentication exchange over CredSSP.</summary>
+    /// <param name="buffer">The shared buffer to use for encoding the ASN.1 structures.</param>
+    /// <returns>
+    /// Yields a TSRequest and bool to indicate it's the last entry. Each TSRequest should be wrapped by the TLS
+    /// context and sent to the server expect the last entry which contains the Version of the server and an optional
+    /// Tokens value to use for the PubKeyAuth phase.
+    /// </returns>
     private IEnumerable<(TSRequest, bool)> DoAuthExchange(byte[] buffer)
     {
         // Used to detect if the final msg is the NTLM auth token as that's sent with the pubKeyAuth info.
         // NTLMSSP\x00\x03\x00\x00\x00
         byte[] ntlm3Header = new byte[] { 78, 84, 76, 77, 83, 83, 80, 0, 3, 0, 0, 0 };
-        int credSSPVersion = 0;
+        int credSSPVersion;
 
         NegoData[]? negoDatas = new[] { new NegoData(_secContext.Step()) };
         do
@@ -593,7 +645,8 @@ internal class CredSSPAuthProvider : AuthenticationProvider, IWinRMEncryptor
             else if (!_secContext.Complete)
             {
                 // This shouldn't ever happen but check it to ensure the loop doesn't run forever.
-                throw new Exception("FIXME: Expecting input token for CredSSP auth but receive none");
+                throw new AuthenticationException(
+                    "CredSSP exchange failure, expecting input token to complete negotiate auth.");
             }
         }
         while (!_secContext.Complete);
@@ -601,11 +654,16 @@ internal class CredSSPAuthProvider : AuthenticationProvider, IWinRMEncryptor
         yield return (new TSRequest(version: credSSPVersion, tokens: negoDatas), true);
     }
 
-    private static byte[] GetPubKeyAuth(byte[] pubKey, string usage, byte[]? nonce)
+    /// <summary>Generates the CredSSP PubKeyAuth value.</summary>
+    /// <param name="pubKey">The server public key bytes.</param>
+    /// <param name="forClient">The PubKeyAuth value is for the client auth check.</param>
+    /// <param name="nonce">The client nonce value on CredSSP v5 or newer.</param>
+    /// <returns><The CredSSP PubKeyAuth value.</returns>
+    private static byte[] GetPubKeyAuth(byte[] pubKey, bool forClient, byte[]? nonce)
     {
         if (nonce?.Length > 0)
         {
-            string direction = usage == "initiate" ? "Client-To-Server" : "Server-To-Client";
+            string direction = forClient ? "Client-To-Server" : "Server-To-Client";
             using SHA256 sha256 = SHA256.Create();
 
             byte[] label = Encoding.UTF8.GetBytes($"CredSSP {direction} Binding Hash\u0000");
@@ -614,7 +672,7 @@ internal class CredSSPAuthProvider : AuthenticationProvider, IWinRMEncryptor
             sha256.TransformFinalBlock(pubKey, 0, pubKey.Length);
             return sha256.Hash ?? Array.Empty<byte>();
         }
-        else if (usage == "accept")
+        else if (!forClient)
         {
             pubKey[0]++;
             return pubKey;
