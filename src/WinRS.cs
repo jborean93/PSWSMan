@@ -7,15 +7,12 @@ namespace PSWSMan;
 internal class WinRSClient
 {
     private readonly WSManClient _wsman;
+    private string _resourceUri = "";
     private SelectorSet? _selectors;
 
-    public string ResourceUri { get; }
-    public Guid ShellId { get; internal set; } = Guid.Empty;
-
-    public WinRSClient(WSManClient wsman, string resourceUri)
+    public WinRSClient(WSManClient wsman)
     {
         _wsman = wsman;
-        ResourceUri = resourceUri;
     }
 
     public T ReceiveData<T>(string data) where T : WSManPayload
@@ -23,7 +20,7 @@ internal class WinRSClient
         T resp = WSManClient.ParseWSManPayload<T>(data);
         if (resp is WSManCreateResponse createResp)
         {
-            ShellId = createResp.ShellId;
+            _resourceUri = createResp.ResourceUri;
             _selectors = createResp.Selectors;
         }
 
@@ -32,7 +29,7 @@ internal class WinRSClient
 
     public string Close()
     {
-        return _wsman.Delete(ResourceUri, selectors: _selectors);
+        return _wsman.Delete(_resourceUri, selectors: _selectors);
     }
 
     public string Command(string executable, IList<string>? arguments = null, bool noShell = false,
@@ -56,10 +53,11 @@ internal class WinRSClient
             cmd.SetAttributeValue("CommandId", commandId?.ToString()?.ToUpperInvariant());
         }
 
-        return _wsman.Command(ResourceUri, cmd, options: options, selectors: _selectors);
+        return _wsman.Command(_resourceUri, cmd, options: options, selectors: _selectors);
     }
 
     public string Create(
+        string resourceUri,
         string inputStreams = "stdin",
         string outputStreams = "stdout stderr",
         Guid? shellId = null,
@@ -79,7 +77,7 @@ internal class WinRSClient
             shell.Add(extra);
         }
 
-        return _wsman.Create(ResourceUri, shell, options: options);
+        return _wsman.Create(resourceUri, shell, options: options);
     }
 
     public string Receive(string stream, Guid? commandId = null)
@@ -93,7 +91,7 @@ internal class WinRSClient
         OptionSet options = new();
         options.Add("WSMAN_CMDSHELL_OPTION_KEEPALIVE", true, new());
 
-        return _wsman.Receive(ResourceUri, receive, options: options, selectors: _selectors);
+        return _wsman.Receive(_resourceUri, receive, options: options, selectors: _selectors);
     }
 
     public string Send(string stream, byte[] data, Guid? commandId = null, bool end = false)
@@ -113,7 +111,7 @@ internal class WinRSClient
 
         XElement send = new(WSManNamespace.rsp + "Send", streamMsg);
 
-        return _wsman.Send(ResourceUri, send, selectors: _selectors);
+        return _wsman.Send(_resourceUri, send, selectors: _selectors);
     }
 
     public string Signal(SignalCode code, Guid? commandId = null)
@@ -126,6 +124,6 @@ internal class WinRSClient
             signal.SetAttributeValue("CommandId", commandId?.ToString()?.ToUpperInvariant());
         }
 
-        return _wsman.Signal(ResourceUri, signal, selectors: _selectors);
+        return _wsman.Signal(_resourceUri, signal, selectors: _selectors);
     }
 }

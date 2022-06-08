@@ -245,12 +245,12 @@ internal class WSManSet
     protected WSManSet(WSManSet fromCopy) : this(new(fromCopy._raw), fromCopy._valueLabel)
     { }
 
-    public void Add(string name, object value, Dictionary<string, object> attributes)
+    public void Add(string name, object value, Dictionary<string, object>? attributes = null)
     {
         XElement element = new(WSManNamespace.wsman + _valueLabel,
             new XAttribute("Name", name),
             value);
-        foreach (KeyValuePair<string, object> attr in attributes)
+        foreach (KeyValuePair<string, object> attr in attributes ?? new())
         {
             element.Add(new XAttribute(attr.Key, attr.Value));
         }

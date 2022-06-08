@@ -14,9 +14,6 @@ public enum AuthenticationMethod
     /// <summary>Simple Basic authentication, doesn't provide any encryption over HTTP.</summary>
     Basic,
 
-    /// <summary>X.509 certificate authentication over HTTPS.</summary>
-    Certificate,
-
     /// <summary>Tries Kerberos authentication with a fallback to NTLM if that's not available.</summary>
     Negotiate,
 

@@ -1,6 +1,9 @@
 using System;
+using System.Globalization;
 using System.Management.Automation;
+using System.Management.Automation.Runspaces;
 using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -17,29 +20,26 @@ internal static class GlobalState
 
 public sealed class WSManSession : IDisposable
 {
-    private readonly CreateNewConnection _connectionFactory;
+    public Uri ConnectionUri { get; }
 
-    public Uri Uri { get; }
-
-    public Guid Id => WinRS.ShellId;
+    internal WSManSessionOption Options { get; }
 
     internal WSManConnection Connection { get; }
 
     internal WinRSClient WinRS { get; }
 
-    internal delegate WSManConnection CreateNewConnection();
 
-    internal WSManSession(Uri uri, WinRSClient winrs, CreateNewConnection connectionFactory)
+    internal WSManSession(Uri connectionUri, WinRSClient winrs, WSManSessionOption options)
     {
-        _connectionFactory = connectionFactory;
-        Uri = uri;
-        Connection = connectionFactory();
+        ConnectionUri = connectionUri;
         WinRS = winrs;
+        Options = options;
+        Connection = options.CreateConnection();
     }
 
     internal WSManSession Copy()
     {
-        return new(Uri, WinRS, _connectionFactory);
+        return new(ConnectionUri, WinRS, Options);
     }
 
     internal async Task<T> PostRequest<T>(string payload, CancellationToken cancelToken = default)
@@ -57,43 +57,106 @@ public sealed class WSManSession : IDisposable
     ~WSManSession() { Dispose(); }
 }
 
-internal static class WSManSessionFactory
+public class WSManSessionOption
 {
-    internal static WSManSession Create(
-        Uri uri,
-        bool isTls,
-        string resourceUri,
-        AuthenticationMethod authMethod,
-        PSCredential? credential,
-        WinRSSessionOption sessionOption)
+    public string? _dataLocale;
+
+    public Uri ConnectionUri { get; set; }
+
+    public int OperationTimeout { get; set; }
+
+    public int MaxEnvelopeSize { get; set; } = 153600;
+
+    public string Locale { get; set; }
+
+    public string DataLocale
+    {
+        get => _dataLocale ?? Locale;
+        set => _dataLocale = value;
+    }
+
+    public SslClientAuthenticationOptions? TlsOptions { get; set; }
+
+    public AuthenticationMethod AuthMethod { get; set; } = AuthenticationMethod.Default;
+
+    public string? UserName { get; set; }
+
+    public string? Password { get; set; }
+
+    public bool NoEncryption { get; set; }
+
+    public string? SPNService { get; set; }
+
+    public string? SPNHostName { get; set; }
+
+    public bool RequestKerberosDelegate { get; set; }
+
+    public SslClientAuthenticationOptions? CredSSPTlsOptions { get; set; }
+
+    public AuthenticationMethod CredSSPAuthMethod { get; set; } = AuthenticationMethod.Negotiate;
+
+    public X509Certificate? ClientCertificate { get; set; }
+
+    public WSManSessionOption(Uri connectionUri, int operationTimeout, string locale)
+    {
+        ConnectionUri = connectionUri;
+        OperationTimeout = operationTimeout;
+        Locale = locale;
+    }
+
+    internal WSManSession CreateSession()
     {
         WSManClient wsman = new(
-            uri,
-            153600,
-            sessionOption.OperationTimeout == 0 ? 30 : sessionOption.OperationTimeout,
-            sessionOption.Culture ?? "en-US",
-            sessionOption.UICulutre);
-        WinRSClient winrs = new(wsman, resourceUri);
+            ConnectionUri,
+            MaxEnvelopeSize,
+            OperationTimeout,
+            Locale,
+            DataLocale);
+        WinRSClient winrs = new(wsman);
 
-        SslClientAuthenticationOptions? sslOptions = sessionOption.SslOptions;
-        SslClientAuthenticationOptions? credSSPSslOptions = null;
-        if (sslOptions is null && isTls)
+        return new(ConnectionUri, winrs, this);
+    }
+
+    internal WSManConnection CreateConnection()
+    {
+        bool isTls = ConnectionUri.Scheme == Uri.UriSchemeHttps;
+        bool encrypt = !(isTls || NoEncryption);
+        AuthenticationProvider authProvider = GenerateAuthProvider();
+
+        if (encrypt && authProvider is not IWinRMEncryptor)
         {
-            sslOptions = new()
+            throw new ArgumentException($"Cannot perform encryption for {authProvider.GetType().Name}");
+        }
+
+        SslClientAuthenticationOptions? sslOptions = null;
+        if (isTls)
+        {
+            sslOptions = TlsOptions ?? new()
             {
-                TargetHost = uri.DnsSafeHost,
+                TargetHost = ConnectionUri.DnsSafeHost,
             };
-
-            if (sessionOption.SkipCertificateCheck)
-            {
-                sslOptions.RemoteCertificateValidationCallback = (_1, _2, _3, _4) => true;
-            }
-        }
-        else
-        {
-            credSSPSslOptions = sslOptions;
         }
 
+        // FIXME: Set default header and client cert for cert auth
+        // request.Headers.Add("Authorization", "http://schemas.dmtf.org/wbem/wsman/1/wsman/secprofile/https/mutual");
+
+        // Until net7 is the minimum we need to rewrite the URI so that the scheme is always http. This allows the
+        // connection handler to wrap it's own TLS stream used to get the channel binding token information for
+        // authentication. When setting net7 as the minimum this can be removed as it adds an instance check for
+        // SslStream and doesn't try and wrap it again.
+        // https://github.com/dotnet/runtime/pull/63851
+        UriBuilder uriBuilder = new(ConnectionUri);
+        uriBuilder.Scheme = "http";
+
+        return new(uriBuilder.Uri, authProvider, sslOptions, encrypt);
+    }
+
+    internal AuthenticationProvider GenerateAuthProvider()
+    {
+        string spnService = SPNService ?? "host";
+        string spnHostName = SPNHostName ?? ConnectionUri.DnsSafeHost;
+
+        AuthenticationMethod authMethod = AuthMethod;
         if (authMethod == AuthenticationMethod.Default)
         {
             authMethod = GlobalState.GssapiProvider == GssapiProvider.None
@@ -101,71 +164,19 @@ internal static class WSManSessionFactory
                 : AuthenticationMethod.Negotiate;
         }
 
-        WSManSession.CreateNewConnection connectionFactory = (() =>
-        {
-            bool encrypt = !(isTls || sessionOption.NoEncryption);
-            string spnService = sessionOption.SPNService ?? "host";
-            string spnHostname = sessionOption.SPNHostname ?? uri.DnsSafeHost;
-            AuthenticationProvider authProvider = GenerateAuthProvider(
-                authMethod,
-                encrypt,
-                credential,
-                sslOptions,
-                spnService,
-                spnHostname,
-                sessionOption.RequestDelegate,
-                credSSPSslOptions);
-
-            return new(uri, authProvider, sslOptions, encrypt);
-        });
-
-        return new WSManSession(uri, winrs, connectionFactory);
-    }
-
-    internal static AuthenticationProvider GenerateAuthProvider(
-        AuthenticationMethod authMethod,
-        bool encrypt,
-        PSCredential? credential,
-        SslClientAuthenticationOptions? sslOptions,
-        string spnService,
-        string spnHostname,
-        bool requestDelegate,
-        SslClientAuthenticationOptions? credSSPSslOption)
-    {
-        if (authMethod == AuthenticationMethod.Default)
-        {
-            // FIXME: Select based on whether GSSAPI/Negotiate is present
-            authMethod = AuthenticationMethod.Negotiate;
-        }
-
-        AuthenticationProvider authProvider;
         if (authMethod == AuthenticationMethod.Basic)
         {
-            authProvider = new BasicAuthProvider(
-                credential?.UserName,
-                credential?.GetNetworkCredential()?.Password
-            );
-        }
-        else if (authMethod == AuthenticationMethod.Certificate)
-        {
-            if (sslOptions is null)
-            {
-                throw new ArgumentException("Cannot use Certificate auth without a HTTPS connection");
-            }
-            // Need to set the relevant sslOptions for this somehow.
-            // request.Headers.Add("Authorization", "http://schemas.dmtf.org/wbem/wsman/1/wsman/secprofile/https/mutual");
-            throw new NotImplementedException(authMethod.ToString());
+            return new BasicAuthProvider(UserName, Password);
         }
         else if (authMethod == AuthenticationMethod.CredSSP)
         {
-            if (credential == null)
+            if (UserName is null || Password is null)
             {
-                throw new ArgumentException("Credential must be set for CredSSP authentication");
+                throw new ArgumentException("Username and password must be set for CredSSP authentication");
             }
 
             string domainName = "";
-            string username = credential.UserName;
-            string password = credential.GetNetworkCredential().Password;
+            string username = UserName;
             if (username.Contains('\\'))
             {
                 string[] stringSplit = username.Split('\\', 2);
@@ -174,35 +185,28 @@ internal static class WSManSessionFactory
             }
 
             SecurityContext subAuth = SecurityContext.GetPlatformSecurityContext(
-                credential.UserName,
-                password,
-                AuthenticationMethod.Negotiate,
+                username,
+                Password,
+                CredSSPAuthMethod,
                 spnService,
-                spnHostname,
+                spnHostName,
                 false);
-            TSPasswordCreds credSSPCreds = new(domainName, username, password);
-            authProvider = new CredSSPAuthProvider(
+            TSPasswordCreds credSSPCreds = new(domainName, username, Password);
+            return new CredSSPAuthProvider(
                 credSSPCreds,
                 subAuth,
-                credSSPSslOption);
+                CredSSPTlsOptions);
         }
         else
         {
-            authProvider = new NegotiateAuthProvider(
-                credential?.UserName,
-                credential?.GetNetworkCredential()?.Password,
+            return new NegotiateAuthProvider(
+                UserName,
+                Password,
                 spnService,
-                spnHostname,
+                spnHostName,
                 authMethod,
                 authMethod == AuthenticationMethod.Kerberos ? "Kerberos" : "Negotiate",
-                requestDelegate);
+                RequestKerberosDelegate);
         }
-
-        if (encrypt && authProvider is not IWinRMEncryptor)
-        {
-            throw new ArgumentException($"Cannot perform encryption for {authMethod}");
-        }
-
-        return authProvider;
     }
 }

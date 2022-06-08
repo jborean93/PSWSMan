@@ -211,7 +211,12 @@ task DoTest {
     }
 }
 
-task Build -Jobs Clean, BuildManaged, CopyToRelease, BuildDocs, Package
+task AssertSMA {
+    $AssertSMA = "$PSScriptRoot/tools/AssertSMA.ps1"
+    & $AssertSMA -RequiredVersion 7.2.0
+}
+
+task Build -Jobs Clean, AssertSMA, BuildManaged, CopyToRelease, BuildDocs, Package
 
 # FIXME: Work out why we need the obj and bin folder for coverage to work
 task Test -Jobs BuildManaged, Analyze, DoUnitTest, DoTest
