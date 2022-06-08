@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>10.0</LangVersion>
+    <!--A conflict with IgnoredAccessChecksToGenerator and Lib.Harmony fires this-->
+    <NoWarn>CS0436</NoWarn>
     <InternalsAssemblyNames>System.Management.Automation</InternalsAssemblyNames>
   </PropertyGroup>
 

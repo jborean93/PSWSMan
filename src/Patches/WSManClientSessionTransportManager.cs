@@ -71,12 +71,45 @@ internal static class Pwsh_WSManClientSessionTransportManagerCreateAsync
     static bool Prefix(WSManClientSessionTransportManager __instance, ref IntPtr ____wsManSessionHandle,
         PrioritySendDataCollection ___dataToBeSent)
     {
+        /*
+            This method sends the WSMan Create message. In Pwsh it returns early and the native API invokes a callback
+            function that handles the response. As this library has finer control the callback mess is avoided the
+            response is also processed here.
+        */
         WSManPSRPShim session = WSManCompatState.SessionInfo[____wsManSessionHandle];
-
         byte[] additionalData = ___dataToBeSent.ReadOrRegisterCallback(null, out var _);
 
-        session.CreateShellAsync(additionalData ?? Array.Empty<byte>()).GetAwaiter().GetResult();
+        try
+        {
+            session.CreateShellAsync(additionalData ?? Array.Empty<byte>()).GetAwaiter().GetResult();
+        }
+        catch (Exception e)
+        {
+            TransportErrorOccuredEventArgs err = new(new PSRemotingTransportException(e.Message, e),
+                TransportMethodEnum.CreateShellEx);
+            __instance.ProcessWSManTransportError(err);
+        }
+
+        // FUTURE: Add disconnect support
+        __instance.GetType()
+            .GetProperty("SupportsDisconnect", BindingFlags.NonPublic | BindingFlags.Instance)
+            ?.SetValue(__instance, false);
+
+        __instance.RaiseCreateCompleted(new CreateCompleteEventArgs(__instance.ConnectionInfo.Copy()));
+
+        // __instance.StartReceivingData();
+        // Start the receive thread that continuously polls the receive output
+        session.StartReceiveTask(__instance);
+
+        // __instance.SendOneItem();
+        byte[]? data = ___dataToBeSent.ReadOrRegisterCallback(OnDataAvailable, out _);
+        // Send if data is available
 
         return false;
+    }
+
+    static void OnDataAvailable(byte[] data, DataPriorityType priorityType)
+    {
+        // Send data
     }
 }

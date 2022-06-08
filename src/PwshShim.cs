@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Management.Automation.Runspaces;
+using System.Management.Automation.Remoting.Client;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
@@ -13,6 +14,7 @@ internal class WSManPSRPShim
     private readonly Guid _runspacePoolId;
     private readonly WSManSession _session;
     private readonly WSManConnectionInfo _connInfo;
+    private List<Task> _receiveThreads = new();
 
     private WSManPSRPShim(Guid runspacePoolId, WSManSession session, WSManConnectionInfo connInfo)
     {
@@ -115,8 +117,37 @@ internal class WSManPSRPShim
             extra: extraContent,
             options: shellOptions);
 
-        WSManCreateResponse resp = await _session.PostRequest<WSManCreateResponse>(payload);
-        string a = "";
+        await _session.PostRequest<WSManCreateResponse>(payload);
+    }
+
+    public void StartReceiveTask(WSManClientSessionTransportManager tm)
+    {
+        _receiveThreads.Add(Task.Run(() =>
+        {
+            using WSManSession session = _session.Copy();
+            while (true)
+            {
+                try
+                {
+                    string payload = session.WinRS.Receive("stdout");
+                    WSManReceiveResponse response = session.PostRequest<WSManReceiveResponse>(payload)
+                        .GetAwaiter().GetResult();
+                    string a = "";
+
+                    foreach (KeyValuePair<string, byte[][]> entry in response.Streams)
+                    {
+                        foreach (byte[] stream in entry.Value)
+                        {
+                            tm.ProcessRawData(stream, entry.Key);
+                        }
+                    }
+                }
+                catch (Exception e)
+                {
+                    throw;
+                }
+            }
+        }));
     }
 }
 
