@@ -232,52 +232,43 @@ internal class WSManConnection : IDisposable
             throw new ArgumentException("Received encrypted response but not encryption provider is set");
         }
 
-        string? boundary = contentType?.Parameters
-            .Where(p => p.Name == "boundary")
-            .Select(p => p.Value)
-            .FirstOrDefault()
-            ?.Trim('\\', '"');
-        if (string.IsNullOrWhiteSpace(boundary))
-        {
-            throw new ArgumentException($"Failed to determine encryption boundary from '{contentType}'");
-        }
-
         byte[] encData = await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-        return DecryptMimePayload(boundary, encData.AsSpan(), _encryptor);
+        return DecryptMimePayload(encData.AsSpan(), _encryptor);
     }
 
-    private string DecryptMimePayload(string boundary, Span<byte> payload, IWinRMEncryptor encryptor)
+    private string DecryptMimePayload(Span<byte> payload, IWinRMEncryptor encryptor)
     {
-        // The MIME payload from Exchange has a space after the '--' so just split by the boundary itself.
-        Span<byte> mimeSeparator = stackalloc byte[] { 45, 45 };
-        Span<byte> boundaryPattern = Encoding.UTF8.GetBytes(boundary).AsSpan();
+        // While the boundary text should be derived from the HTTP headers to form '--{boundary}\r\n' some endpoints,
+        // like Exchange Servers, put a space after the hyphens to become '-- {boundary}\r\n'. Instead of this just
+        // scan up to the first newline and use that value.
+        Span<byte> newLine = stackalloc byte[] { 0x0D, 0x0A };
+        int nextIdx = payload.IndexOf(newLine);
+        byte[] boundaryBytes = payload[..nextIdx].ToArray();
+        payload = payload[(nextIdx + 2)..];
 
-        // Ignore the start -- and end --\r\n
-        int boundaryIdx = payload.IndexOf(boundaryPattern);
-        payload = payload[(boundaryIdx + boundaryPattern.Length)..(payload.Length - 4)];
         StringBuilder response = new();
 
-        while (payload.Length > 0)
+        // The last payload in the MIME will have 2 extra bytes which are disregarded here.
+        while (payload.Length > 2)
         {
-            // First MIME part contains the metadata, including the length of the plaintext data.
-            boundaryIdx = payload.IndexOf(boundaryPattern);
-            string entry = Encoding.UTF8.GetString(payload[..boundaryIdx]).Trim('\r', '\n', '-');
+            // // First MIME part contains the metadata, including the length of the plaintext data.
+            nextIdx = payload.IndexOf(boundaryBytes);
+            string entry = Encoding.UTF8.GetString(payload[..nextIdx]);
             Match m = Regex.Match(entry, "Length=(\\d+)", RegexOptions.IgnoreCase);
             if (!m.Success)
             {
                 throw new ArgumentException("Invalid WSMan encryption payload - failed to find plaintext lenght size");
             }
             int expectedLength = int.Parse(m.Groups[1].Value);
-            payload = payload[(boundaryIdx + boundaryPattern.Length)..];
+            payload = payload[(nextIdx + boundaryBytes.Length + 2)..];
 
-            // Second MIME part contains a known header and encrypted contents.
-            boundaryIdx = payload.IndexOf(boundaryPattern);
-
-            // Length here is the '\r\nContent-Type: application/octet-stream\r\n' entry.
-            const int startIdx = 42;
-            int endIdx = payload[..boundaryIdx].LastIndexOf(mimeSeparator);
-            Span<byte> encryptedData = payload[startIdx..endIdx];
-            payload = payload[(boundaryIdx + boundaryPattern.Length)..];
+            // Second MIME part contains a known header and encrypted contents. Ignore the first Content-Type value and
+            // go to the next newline which contains the encrypted payload.
+            nextIdx = payload.IndexOf(newLine);
+            payload = payload[(nextIdx + 2)..];
+            nextIdx = payload.IndexOf(boundaryBytes);
+            Span<byte> encryptedData = payload[..nextIdx];
+            payload = payload[(nextIdx + boundaryBytes.Length + 2)..];
 
             Span<byte> decData = encryptor.Decrypt(encryptedData);
             if (decData.Length != expectedLength)

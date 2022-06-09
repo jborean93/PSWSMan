@@ -69,7 +69,8 @@ internal static class Pwsh_WSManClientSessionTransportManagerInitialize
 internal static class Pwsh_WSManClientSessionTransportManagerCreateAsync
 {
     static bool Prefix(WSManClientSessionTransportManager __instance, ref IntPtr ____wsManSessionHandle,
-        PrioritySendDataCollection ___dataToBeSent)
+        PrioritySendDataCollection ___dataToBeSent,
+        PrioritySendDataCollection.OnDataAvailableCallback ____onDataAvailableToSendCallback)
     {
         /*
             This method sends the WSMan Create message. In Pwsh it returns early and the native API invokes a callback
@@ -101,15 +102,61 @@ internal static class Pwsh_WSManClientSessionTransportManagerCreateAsync
         // Start the receive thread that continuously polls the receive output
         session.StartReceiveTask(__instance);
 
+        // FIXME: Send more packets if available
         // __instance.SendOneItem();
-        byte[]? data = ___dataToBeSent.ReadOrRegisterCallback(OnDataAvailable, out _);
-        // Send if data is available
+        byte[]? data = ___dataToBeSent.ReadOrRegisterCallback(____onDataAvailableToSendCallback, out _);
+        // FIXME: Send if data is available
 
         return false;
     }
+}
 
-    static void OnDataAvailable(byte[] data, DataPriorityType priorityType)
+[HarmonyPatch(typeof(WSManClientSessionTransportManager))]
+[HarmonyPatch(nameof(WSManClientSessionTransportManager.CloseAsync))]
+internal static class Pwsh_WSManClientSessionTransportManagerCloseAsync
+{
+    static bool Prefix(WSManClientSessionTransportManager __instance)
     {
-        // Send data
+        return false;
+    }
+}
+
+
+[HarmonyPatch(typeof(WSManClientSessionTransportManager))]
+[HarmonyPatch(nameof(WSManClientSessionTransportManager.AdjustForProtocolVariations))]
+internal static class Pwsh_WSManClientSessionTransportManagerAdjustForProtocolVariations
+{
+    static bool Prefix(WSManClientSessionTransportManager __instance, Version serverProtocolVersion)
+    {
+        // FIXME: Set max size to 500KiB is serverProtocolVersion > 2.1
+        return false;
+    }
+}
+
+[HarmonyPatch(typeof(WSManClientSessionTransportManager))]
+[HarmonyPatch(nameof(WSManClientSessionTransportManager.StartReceivingData))]
+internal static class Pwsh_WSManClientSessionTransportManagerStartReceivingData
+{
+    static bool Prefix()
+    {
+        /*
+            Called at various places, the CreateAsync has already started the receive so this whole block can be
+            stubbed out and ignored.
+        */
+        return false;
+    }
+}
+
+
+[HarmonyPatch(typeof(WSManClientSessionTransportManager))]
+[HarmonyPatch(nameof(WSManClientSessionTransportManager.OnDataAvailableCallback))]
+internal static class Pwsh_WSManClientSessionTransportManagerOnDataAvailableCallback
+{
+    static bool Prefix(WSManClientSessionTransportManager __instance, byte[] data, DataPriorityType priorityType)
+    {
+        /*
+            Called whenever data is available to be sent to the peer
+        */
+        return false;
     }
 }

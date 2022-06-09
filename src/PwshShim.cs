@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Management.Automation.Runspaces;
+using System.Management.Automation.Remoting;
 using System.Management.Automation.Remoting.Client;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
@@ -120,7 +121,15 @@ internal class WSManPSRPShim
         await _session.PostRequest<WSManCreateResponse>(payload);
     }
 
-    public void StartReceiveTask(WSManClientSessionTransportManager tm)
+    public async Task CreateCommandAsync(Guid commandId, byte[] psrpFragment)
+    {
+        string psrpPayload = Convert.ToBase64String(psrpFragment);
+
+        string payload = _session.WinRS.Command("", new[] { psrpPayload }, commandId: commandId);
+        await _session.PostRequest<WSManCommandResponse>(payload);
+    }
+
+    public void StartReceiveTask(WSManClientSessionTransportManager tm, Guid? commandId = null)
     {
         _receiveThreads.Add(Task.Run(() =>
         {
@@ -129,10 +138,9 @@ internal class WSManPSRPShim
             {
                 try
                 {
-                    string payload = session.WinRS.Receive("stdout");
+                    string payload = session.WinRS.Receive("stdout", commandId: commandId);
                     WSManReceiveResponse response = session.PostRequest<WSManReceiveResponse>(payload)
                         .GetAwaiter().GetResult();
-                    string a = "";
 
                     foreach (KeyValuePair<string, byte[][]> entry in response.Streams)
                     {
@@ -141,10 +149,19 @@ internal class WSManPSRPShim
                             tm.ProcessRawData(stream, entry.Key);
                         }
                     }
+
+                    if (response.State == CommandState.Done)
+                    {
+                        break;
+                    }
                 }
                 catch (Exception e)
                 {
-                    throw;
+                    Console.WriteLine($"Receive Task failure: {e.Message}\n{e}");
+                    TransportErrorOccuredEventArgs err = new(new PSRemotingTransportException(e.Message, e),
+                        TransportMethodEnum.CreateShellEx);
+                    tm.ProcessWSManTransportError(err);
+                    break;
                 }
             }
         }));
@@ -153,7 +170,7 @@ internal class WSManPSRPShim
 
 internal static class WSManCompatState
 {
-    internal static Int64 _nextSessionId;
+    internal static Int64 _nextSessionId = 1;
 
     public static Dictionary<IntPtr, WSManPSRPShim> SessionInfo = new();
 
