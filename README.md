@@ -5,7 +5,7 @@
 [![PowerShell Gallery](https://img.shields.io/powershellgallery/dt/PSWSMan.svg)](https://www.powershellgallery.com/packages/PSWSMan)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/jborean93/PSWSMan/blob/main/LICENSE)
 
-See [about_PSWSMan](docs/en-US/about_PSWSMan.md) for more details.
+See [PSWSMan](docs/en-US/PSWSMan.md) for more details.
 
 ## Documentation
 

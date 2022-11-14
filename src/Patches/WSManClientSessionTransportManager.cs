@@ -115,12 +115,43 @@ internal static class Pwsh_WSManClientSessionTransportManagerCreateAsync
 [HarmonyPatch(nameof(WSManClientSessionTransportManager.CloseAsync))]
 internal static class Pwsh_WSManClientSessionTransportManagerCloseAsync
 {
-    static bool Prefix(WSManClientSessionTransportManager __instance)
+    static bool Prefix(WSManClientSessionTransportManager __instance, IntPtr ____wsManSessionHandle)
     {
+        /*
+            Called when closing the Runspace, simply send the Delete operation and wait for the response.
+        */
+        WSManPSRPShim session = WSManCompatState.SessionInfo[____wsManSessionHandle];
+
+        try
+        {
+            session.CloseShellAsync().GetAwaiter().GetResult();
+        }
+        catch (Exception e)
+        {
+            TransportErrorOccuredEventArgs err = new(new PSRemotingTransportException(e.Message, e),
+                TransportMethodEnum.RunShellCommandEx);
+            __instance.ProcessWSManTransportError(err);
+        }
+
+        __instance.RaiseCloseCompleted();
+
         return false;
     }
 }
 
+[HarmonyPatch(typeof(WSManClientSessionTransportManager))]
+[HarmonyPatch(nameof(WSManClientSessionTransportManager.Dispose))]
+internal static class Pwsh_WSManClientSessionTransportManagerDispose
+{
+    static bool Prefix(WSManClientSessionTransportManager __instance, IntPtr ____wsManSessionHandle)
+    {
+        /*
+            Called after the Runspace has been closed. Just need to remove the shim from the global state.
+        */
+        WSManCompatState.SessionInfo.Remove(____wsManSessionHandle);
+        return false;
+    }
+}
 
 [HarmonyPatch(typeof(WSManClientSessionTransportManager))]
 [HarmonyPatch(nameof(WSManClientSessionTransportManager.AdjustForProtocolVariations))]
@@ -128,7 +159,7 @@ internal static class Pwsh_WSManClientSessionTransportManagerAdjustForProtocolVa
 {
     static bool Prefix(WSManClientSessionTransportManager __instance, Version serverProtocolVersion)
     {
-        // FIXME: Set max size to 500KiB is serverProtocolVersion > 2.1
+        // FIXME: Set max size to 500KiB if serverProtocolVersion > 2.1
         return false;
     }
 }
@@ -142,20 +173,6 @@ internal static class Pwsh_WSManClientSessionTransportManagerStartReceivingData
         /*
             Called at various places, the CreateAsync has already started the receive so this whole block can be
             stubbed out and ignored.
-        */
-        return false;
-    }
-}
-
-
-[HarmonyPatch(typeof(WSManClientSessionTransportManager))]
-[HarmonyPatch(nameof(WSManClientSessionTransportManager.OnDataAvailableCallback))]
-internal static class Pwsh_WSManClientSessionTransportManagerOnDataAvailableCallback
-{
-    static bool Prefix(WSManClientSessionTransportManager __instance, byte[] data, DataPriorityType priorityType)
-    {
-        /*
-            Called whenever data is available to be sent to the peer
         */
         return false;
     }

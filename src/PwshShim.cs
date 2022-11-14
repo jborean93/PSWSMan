@@ -107,7 +107,7 @@ internal class WSManPSRPShim
 
         if (_connInfo.NoMachineProfile)
         {
-            shellOptions.Add("WINRS_NOPROFILE", "1", new() { {"mustComply", true}});
+            shellOptions.Add("WINRS_NOPROFILE", "1", new() { { "mustComply", true } });
         }
 
         string payload = _session.WinRS.Create(
@@ -121,6 +121,12 @@ internal class WSManPSRPShim
         await _session.PostRequest<WSManCreateResponse>(payload);
     }
 
+    public async Task CloseShellAsync()
+    {
+        string payload = _session.WinRS.Delete();
+        await _session.PostRequest<WSManDeleteResponse>(payload);
+    }
+
     public async Task CreateCommandAsync(Guid commandId, byte[] psrpFragment)
     {
         string psrpPayload = Convert.ToBase64String(psrpFragment);
@@ -129,7 +135,13 @@ internal class WSManPSRPShim
         await _session.PostRequest<WSManCommandResponse>(payload);
     }
 
-    public void StartReceiveTask(WSManClientSessionTransportManager tm, Guid? commandId = null)
+    public async Task CloseCommandAsync(Guid commandId)
+    {
+        string payload = _session.WinRS.Signal(SignalCode.Terminate, commandId: commandId);
+        await _session.PostRequest<WSManSignalResponse>(payload);
+    }
+
+    public void StartReceiveTask(BaseClientTransportManager tm, Guid? commandId = null)
     {
         _receiveThreads.Add(Task.Run(() =>
         {
@@ -146,21 +158,50 @@ internal class WSManPSRPShim
                     {
                         foreach (byte[] stream in entry.Value)
                         {
+                            // Console.WriteLine($"Received CmdId: '{commandId}' - {entry.Key} - {Convert.ToBase64String(stream)}");
                             tm.ProcessRawData(stream, entry.Key);
                         }
                     }
 
                     if (response.State == CommandState.Done)
                     {
+                        // Console.WriteLine($"Received CmdId '{commandId}' done");
                         break;
                     }
+                }
+                catch (WSManFault e) when (e.WSManFaultCode == 0x80338029)
+                {
+                    // ERROR_WSMAN_OPERATION_TIMEDOUT - try it again
+                    continue;
+                }
+                catch (WSManFault e) when (
+                    e.WSManFaultCode == 0x000003E3 ||
+                    e.WSManFaultCode == 0x000004C7 ||
+                    e.WSManFaultCode == 0x8033805B ||
+                    e.WSManFaultCode == 0x803381DE ||
+                    e.WSManFaultCode == 0x803381C4
+                )
+                {
+                    // ERROR_OPERATION_ABORTED - 0x000003E3 - The shell or cmd has been closed
+                    // ERROR_CANCELLED - 0x000004C7
+                    // ERROR_WSMAN_UNEXPECTED_SELECTORS - 0x8033805B
+                    // ERROR_WSMAN_SERVICE_STREAM_DISCONNECTED - 0x803381DE
+                    // ERROR_WINRS_SHELL_DISCONNECTED - 0x803381C4
+                    break;
                 }
                 catch (Exception e)
                 {
                     Console.WriteLine($"Receive Task failure: {e.Message}\n{e}");
                     TransportErrorOccuredEventArgs err = new(new PSRemotingTransportException(e.Message, e),
                         TransportMethodEnum.CreateShellEx);
-                    tm.ProcessWSManTransportError(err);
+                    if (tm is WSManClientSessionTransportManager clientTM)
+                    {
+                        clientTM.ProcessWSManTransportError(err);
+                    }
+                    if (tm is WSManClientCommandTransportManager cmdTm)
+                    {
+                        cmdTm.ProcessWSManTransportError(err);
+                    }
                     break;
                 }
             }

@@ -53,7 +53,7 @@ internal class TSRequest : CredSSPStructure
     public byte[]? PubKeyAuth { get; set; }
 
     /// <summary>Extra error information returned by a server.</summary>
-    public int? ErrorCode { get; set;}
+    public int? ErrorCode { get; set; }
 
     /// <summary>Unique nonce used for pub key auth hashing on newer CredSSP versions.</summary>
     public byte[]? ClientNonce { get; set; }
@@ -396,7 +396,10 @@ internal class CredSSPAuthProvider : AuthenticationProvider, IWinRMEncryptor
         {
             sslOptions = new()
             {
-                TargetHost = "dummy",
+                // A unique hostname is used to avoid internal TLS session caching
+                // FIXME: Try to disable caching instead to allow custom options.
+                // https://github.com/dotnet/runtime/issues/78305
+                TargetHost = Guid.NewGuid().ToString(),
             };
             // Default for CredSSP is to not do any certificate validation.
             sslOptions.RemoteCertificateValidationCallback = (_1, _2, _3, _4) => true;
@@ -466,7 +469,7 @@ internal class CredSSPAuthProvider : AuthenticationProvider, IWinRMEncryptor
         Span<byte> wrappedData = _tlsContext.Encrypt(data);
 
         byte[] encData = new byte[4 + wrappedData.Length];
-        BitConverter.TryWriteBytes(encData.AsSpan(0, 4),trailerLength);
+        BitConverter.TryWriteBytes(encData.AsSpan(0, 4), trailerLength);
         wrappedData.CopyTo(encData.AsSpan(4));
 
         return encData;

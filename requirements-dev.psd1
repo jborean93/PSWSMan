@@ -1,6 +1,6 @@
 @{
-    InvokeBuild      = '5.9.3'
-    Pester           = '5.3.1'
+    InvokeBuild      = '5.10.1'
+    Pester           = '5.3.3'
     platyPS          = '0.14.2'
-    PSScriptAnalyzer = '1.20.0'
+    PSScriptAnalyzer = '1.21.0'
 }

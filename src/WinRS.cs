@@ -27,11 +27,6 @@ internal class WinRSClient
         return resp;
     }
 
-    public string Close()
-    {
-        return _wsman.Delete(_resourceUri, selectors: _selectors);
-    }
-
     public string Command(string executable, IList<string>? arguments = null, bool noShell = false,
         Guid? commandId = null)
     {
@@ -78,6 +73,11 @@ internal class WinRSClient
         }
 
         return _wsman.Create(resourceUri, shell, options: options);
+    }
+
+    public string Delete()
+    {
+        return _wsman.Delete(_resourceUri, selectors: _selectors);
     }
 
     public string Receive(string stream, Guid? commandId = null)

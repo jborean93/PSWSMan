@@ -165,7 +165,6 @@ internal class TlsSecurityContext : IDisposable
         // Keep on exchanging the tokens until the handshake is complete
         while (true)
         {
-
             ReadOnlySpan<byte> tlsPacket;
             try
             {
