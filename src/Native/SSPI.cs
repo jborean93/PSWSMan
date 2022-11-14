@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Security.Authentication;
-using System.Text;
 
 namespace PSWSMan.Native;
 
@@ -121,9 +120,11 @@ internal class SspiSecContext
 
 internal static class SSPI
 {
+    public const string LIB_SSPI = "PSWSMan.libsspi";
+
     private const Int32 SEC_I_CONTINUE_NEEDED = 0x00090312;
 
-    [DllImport("Secur32.dll", CharSet = CharSet.Unicode)]
+    [DllImport(LIB_SSPI, CharSet = CharSet.Unicode)]
     private static unsafe extern Int32 AcquireCredentialsHandleW(
         [MarshalAs(UnmanagedType.LPWStr)] string? pszPrincipal,
         [MarshalAs(UnmanagedType.LPWStr)] string pPackage,
@@ -135,33 +136,33 @@ internal static class SSPI
         SafeSspiCredentialHandle phCredential,
         out Helpers.SECURITY_INTEGER ptsExpiry);
 
-    [DllImport("Secur32.dll", EntryPoint = "DecryptMessage")]
+    [DllImport(LIB_SSPI, EntryPoint = "DecryptMessage")]
     private static extern Int32 DecryptMessageNative(
         SafeSspiContextHandle phContext,
         ref Helpers.SecBufferDesc pMessage,
         UInt32 MessageSeqNo,
         out UInt32 pfQOP);
 
-    [DllImport("Secur32.dll")]
+    [DllImport(LIB_SSPI)]
     public static extern Int32 DeleteSecurityContext(
         IntPtr phContext);
 
-    [DllImport("Secur32.dll", EntryPoint = "EncryptMessage")]
+    [DllImport(LIB_SSPI, EntryPoint = "EncryptMessage")]
     private static extern Int32 EncryptMessageNative(
         SafeSspiContextHandle phContext,
         UInt32 fQOP,
         ref Helpers.SecBufferDesc pMessage,
         UInt32 MessageSeqNo);
 
-    [DllImport("Secur32.dll")]
+    [DllImport(LIB_SSPI)]
     public unsafe static extern Int32 FreeContextBuffer(
         byte* pvContextBuffer);
 
-    [DllImport("Secur32.dll")]
+    [DllImport(LIB_SSPI)]
     public static extern Int32 FreeCredentialsHandle(
         IntPtr phCredential);
 
-    [DllImport("Secur32.dll", CharSet = CharSet.Unicode)]
+    [DllImport(LIB_SSPI, CharSet = CharSet.Unicode)]
     private static unsafe extern Int32 InitializeSecurityContextW(
         SafeSspiCredentialHandle phCredential,
         SafeSspiContextHandle phContext,
@@ -176,7 +177,7 @@ internal static class SSPI
         out InitiatorContextReturnFlags pfContextAttr,
         out Helpers.SECURITY_INTEGER ptsExpiry);
 
-    [DllImport("Secur32.dll", EntryPoint = "QueryContextAttributes")]
+    [DllImport(LIB_SSPI, EntryPoint = "QueryContextAttributes")]
     private static extern Int32 QueryContextAttributesNative(
         SafeSspiContextHandle phContext,
         SecPkgAttribute ulAttribute,

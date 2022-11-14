@@ -39,7 +39,7 @@ internal sealed class NativeResolver : IDisposable
         AssemblyLoadContext.Default.ResolvingUnmanagedDll += ImportResolver;
     }
 
-    public LibraryInfo? CacheLibrary(string id, string[] paths)
+    public LibraryInfo? CacheLibrary(string id, string[] paths, bool required = false)
     {
         string? envOverride = Environment.GetEnvironmentVariable(id.ToUpperInvariant().Replace(".", "_"));
         if (!string.IsNullOrWhiteSpace(envOverride))
@@ -53,6 +53,12 @@ internal sealed class NativeResolver : IDisposable
                 return NativeHandles[id];
             }
             catch (DllNotFoundException) { }
+        }
+
+        if (required)
+        {
+            string searchPaths = string.Join("', '", paths);
+            throw new DllNotFoundException($"Failed to find required lib {id}, searched paths: '{searchPaths}'");
         }
 
         return null;
@@ -90,8 +96,16 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
 
         Resolver = new NativeResolver();
 
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        // For testing with Devolution sspi-rs which is an SSPI replacement written in rust.
+        string? devolutionsDllPath = Environment.GetEnvironmentVariable("PSWSMAN_DEVOLUTIONS_SSPI_DLL");
+        if (!string.IsNullOrWhiteSpace(devolutionsDllPath))
         {
+            GlobalState.GssapiLib = Resolver.CacheLibrary(SSPI.LIB_SSPI, new[] { devolutionsDllPath }, required: true);
+            GlobalState.GssapiProvider = GssapiProvider.SSPI;
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            GlobalState.GssapiLib = Resolver.CacheLibrary(SSPI.LIB_SSPI, new[] { "Secur32.dll" });
             GlobalState.GssapiProvider = GssapiProvider.SSPI;
         }
         else

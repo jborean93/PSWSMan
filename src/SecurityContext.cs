@@ -102,7 +102,7 @@ internal abstract class SecurityContext : IDisposable
     public static SecurityContext GetPlatformSecurityContext(string? username, string? password,
         AuthenticationMethod method, string service, string target, bool requestDelegate)
     {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (GlobalState.GssapiProvider == GssapiProvider.SSPI)
         {
             return new SspiContext(
                 username,
