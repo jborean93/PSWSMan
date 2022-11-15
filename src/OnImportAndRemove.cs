@@ -5,7 +5,6 @@ using System.Management.Automation;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Loader;
-using HarmonyLib;
 
 namespace PSWSMan;
 
@@ -91,9 +90,6 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
 
     public void OnImport()
     {
-        // FIXME: Move this into an enable-wsmanremoting cmdlet instead
-        new Harmony("PSWSMan").PatchAll();
-
         Resolver = new NativeResolver();
 
         // For testing with Devolution sspi-rs which is an SSPI replacement written in rust.

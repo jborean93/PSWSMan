@@ -2,7 +2,6 @@ using System;
 using System.Globalization;
 using System.Management.Automation;
 using System.Management.Automation.Remoting;
-using System.Management.Automation.Runspaces;
 using System.Net.Security;
 
 namespace PSWSMan.Commands;
@@ -12,7 +11,7 @@ namespace PSWSMan.Commands;
     DefaultParameterSetName = "SkipCert"
 )]
 [OutputType(typeof(PSSessionOption))]
-public class NewPSWSManSessionOption : PSCmdlet
+public sealed class NewPSWSManSessionOption : PSCmdlet
 {
     [Parameter()]
     public int MaximumRedirection { get; set; } = 5;
@@ -35,9 +34,6 @@ public class NewPSWSManSessionOption : PSCmdlet
     public int MaximumReceivedObjectSize { get; set; } = 209715200;
 
     [Parameter()]
-    public OutputBufferingMode OutputBufferingMode { get; set; } = OutputBufferingMode.Block;
-
-    [Parameter()]
     [ValidateRange(0, int.MaxValue)]
     public int MaxConnectionRetryCount { get; set; } = 5;
 
@@ -54,11 +50,6 @@ public class NewPSWSManSessionOption : PSCmdlet
     [ValidateRange(0, Int32.MaxValue)]
     public int CancelTimeout { get; set; } = 60 * 1000;
 
-    [Parameter()]
-    [ValidateRange(-1, Int32.MaxValue)]
-    [Alias("IdleTimeoutMSec")]
-    public int IdleTimeout { get; set; } = 7200 * 1000;
-
     // TODO: Proxy options - ProxyAccessType, ProxyAuthentication, ProxyCredential
 
     [Parameter(
@@ -70,11 +61,6 @@ public class NewPSWSManSessionOption : PSCmdlet
         ParameterSetName = "SkipCert"
     )]
     public SwitchParameter SkipCNCheck { get; set; }
-
-    [Parameter(
-        ParameterSetName = "SkipCert"
-    )]
-    public SwitchParameter SkipRevocationCheck { get; set; }
 
     [Parameter()]
     [Alias("OperationTimeoutMSec")]
@@ -117,15 +103,12 @@ public class NewPSWSManSessionOption : PSCmdlet
             UICulture = UICulture,
             MaximumReceivedDataSizePerCommand = MaximumReceivedDataSizePerCommand,
             MaximumReceivedObjectSize = MaximumReceivedObjectSize,
-            OutputBufferingMode = this.OutputBufferingMode,
             MaxConnectionRetryCount = MaxConnectionRetryCount,
             ApplicationArguments = ApplicationArguments,
             OpenTimeout = TimeSpan.FromMilliseconds(OpenTimeout),
             CancelTimeout = TimeSpan.FromMilliseconds(CancelTimeout),
-            IdleTimeout = TimeSpan.FromMilliseconds(IdleTimeout),
             SkipCACheck = SkipCACheck,
             SkipCNCheck = SkipCNCheck,
-            SkipRevocationCheck = SkipRevocationCheck,
             OperationTimeout = TimeSpan.FromMilliseconds(OperationTimeout),
             NoEncryption = NoEncryption,
         };
