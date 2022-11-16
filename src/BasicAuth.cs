@@ -7,9 +7,10 @@ namespace PSWSMan;
 internal class BasicAuthProvider : AuthenticationProvider
 {
     private readonly string _authValue;
-    private bool _complete;
 
-    public override bool Complete => _complete;
+    public override bool Complete => false;
+
+    public override bool AlwaysAddHeaders => true;
 
     /// <summary>Basic authentication provider.</summary>
     /// <param name="username">The username to authenticate as.</param>
@@ -21,13 +22,7 @@ internal class BasicAuthProvider : AuthenticationProvider
 
     public override bool AddAuthenticationHeaders(HttpRequestMessage request, HttpResponseMessage? response)
     {
-        if (Complete)
-        {
-            return false;
-        }
-
         request.Headers.Add("Authorization", _authValue);
-        _complete = true;
-        return true;
+        return false;
     }
 }

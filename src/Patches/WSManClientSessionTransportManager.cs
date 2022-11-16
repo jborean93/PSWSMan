@@ -86,9 +86,13 @@ internal static class Pwsh_WSManClientSessionTransportManagerCreateAsync
         }
         catch (Exception e)
         {
+            WSManCompatState.SessionInfo.Remove(____wsManSessionHandle);
+            ____wsManSessionHandle = IntPtr.Zero;
+
             TransportErrorOccuredEventArgs err = new(new PSRemotingTransportException(e.Message, e),
                 TransportMethodEnum.CreateShellEx);
             __instance.ProcessWSManTransportError(err);
+            return false;
         }
 
         // FUTURE: Add disconnect support
@@ -98,7 +102,6 @@ internal static class Pwsh_WSManClientSessionTransportManagerCreateAsync
 
         __instance.RaiseCreateCompleted(new CreateCompleteEventArgs(__instance.ConnectionInfo.Copy()));
 
-        // __instance.StartReceivingData();
         // Start the receive thread that continuously polls the receive output
         session.StartReceiveTask(__instance);
 
@@ -115,22 +118,28 @@ internal static class Pwsh_WSManClientSessionTransportManagerCreateAsync
 [HarmonyPatch(nameof(WSManClientSessionTransportManager.CloseAsync))]
 internal static class Pwsh_WSManClientSessionTransportManagerCloseAsync
 {
-    static bool Prefix(WSManClientSessionTransportManager __instance, IntPtr ____wsManSessionHandle)
+    static bool Prefix(WSManClientSessionTransportManager __instance, ref IntPtr ____wsManSessionHandle)
     {
         /*
             Called when closing the Runspace, simply send the Delete operation and wait for the response.
         */
-        WSManPSRPShim session = WSManCompatState.SessionInfo[____wsManSessionHandle];
+        if (____wsManSessionHandle != IntPtr.Zero)
+        {
+            WSManPSRPShim session = WSManCompatState.SessionInfo[____wsManSessionHandle];
 
-        try
-        {
-            session.CloseShellAsync().GetAwaiter().GetResult();
-        }
-        catch (Exception e)
-        {
-            TransportErrorOccuredEventArgs err = new(new PSRemotingTransportException(e.Message, e),
-                TransportMethodEnum.RunShellCommandEx);
-            __instance.ProcessWSManTransportError(err);
+            try
+            {
+                session.CloseShellAsync().GetAwaiter().GetResult();
+            }
+            catch (Exception e)
+            {
+                WSManCompatState.SessionInfo.Remove(____wsManSessionHandle);
+                ____wsManSessionHandle = IntPtr.Zero;
+
+                TransportErrorOccuredEventArgs err = new(new PSRemotingTransportException(e.Message, e),
+                    TransportMethodEnum.RunShellCommandEx);
+                __instance.ProcessWSManTransportError(err);
+            }
         }
 
         __instance.RaiseCloseCompleted();
@@ -143,12 +152,16 @@ internal static class Pwsh_WSManClientSessionTransportManagerCloseAsync
 [HarmonyPatch(nameof(WSManClientSessionTransportManager.Dispose))]
 internal static class Pwsh_WSManClientSessionTransportManagerDispose
 {
-    static bool Prefix(WSManClientSessionTransportManager __instance, IntPtr ____wsManSessionHandle)
+    static bool Prefix(WSManClientSessionTransportManager __instance, ref IntPtr ____wsManSessionHandle)
     {
         /*
             Called after the Runspace has been closed. Just need to remove the shim from the global state.
         */
-        WSManCompatState.SessionInfo.Remove(____wsManSessionHandle);
+        if (____wsManSessionHandle != IntPtr.Zero)
+        {
+            WSManCompatState.SessionInfo.Remove(____wsManSessionHandle);
+            ____wsManSessionHandle = IntPtr.Zero;
+        }
         return false;
     }
 }
@@ -173,6 +186,20 @@ internal static class Pwsh_WSManClientSessionTransportManagerStartReceivingData
         /*
             Called at various places, the CreateAsync has already started the receive so this whole block can be
             stubbed out and ignored.
+        */
+        return false;
+    }
+}
+
+[HarmonyPatch(typeof(WSManClientSessionTransportManager))]
+[HarmonyPatch("CloseSessionAndClearResources")]
+internal static class Pwsh_WSManClientSessionTransportManagerCloseSessionAndClearResources
+{
+    static bool Prefix(WSManClientSessionTransportManager __instance)
+    {
+        /*
+            Called in a few places that still need to work but we need to close the existing session we managed
+            ourselves instead.
         */
         return false;
     }

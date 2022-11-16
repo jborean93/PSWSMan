@@ -178,15 +178,15 @@ internal class WSManPSRPShim
                     e.WSManFaultCode == 0x000003E3 ||
                     e.WSManFaultCode == 0x000004C7 ||
                     e.WSManFaultCode == 0x8033805B ||
-                    e.WSManFaultCode == 0x803381DE ||
-                    e.WSManFaultCode == 0x803381C4
+                    e.WSManFaultCode == 0x803381C4 ||
+                    e.WSManFaultCode == 0x803381DE
                 )
                 {
                     // ERROR_OPERATION_ABORTED - 0x000003E3 - The shell or cmd has been closed
                     // ERROR_CANCELLED - 0x000004C7
                     // ERROR_WSMAN_UNEXPECTED_SELECTORS - 0x8033805B
-                    // ERROR_WSMAN_SERVICE_STREAM_DISCONNECTED - 0x803381DE
                     // ERROR_WINRS_SHELL_DISCONNECTED - 0x803381C4
+                    // ERROR_WSMAN_SERVICE_STREAM_DISCONNECTED - 0x803381DE
                     break;
                 }
                 catch (Exception e)

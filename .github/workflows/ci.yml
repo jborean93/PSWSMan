@@ -58,9 +58,9 @@ jobs:
         - name: PS_7.2_x64
           psversion: '7.2.7'
           os: ubuntu-latest
-        - name: PS_7.3_x64
-          psversion: '7.3.0'
-          os: ubuntu-latest
+        # - name: PS_7.3_x64
+        #   psversion: '7.3.0'
+        #   os: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v3

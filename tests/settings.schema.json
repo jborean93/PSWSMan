@@ -1,0 +1,181 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema",
+    "$id": "http://example.com/example.json",
+    "type": "object",
+    "title": "PSWSMan Test Settings Schema",
+    "description": "The schema used for PSWSMan's test settings.",
+    "default": {},
+    "examples": [
+        {
+            "credentials": {
+                "default": {
+                    "username": "vagrant-domain@WSMAN.ENV",
+                    "password": "VagrantPass1"
+                }
+            },
+            "servers": {
+                "default": {
+                    "hostname": "test.wsman.env",
+                    "credential": "default"
+                },
+                "untrusted": {
+                    "hostname": "untrusted.wsman.env"
+                }
+            },
+            "scenarios": {
+                "https_trusted": "default",
+                "https_untrusted": "untrusted"
+            }
+        }
+    ],
+    "required": [
+        "credentials",
+        "servers"
+    ],
+    "properties": {
+        "credentials": {
+            "$id": "#/properties/credentials",
+            "type": "object",
+            "title": "Test Credentials",
+            "description": "Credentials that can be referenced by servers",
+            "default": {},
+            "examples": [
+                {
+                    "default": {
+                        "username": "vagrant-domain@WSMAN.ENV",
+                        "password": "VagrantPass1"
+                    }
+                }
+            ],
+            "required": [
+                "default"
+            ],
+            "properties": {
+                "default": {
+                    "$id": "#/properties/credentials/properties/default",
+                    "type": "object",
+                    "title": "Credential Information",
+                    "description": "A credential username and password",
+                    "default": {
+                        "username": "",
+                        "password": ""
+                    },
+                    "required": [
+                        "username",
+                        "password"
+                    ],
+                    "properties": {
+                        "username": {
+                            "type": "string",
+                            "title": "Credential UserName"
+                        },
+                        "password": {
+                            "type": "string",
+                            "title": "Credential Password"
+                        }
+                    }
+                }
+            },
+            "additionalProperties": {
+                "$ref": "#/properties/credentials/properties/default"
+            }
+        },
+        "servers": {
+            "$id": "#/properties/servers",
+            "type": "object",
+            "title": "Test Servers",
+            "description": "Servers that can be used in the tests",
+            "default": {},
+            "examples": [
+                {
+                    "default": {}
+                }
+            ],
+            "required": [
+                "default"
+            ],
+            "properties": {
+                "default": {
+                    "$id": "#/properties/servers/properties/default",
+                    "type": "object",
+                    "title": "Test Host Details",
+                    "description": "Details on how to connect to this host",
+                    "default": {
+                        "hostname": "test.wsman.env",
+                        "credential": "default"
+                    },
+                    "required": [
+                        "hostname"
+                    ],
+                    "properties": {
+                        "hostname": {
+                            "type": "string",
+                            "title": "HostName",
+                            "description": "The hostname that can be used to connect to this host"
+                        },
+                        "port": {
+                            "type": "integer",
+                            "title": "Port to connect to",
+                            "description": "The port to connect to for this host"
+                        },
+                        "credential": {
+                            "type": "string",
+                            "title": "Credential",
+                            "description": "The credential key this host can use, uses the default credential if not set",
+                            "default": "default"
+                        }
+                    }
+                }
+            },
+            "additionalProperties": {
+                "$ref": "#/properties/servers/properties/default"
+            }
+        },
+        "scenarios": {
+            "$id": "#/properties/scenarios",
+            "type": "object",
+            "title": "Test Scenario Hosts",
+            "descriptions": "Hosts to use for the various test scenarios. The values must match with a host entry in servers.\nIf not set the test that needs this scenario is skipped.",
+            "default": {},
+            "examples": [
+                {
+                    "https_trusted": "https_trusted_host",
+                    "local_auth": "basic_auth_host"
+                }
+            ],
+            "properties": {
+                "domain_auth": {
+                    "type": "string",
+                    "title": "HTTP Host with Domain Credential",
+                    "description": "Host with a domain credential that can be used for Kerberos authentication attempts"
+                },
+                "local_auth": {
+                    "type": "string",
+                    "title": "HTTP Host with Local Credential",
+                    "description": "Host with a local credential that can be used for Basic authentication attempts"
+                },
+                "https_trusted": {
+                    "type": "string",
+                    "title": "HTTPS Host",
+                    "description": "Host that can be used for HTTPS tests with a trusted certificate"
+                },
+                "https_untrusted": {
+                    "type": "string",
+                    "title": "HTTPS Host Untrusted Certificate",
+                    "description": "Host that can be used for HTTPS tests with an untrusted certificate"
+                },
+                "https_domain_auth": {
+                    "type": "string",
+                    "title": "HTTPS Host with Domain Credential",
+                    "description": "Host with a domain credential that can be used for Kerberos authentication attempts over HTTPS"
+                },
+                "https_local_auth": {
+                    "type": "string",
+                    "title": "HTTPS Host with Local Credential",
+                    "description": "Host with a local credential that can be used for Basic authentication attempts over HTTPS"
+                }
+            },
+            "additionalProperties": false
+        }
+    }
+}

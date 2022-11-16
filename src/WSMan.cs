@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Xml;
 using System.Xml.Linq;
 
 namespace PSWSMan;
@@ -375,14 +376,16 @@ internal class WSManReceiveResponse : WSManResponsePayload
         foreach (XElement stream in resp.Elements(WSManNamespace.rsp + "Stream"))
         {
             string streamName = stream.Attributes("Name").First().Value;
-            if (!rawStreams.ContainsKey(streamName)) {
+            if (!rawStreams.ContainsKey(streamName))
+            {
                 rawStreams[streamName] = new();
             }
 
             rawStreams[streamName].Add(Convert.FromBase64String(stream.Value));
         }
 
-        foreach (KeyValuePair<string, List<byte[]>> kvp in rawStreams) {
+        foreach (KeyValuePair<string, List<byte[]>> kvp in rawStreams)
+        {
             Streams[kvp.Key] = kvp.Value.ToArray();
         }
 
@@ -458,7 +461,17 @@ internal class WSManClient
 
     public static T ParseWSManPayload<T>(string data) where T : WSManPayload
     {
-        XElement envelope = XElement.Parse(data);
+        XElement envelope;
+        try
+        {
+            envelope = XElement.Parse(data);
+        }
+        catch (XmlException e)
+        {
+            // ExchangeOnline can return a helpful error that isn't XML so just display the response.
+            throw new WSManFault($"Received non-xml response: {data}", e);
+        }
+
         string action = envelope.Descendants(WSManNamespace.wsa + "Action").First().Value;
 
         if (action == WSManAction.Fault.WSManValue() || action == WSManAction.FaultAddressing.WSManValue())

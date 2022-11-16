@@ -13,7 +13,7 @@
                 "-NoExit",
                 "-NoProfile",
                 "-Command",
-                "Import-Module ./output/PSWSMan"
+                "Import-Module ./output/PSWSMan; Enable-PSWSMan -Force"
             ],
             "cwd": "${workspaceFolder}",
             "stopAtEntry": false,

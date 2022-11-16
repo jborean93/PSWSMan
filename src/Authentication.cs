@@ -36,6 +36,9 @@ internal abstract class AuthenticationProvider : IDisposable
     /// <summary>Whether the authentication phase is complete.</summary>
     public abstract bool Complete { get; }
 
+    /// <summary>Always add the authentication headers to a request.</summary>
+    public virtual bool AlwaysAddHeaders => false;
+
     /// <summary>Add the authentication headers to the message request.</summary>
     /// <param name="request">The HTTP request to add the authentication headers to.</param>
     /// <param name="response">The response, if there was one, to process for the authentication step.</param>

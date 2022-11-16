@@ -433,6 +433,8 @@ This option is mutually exclusive to `-SkipCACheck` and `-SkipCNCheck`.
 Unlike `-SkipCACheck` and `-SkipCNCheck`, this can control more options around the TLS protocol, like the protocols and cipher suites used in a connection.
 It can also be used to specify a custom certificate verification logic than what is provided by dotnet.
 
+The [New-PSWSManCertValidationCallback](./New-PSWSManCertValidationCallback.md) cmdlet can be used to create a delegate for `RemoteCertificateValidationCallback` of this object that will run the PowerShell scriptblock for validation.
+
 ```yaml
 Type: SslClientAuthenticationOptions
 Parameter Sets: TlsOption

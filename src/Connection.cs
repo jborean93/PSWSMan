@@ -103,6 +103,11 @@ internal class WSManConnection : IDisposable
             request = new(HttpMethod.Post, _connectionUri);
             request.Content = content;
 
+            if (_authProvider.AlwaysAddHeaders)
+            {
+                _authProvider.AddAuthenticationHeaders(request, null);
+            }
+
             response = await _http.SendAsync(request, cancelToken).ConfigureAwait(false);
         }
 
