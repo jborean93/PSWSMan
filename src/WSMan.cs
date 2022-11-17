@@ -455,8 +455,11 @@ internal class WSManClient
         ConnectionUri = connectionUri;
         MaxEnvelopeSize = maxEnvelopeSize;
         OperationTimeout = operationTimeout;
-        Locale = locale;
-        DataLocale = string.IsNullOrWhiteSpace(dataLocale) ? locale : dataLocale;
+
+        // This value is from pwsh but derived from CultureInfo.CurrentCulture but it may be set to InvariantCulture.
+        // Just fallback to en-US as one must be set here.
+        Locale = string.IsNullOrWhiteSpace(locale) ? "en-US" : locale;
+        DataLocale = string.IsNullOrWhiteSpace(dataLocale) ? Locale : dataLocale;
     }
 
     public static T ParseWSManPayload<T>(string data) where T : WSManPayload

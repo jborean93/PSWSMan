@@ -402,7 +402,7 @@ internal static class SSPI
     {
         int res = QueryContextAttributesW(context, attribute, buffer);
         if (res != 0)
-            throw new SspiException(res, "QueryContextAttributesNative");
+            throw new SspiException(res, "QueryContextAttributes");
     }
 }
 
