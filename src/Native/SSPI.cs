@@ -177,8 +177,8 @@ internal static class SSPI
         out InitiatorContextReturnFlags pfContextAttr,
         out Helpers.SECURITY_INTEGER ptsExpiry);
 
-    [DllImport(LIB_SSPI, EntryPoint = "QueryContextAttributes")]
-    private static extern Int32 QueryContextAttributesNative(
+    [DllImport(LIB_SSPI)]
+    private static extern Int32 QueryContextAttributesW(
         SafeSspiContextHandle phContext,
         SecPkgAttribute ulAttribute,
         IntPtr pBuffer);
@@ -400,7 +400,7 @@ internal static class SSPI
     /// <see href="https://docs.microsoft.com/en-us/windows/win32/secauthn/querycontextattributes--general">QueryContextAttributes</see>
     public static void QueryContextAttributes(SafeSspiContextHandle context, SecPkgAttribute attribute, IntPtr buffer)
     {
-        int res = QueryContextAttributesNative(context, attribute, buffer);
+        int res = QueryContextAttributesW(context, attribute, buffer);
         if (res != 0)
             throw new SspiException(res, "QueryContextAttributesNative");
     }
