@@ -102,13 +102,13 @@ internal static class Pwsh_WSManClientSessionTransportManagerCreateAsync
 
         __instance.RaiseCreateCompleted(new CreateCompleteEventArgs(__instance.ConnectionInfo.Copy()));
 
-        // Start the receive thread that continuously polls the receive output
+        // Start the receive thread that continuously polls the receive output.
         session.StartReceiveTask(__instance);
 
-        // FIXME: Send more packets if available
-        // __instance.SendOneItem();
-        byte[]? data = ___dataToBeSent.ReadOrRegisterCallback(____onDataAvailableToSendCallback, out _);
-        // FIXME: Send if data is available
+        typeof(WSManClientSessionTransportManager).GetMethod(
+            "SendOneItem",
+            BindingFlags.NonPublic | BindingFlags.Instance)
+            ?.Invoke(__instance, Array.Empty<Type>());
 
         return false;
     }
@@ -167,12 +167,68 @@ internal static class Pwsh_WSManClientSessionTransportManagerDispose
 }
 
 [HarmonyPatch(typeof(WSManClientSessionTransportManager))]
+[HarmonyPatch("SendData")]
+internal static class Pwsh_WSManClientSessionTransportManagerSendData
+{
+    static bool Prefix(WSManClientSessionTransportManager __instance, byte[] data, DataPriorityType priorityType,
+        IntPtr ____wsManSessionHandle)
+    {
+        /*
+            Called when data needs to be sent to the Runspace.
+        */
+        if (____wsManSessionHandle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        WSManPSRPShim session = WSManCompatState.SessionInfo[____wsManSessionHandle];
+        try
+        {
+            session.SendAsync(priorityType == DataPriorityType.Default ? "stdin" : "pr",
+                data).GetAwaiter().GetResult();
+        }
+        catch (Exception e)
+        {
+            TransportErrorOccuredEventArgs err = new(new PSRemotingTransportException(e.Message, e),
+                TransportMethodEnum.RunShellCommandEx);
+            __instance.ProcessWSManTransportError(err);
+            return false;
+        }
+
+        typeof(WSManClientSessionTransportManager).GetMethod(
+            "SendOneItem",
+            BindingFlags.NonPublic | BindingFlags.Instance)
+            ?.Invoke(__instance, Array.Empty<Type>());
+
+        return false;
+    }
+}
+
+[HarmonyPatch(typeof(WSManClientSessionTransportManager))]
 [HarmonyPatch(nameof(WSManClientSessionTransportManager.AdjustForProtocolVariations))]
 internal static class Pwsh_WSManClientSessionTransportManagerAdjustForProtocolVariations
 {
-    static bool Prefix(WSManClientSessionTransportManager __instance, Version serverProtocolVersion)
+    static bool Prefix(WSManClientSessionTransportManager __instance, Version serverProtocolVersion,
+        IntPtr ____wsManSessionHandle)
     {
-        // FIXME: Set max size to 500KiB if serverProtocolVersion > 2.1
+        /*
+            Called when PowerShell receives the server's session capability message. It uses this message to adjust
+            the MaxEnvelopeSize if it's talking to a newer host (Win 8/Server 2012+) so it can send larger fragments.
+        */
+        if (____wsManSessionHandle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        WSManPSRPShim session = WSManCompatState.SessionInfo[____wsManSessionHandle];
+        WSManClient wsman = session.GetWSManClient();
+        if (serverProtocolVersion > new Version("2.1") && wsman.MaxEnvelopeSize == WSManSessionOption.DefaultMaxEnvelopeSize)
+        {
+            int newEnvelopeSize = 500 << 10;
+            wsman.MaxEnvelopeSize = newEnvelopeSize;
+            __instance.Fragmentor.FragmentSize = newEnvelopeSize;
+        }
+
         return false;
     }
 }

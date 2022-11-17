@@ -12,15 +12,15 @@ Creates an object that specifies custom connection options for a WSMan PSSession
 
 ## SYNTAX
 
-### SkipCert (Default)
+### SimpleTls (Default)
 ```
 New-PSWSManSessionOption [-MaximumRedirection <Int32>] [-NoMachineProfile] [-Culture <CultureInfo>]
  [-UICulture <CultureInfo>] [-MaximumReceivedDataSizePerCommand <Int32>] [-MaximumReceivedObjectSize <Int32>]
  [-MaxConnectionRetryCount <Int32>] [-ApplicationArguments <PSPrimitiveDictionary>] [-OpenTimeout <Int32>]
- [-CancelTimeout <Int32>] [-SkipCACheck] [-SkipCNCheck] [-OperationTimeout <Int32>] [-NoEncryption]
- [-SPNService <String>] [-SPNHostName <String>] [-AuthMethod <AuthenticationMethod>] [-RequestKerberosDelegate]
- [-CredSSPAuthMethod <AuthenticationMethod>] [-CredSSPTlsOption <SslClientAuthenticationOptions>]
- [<CommonParameters>]
+ [-CancelTimeout <Int32>] [-SkipCACheck] [-SkipCNCheck] [-ClientCertificate <X509Certificate>]
+ [-OperationTimeout <Int32>] [-NoEncryption] [-SPNService <String>] [-SPNHostName <String>]
+ [-AuthMethod <AuthenticationMethod>] [-RequestKerberosDelegate] [-CredSSPAuthMethod <AuthenticationMethod>]
+ [-CredSSPTlsOption <SslClientAuthenticationOptions>] [<CommonParameters>]
 ```
 
 ### TlsOption
@@ -44,6 +44,27 @@ Just like with `New-PSSessionOption`, the session options from this cmdlet can b
 The value of this variable estabilish new default values for the session options.
 They are used when a new PSSession is made without any explicit session options specified by `-SessionOption`.
 For more information about the `$PSSessionOption` preference variable, see [about_Preference_Variables-$PSSessionOption])(https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_preference_variables?view=powershell-7.3#pssessionoption).
+
+There are a a few parameters on `New-PSSessionOption` with Windows that are omitted on this cmdlet either due to features not being available or different behaviour across the OS platforms.
+These cmdlets are:
+
++ `-IdleTimeout`: Disconnected operation support is not implemented
+
++ `-IncludePortInSPN`: The `-SPNHostName` can be used to set the SPN hostname portion to whatever is desired instead
+
++ `-NoCompression`: Compression support is not available on PSWSMan
+
++ `-OutputBufferingMode`: Disconnected operation support is not implemented
+
++ `-ProxyAccessType`: Proxy support is not implemented
+
++ `-ProxyAuthentication` Proxy support is not implemented
+
++ `-ProxyCredential`: Proxy support is not implemented
+
++ `-SkipRevocationCheck`: By default dotnet skips revocation checks as they are not implemented on all platforms. To opt-in to these checks use `-TlsOption` with `CertificateRevocationCheckMode` set to `Offline` or `Online`
+
++ `-UseUTF16`: This option is not useful and not implemented
 
 ## EXAMPLES
 
@@ -87,6 +108,30 @@ PS C:\> Enter-PSSession -ComputerName 192.168.1.2 -UseSSL -SessionOption $pso
 ```
 
 Connects to `192.168.1.2` with a HTTPS connection but skips checking the CN of the server's certificate and whether it is trusted by a known CA.
+
+### Example 5: Enable certificate revocation checks
+```powershell
+PS C:\> $tls = [System.Net.Security.SslClientAuthenticationOptions]@{
+>>     TargetHost = "Server03"
+>>     CertificateRevocationCheckMode = [System.Security.Cryptography.X509Certificates.X509RevocationMode]::Offline
+>> }
+PS C:\> $pso = New-PSWSManSessionOption -TlsOptions $tls
+PS C:\> Invoke-Command -ComputerName Server03 -SessionOption $pso -UseSSL -ScriptBlock { $env:COMPUTERNAME }
+```
+
+Enables certificate revocation checks in `Offline` mode to check the peers certificate against an offline revocation list.
+The value can also be set to `Online` to have dotnet attempt to download the revocation lists from pre-configured locations.
+
+### Example 6: Connect using client certificate authentication
+```powershell
+PS C:\> $cert = Get-PfxCertificate -FilePath ~/client.pfx
+PS C:\> $pso = New-PSWSManSessionOption -ClientCertificate $cert
+PS C:\> Invoke-Command -ComputerName host.domain.com -UseSSL -SessionOption $pso { 'hi' }
+```
+
+Connects to the endpoint with TLS and provides a client certificate to use for authentication.
+This certificate will only work for local accounts on the target server and must be set up in a specific manner.
+The `-UseSSL` option must be set on the cmdlet that is creating the session, i.e. `New-PSSession`, `Invoke-Command`, `Enter-PSSession`, etc.
 
 ## PARAMETERS
 
@@ -135,6 +180,26 @@ A value of `0` means no time-out and the command continues indefinitely.
 Type: Int32
 Parameter Sets: (All)
 Aliases: CancelTimeoutMSec
+
+Required: False
+Position: Named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -ClientCertificate
+The `X509Certificate` object that is used for TLS client authentication, otherwise known as Certificate auth with WinRM.
+This certificate must have a private key associated with it for this to be used for certificate auth.
+The `-UseSSL` option much be set on the cmdlets that create the PSSession for certificates to be used.
+
+This is a PSWSMan specific option that is used to specify a certificate for authentication for certificates that don't exist in the user or system wide certificate store.
+Use the `-CertificateThumbprint` parameter on cmdlets that create the session to refer to certificates by thumbprint in the `Cert:\CurrentUser\My` or `Cert:\LocalMachine\My` store.
+
+```yaml
+Type: X509Certificate
+Parameter Sets: SimpleTls
+Aliases:
 
 Required: False
 Position: Named
@@ -359,7 +424,7 @@ Use this option only when the remote computer is trusted by using another mechan
 
 ```yaml
 Type: SwitchParameter
-Parameter Sets: SkipCert
+Parameter Sets: SimpleTls
 Aliases:
 
 Required: False
@@ -378,7 +443,7 @@ Use this option only when the remote computer is trusted by using another mechan
 
 ```yaml
 Type: SwitchParameter
-Parameter Sets: SkipCert
+Parameter Sets: SimpleTls
 Aliases:
 
 Required: False

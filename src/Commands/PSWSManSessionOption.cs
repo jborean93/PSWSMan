@@ -3,12 +3,13 @@ using System.Globalization;
 using System.Management.Automation;
 using System.Management.Automation.Remoting;
 using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 
 namespace PSWSMan.Commands;
 
 [Cmdlet(
     VerbsCommon.New, "PSWSManSessionOption",
-    DefaultParameterSetName = "SkipCert"
+    DefaultParameterSetName = "SimpleTls"
 )]
 [OutputType(typeof(PSSessionOption))]
 public sealed class NewPSWSManSessionOption : PSCmdlet
@@ -53,14 +54,19 @@ public sealed class NewPSWSManSessionOption : PSCmdlet
     // TODO: Proxy options - ProxyAccessType, ProxyAuthentication, ProxyCredential
 
     [Parameter(
-        ParameterSetName = "SkipCert"
+        ParameterSetName = "SimpleTls"
     )]
     public SwitchParameter SkipCACheck { get; set; }
 
     [Parameter(
-        ParameterSetName = "SkipCert"
+        ParameterSetName = "SimpleTls"
     )]
     public SwitchParameter SkipCNCheck { get; set; }
+
+    [Parameter(
+        ParameterSetName = "SimpleTls"
+    )]
+    public X509Certificate? ClientCertificate { get; set; }
 
     [Parameter()]
     [Alias("OperationTimeoutMSec")]
@@ -119,6 +125,7 @@ public sealed class NewPSWSManSessionOption : PSCmdlet
             SPNService = SPNService,
             SPNHostName = SPNHostName,
             RequestKerberosDelegate = RequestKerberosDelegate,
+            ClientCertificate = ClientCertificate,
             TlsOption = TlsOption,
             CredSSPAuthMethod = CredSSPAuthMethod,
             CredSSPTlsOption = CredSSPTlsOption,

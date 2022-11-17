@@ -10,6 +10,8 @@ internal class WinRSClient
     private string _resourceUri = "";
     private SelectorSet? _selectors;
 
+    internal WSManClient WSMan => _wsman;
+
     public WinRSClient(WSManClient wsman)
     {
         _wsman = wsman;

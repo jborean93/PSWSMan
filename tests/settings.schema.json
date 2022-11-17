@@ -173,6 +173,111 @@
                     "type": "string",
                     "title": "HTTPS Host with Local Credential",
                     "description": "Host with a local credential that can be used for Basic authentication attempts over HTTPS"
+                },
+                "https_sha1": {
+                    "type": "string",
+                    "title": "HTTPS Host with SHA1 Cert",
+                    "description": "Tests Channel Binding Token support for a SHA1 cert"
+                },
+                "https_sha256": {
+                    "type": "string",
+                    "title": "HTTPS Host with SHA256 Cert",
+                    "description": "Tests Channel Binding Token support for a SHA256 cert"
+                },
+                "https_sha256_pss": {
+                    "type": "string",
+                    "title": "HTTPS Host with SHA256 RSA PSS Cert",
+                    "description": "Tests Channel Binding Token support for a SHA256 RSA PSS cert"
+                },
+                "https_sha384": {
+                    "type": "string",
+                    "title": "HTTPS Host with SHA384 Cert",
+                    "description": "Tests Channel Binding Token support for a SHA384 cert"
+                },
+                "https_sha512": {
+                    "type": "string",
+                    "title": "HTTPS Host with SHA512 RSA PSS Cert",
+                    "description": "Tests Channel Binding Token support for a SHA512 cert"
+                },
+                "https_sha512_pss": {
+                    "type": "string",
+                    "title": "HTTPS Host with SHA512 Cert",
+                    "description": "Tests Channel Binding Token support for a SHA512 cert"
+                },
+                "jea": {
+                    "type": "string",
+                    "title": "JEA endpoint",
+                    "description": "The host to connect to the JEA endpoint that jea_configuration is on"
+                }
+            },
+            "additionalProperties": false
+        },
+        "data": {
+            "$id": "#/properties/data",
+            "type": "object",
+            "title": "Extra Data for Tests",
+            "description": "Extra information used by the test, for example a certificate to trust",
+            "default": {},
+            "examples": [
+                {
+                    "ca_file": "~/test/ca.pem"
+                }
+            ],
+            "properties": {
+                "ca_file": {
+                    "type": "string",
+                    "title": "CA Certificate File",
+                    "description": "The path to the CA certificate file to load during the test"
+                },
+                "client_certificate": {
+                    "type": "object",
+                    "title": "Client Certificate Settings",
+                    "description": "The client cert authentication settings",
+                    "examples": [
+                        {
+                            "path": "~/test/client_auth.pfx",
+                            "password": "password"
+                        }
+                    ],
+                    "required": [
+                        "path"
+                    ],
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "title": "Client Certificate PFX Path"
+                        },
+                        "password": {
+                            "type": "string",
+                            "title": "Client Certificate PFX Password"
+                        }
+                    }
+                },
+                "jea_configuration": {
+                    "type": "object",
+                    "title": "JEA Settings",
+                    "description": "The JEA test settings",
+                    "expamples": [
+                        {
+                            "name": "JEA",
+                            "username": "gmsa$"
+                        }
+                    ],
+                    "required": [
+                        "name",
+                        "username"
+                    ],
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "title": "JEA Configuration Name"
+                        },
+                        "username": {
+                            "type": "string",
+                            "title": "JEA UserName",
+                            "description": "The output of [Environment]::UserName in this JEA configuration"
+                        }
+                    }
                 }
             },
             "additionalProperties": false

@@ -1,9 +1,5 @@
 using System;
-using System.Globalization;
-using System.Management.Automation;
-using System.Management.Automation.Runspaces;
 using System.Net.Security;
-using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -18,7 +14,7 @@ internal static class GlobalState
     internal static LibraryInfo? GssapiLib;
 }
 
-public sealed class WSManSession : IDisposable
+internal sealed class WSManSession : IDisposable
 {
     public Uri ConnectionUri { get; }
 
@@ -51,21 +47,25 @@ public sealed class WSManSession : IDisposable
 
     public void Dispose()
     {
-        Connection.Dispose();
+        Connection?.Dispose();
         GC.SuppressFinalize(this);
     }
     ~WSManSession() { Dispose(); }
 }
 
-public class WSManSessionOption
+internal class WSManSessionOption
 {
+    internal const int DefaultMaxEnvelopeSize = 153600;
+
     public string? _dataLocale;
 
     public Uri ConnectionUri { get; set; }
 
+    public int OpenTimeout { get; set; }
+
     public int OperationTimeout { get; set; }
 
-    public int MaxEnvelopeSize { get; set; } = 153600;
+    public int MaxEnvelopeSize { get; set; } = DefaultMaxEnvelopeSize;
 
     public string Locale { get; set; }
 
@@ -95,10 +95,9 @@ public class WSManSessionOption
 
     public AuthenticationMethod CredSSPAuthMethod { get; set; } = AuthenticationMethod.Negotiate;
 
-    public X509Certificate? ClientCertificate { get; set; }
-
-    public WSManSessionOption(Uri connectionUri, int operationTimeout, string locale)
+    public WSManSessionOption(Uri connectionUri, int openTimeout, int operationTimeout, string locale)
     {
+        OpenTimeout = openTimeout;
         ConnectionUri = connectionUri;
         OperationTimeout = operationTimeout;
         Locale = locale;
@@ -137,9 +136,6 @@ public class WSManSessionOption
             };
         }
 
-        // FIXME: Set default header and client cert for cert auth
-        // request.Headers.Add("Authorization", "http://schemas.dmtf.org/wbem/wsman/1/wsman/secprofile/https/mutual");
-
         // Until net7 is the minimum we need to rewrite the URI so that the scheme is always http. This allows the
         // connection handler to wrap it's own TLS stream used to get the channel binding token information for
         // authentication. When setting net7 as the minimum this can be removed as it adds an instance check for
@@ -148,7 +144,13 @@ public class WSManSessionOption
         UriBuilder uriBuilder = new(ConnectionUri);
         uriBuilder.Scheme = "http";
 
-        return new(uriBuilder.Uri, authProvider, sslOptions, encrypt);
+        TimeSpan? connectTimeout = null;
+        if (OpenTimeout != 0)
+        {
+            connectTimeout = new(((long)OpenTimeout) * TimeSpan.TicksPerMillisecond);
+        }
+
+        return new(uriBuilder.Uri, authProvider, sslOptions, encrypt, connectTimeout);
     }
 
     internal AuthenticationProvider GenerateAuthProvider()
@@ -159,6 +161,11 @@ public class WSManSessionOption
         AuthenticationMethod authMethod = AuthMethod;
         if (authMethod == AuthenticationMethod.Default)
         {
+            if ((TlsOptions?.ClientCertificates?.Count ?? 0) > 0)
+            {
+                return new CertificateAuthProvider();
+            }
+
             authMethod = GlobalState.GssapiProvider == GssapiProvider.None
                 ? AuthenticationMethod.Basic
                 : AuthenticationMethod.Negotiate;

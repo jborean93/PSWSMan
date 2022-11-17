@@ -1,4 +1,6 @@
-. ([IO.Path]::Combine($PSScriptRoot, 'common.ps1'))
+BeforeDiscovery {
+    . ([IO.Path]::Combine($PSScriptRoot, 'common.ps1'))
+}
 
 Describe "New-PSWSManSessionOption" {
     It "Gets a default session object" {

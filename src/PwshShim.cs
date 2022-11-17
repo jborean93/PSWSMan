@@ -4,6 +4,7 @@ using System.Management.Automation.Runspaces;
 using System.Management.Automation.Remoting;
 using System.Management.Automation.Remoting.Client;
 using System.Net.Security;
+using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
 using System.Xml.Linq;
@@ -37,25 +38,55 @@ internal class WSManPSRPShim
             tlsOptions = extraConnInfo?.TlsOption ?? new()
             {
                 TargetHost = connectionUri.DnsSafeHost,
-                CertificateRevocationCheckMode = connInfo.SkipRevocationCheck
-                    ? X509RevocationMode.NoCheck : X509RevocationMode.Offline,
             };
 
-            if (extraConnInfo?.TlsOption is null && (connInfo.SkipCACheck || connInfo.SkipCNCheck))
+            if (extraConnInfo?.TlsOption is null)
             {
-                tlsOptions.RemoteCertificateValidationCallback = ((_1, _2, _3, sslPolicyErrors) =>
+                if (connInfo.SkipCACheck || connInfo.SkipCNCheck)
                 {
-                    if (connInfo.SkipCACheck)
+                    tlsOptions.RemoteCertificateValidationCallback = ((_1, _2, _3, sslPolicyErrors) =>
                     {
-                        sslPolicyErrors &= ~SslPolicyErrors.RemoteCertificateChainErrors;
-                    }
-                    if (connInfo.SkipCNCheck)
+                        if (connInfo.SkipCACheck)
+                        {
+                            sslPolicyErrors &= ~SslPolicyErrors.RemoteCertificateChainErrors;
+                        }
+                        if (connInfo.SkipCNCheck)
+                        {
+                            sslPolicyErrors &= ~SslPolicyErrors.RemoteCertificateNameMismatch;
+                        }
+
+                        return sslPolicyErrors == SslPolicyErrors.None;
+                    });
+                }
+
+                if (!string.IsNullOrWhiteSpace(connInfo.CertificateThumbprint))
+                {
+                    bool found = false;
+                    foreach (StoreLocation location in new[] { StoreLocation.CurrentUser, StoreLocation.LocalMachine })
                     {
-                        sslPolicyErrors &= ~SslPolicyErrors.RemoteCertificateNameMismatch;
+                        using X509Store store = new(StoreName.My, StoreLocation.CurrentUser, OpenFlags.ReadOnly);
+                        foreach (X509Certificate2 cert in store.Certificates)
+                        {
+                            if (string.Equals(cert.Thumbprint, connInfo.CertificateThumbprint,
+                                StringComparison.InvariantCultureIgnoreCase))
+                            {
+                                tlsOptions.ClientCertificates = new(new[] { cert });
+                                found = true;
+                                break;
+                            }
+                        }
                     }
 
-                    return sslPolicyErrors == SslPolicyErrors.None;
-                });
+                    if (!found)
+                    {
+                        string errMsg = $"WinRM failed to find certificate with the thumbprint requested '{connInfo.CertificateThumbprint}'";
+                        throw new AuthenticationException(errMsg);
+                    }
+                }
+                else if (extraConnInfo?.ClientCertificate != null)
+                {
+                    tlsOptions.ClientCertificates = new(new[] { extraConnInfo.ClientCertificate });
+                }
             }
         }
 
@@ -74,7 +105,7 @@ internal class WSManPSRPShim
             };
         }
 
-        WSManSessionOption options = new(connectionUri, connInfo.OperationTimeout,
+        WSManSessionOption options = new(connectionUri, connInfo.OpenTimeout, connInfo.OperationTimeout,
             connInfo.Culture.Name)
         {
             MaxEnvelopeSize = maxEnvelopeSize,
@@ -88,7 +119,6 @@ internal class WSManPSRPShim
             RequestKerberosDelegate = extraConnInfo?.RequestKerberosDelegate ?? false,
             CredSSPTlsOptions = extraConnInfo?.CredSSPTlsOption,
             CredSSPAuthMethod = extraConnInfo?.CredSSPAuthMethod ?? AuthenticationMethod.Negotiate,
-            // FIXME: ClientCertificate
         };
         if (connInfo.UICulture is not null)
         {
@@ -141,6 +171,12 @@ internal class WSManPSRPShim
         await _session.PostRequest<WSManSignalResponse>(payload);
     }
 
+    public async Task SendAsync(string stream, byte[] data, Guid? commandId = null)
+    {
+        string payload = _session.WinRS.Send(stream, data, commandId: commandId);
+        await _session.PostRequest<WSManSendResponse>(payload);
+    }
+
     public void StartReceiveTask(BaseClientTransportManager tm, Guid? commandId = null)
     {
         _receiveThreads.Add(Task.Run(() =>
@@ -158,14 +194,14 @@ internal class WSManPSRPShim
                     {
                         foreach (byte[] stream in entry.Value)
                         {
-                            // Console.WriteLine($"Received CmdId: '{commandId}' - {entry.Key} - {Convert.ToBase64String(stream)}");
+                            // Console.WriteLine("Received CmdId: '{0}' - {1} - {2)}",
+                            //     commandId, entry.Key, Convert.ToBase64String(stream));
                             tm.ProcessRawData(stream, entry.Key);
                         }
                     }
 
                     if (response.State == CommandState.Done)
                     {
-                        // Console.WriteLine($"Received CmdId '{commandId}' done");
                         break;
                     }
                 }
@@ -207,6 +243,11 @@ internal class WSManPSRPShim
             }
         }));
     }
+
+    internal WSManClient GetWSManClient()
+    {
+        return _session.WinRS.WSMan;
+    }
 }
 
 internal static class WSManCompatState
@@ -224,7 +265,7 @@ internal static class WSManCompatState
 }
 
 /// <summary>Used as a way to extend New-PSSessionOption by adding in extra options available in this lib.</summary>
-public class PSWSManSessionOption
+public sealed class PSWSManSessionOption
 {
     public const string PSWSMAN_SESSION_OPTION_PROP = "_PSWSManSessionOption";
 
@@ -235,6 +276,5 @@ public class PSWSManSessionOption
     public SslClientAuthenticationOptions? TlsOption { get; set; }
     public AuthenticationMethod CredSSPAuthMethod { get; set; } = AuthenticationMethod.Default;
     public SslClientAuthenticationOptions? CredSSPTlsOption { get; set; }
-
-    // FIXME: Add X509Certificate property for cert auth
+    public X509Certificate? ClientCertificate { get; set; }
 }

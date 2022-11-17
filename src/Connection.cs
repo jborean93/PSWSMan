@@ -40,6 +40,7 @@ internal class WSManConnection : IDisposable
     private readonly Uri _connectionUri;
     private readonly SslClientAuthenticationOptions? _sslOptions;
     private readonly IWinRMEncryptor? _encryptor;
+    private readonly TimeSpan _connectTimeout;
 
     private HttpClient? _http;
 
@@ -47,16 +48,18 @@ internal class WSManConnection : IDisposable
     /// <param name="connectionUri">The connection URI.</param>
     /// <param name="authProvider">The authentication provider used for the connection.</param>
     /// <param name="sslOptions">Set the TLS connection options for a HTTPS connection.</param>
-    /// <param name="encrypt">
+    /// <param name="encrypt">Whether to use WinRM message encryption or not.</param>
+    /// <param name="connectTimeout">The timeout for connecting to the host, null is InfiniteTimeSpan</param>
     /// Encrypt the payloads using the authentication provider. If true the authProvider must implement
     /// IWinRMEncryptor.
     /// </param>
     public WSManConnection(Uri connectionUri, AuthenticationProvider authProvider,
-        SslClientAuthenticationOptions? sslOptions, bool encrypt)
+        SslClientAuthenticationOptions? sslOptions, bool encrypt, TimeSpan? connectTimeout)
     {
         _connectionUri = connectionUri;
         _authProvider = authProvider;
         _sslOptions = sslOptions;
+        _connectTimeout = connectTimeout ?? Timeout.InfiniteTimeSpan;
 
         if (encrypt)
         {
@@ -83,7 +86,7 @@ internal class WSManConnection : IDisposable
 
         if (_http == null)
         {
-            _http = GetWSManHttpClient();
+            _http = GetWSManHttpClient(_connectTimeout);
 
             content = PrepareContent(message);
             response = await Authenticate(_http, content, cancelToken);
@@ -136,7 +139,18 @@ internal class WSManConnection : IDisposable
             _authProvider,
             _sslOptions);
         request.Content = content;
-        HttpResponseMessage response = await http.SendAsync(request, cancelToken).ConfigureAwait(false);
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await http.SendAsync(request, cancelToken).ConfigureAwait(false);
+        }
+        catch (TaskCanceledException e)
+        {
+            // A connection timeout resutls in TaskCanceledException but the message there is very vague. Use the base
+            // exception instead which contains more details like, i.e. timeout on connection or DNS errors.
+            throw e.GetBaseException();
+        }
 
         while (!_authProvider.Complete)
         {
@@ -331,11 +345,12 @@ internal class WSManConnection : IDisposable
     }
     ~WSManConnection() { Dispose(); }
 
-    private static HttpClient GetWSManHttpClient()
+    private static HttpClient GetWSManHttpClient(TimeSpan connectTimeout)
     {
         // We need a custom handle to make the connection and do the TLS handshake before sending the request so that
         // the Negotiate authentication contain can contain the TLS channel binding data.
         SocketsHttpHandler httpHandler = new();
+        httpHandler.ConnectTimeout = connectTimeout;
         httpHandler.ConnectCallback = async (context, cancelToken) =>
         {
             Socket socket = new(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };

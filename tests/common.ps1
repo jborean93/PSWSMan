@@ -9,6 +9,11 @@ if (-not (Get-Module -Name $moduleName -ErrorAction SilentlyContinue)) {
 
 Enable-PSWSMan -Force
 
+class JEAConfiguration {
+    [string]$Name
+    [string]$ExpectedUserName
+}
+
 class PSWSManServer {
     [string]$HostName
     [PSCredential]$Credential
@@ -17,7 +22,10 @@ class PSWSManServer {
 
 class PSWSManSettings {
     [System.Collections.Generic.Dictionary[[string], [PSWSManServer]]]$Servers
-    [System.Collections.Generic.Dictionary[[string], [string]]]$Scenarios
+    [System.Collections.Generic.Dictionary[[string], [string]]]$Scenarios = [System.Collections.Generic.Dictionary[[string], [string]]]::new()
+    [System.Security.Cryptography.X509Certificates.X509Certificate2] $CACert
+    [JEAConfiguration]$JEAConfiguration
+    [System.Security.Cryptography.X509Certificates.X509Certificate2]$ClientCertificate
 
     [PSWSManServer] GetScenarioServer([string]$Scenario) {
         if ($this.Scenarios.ContainsKey($Scenario)) {
@@ -29,13 +37,13 @@ class PSWSManSettings {
     }
 }
 
-if (-not $global:PSOpenADSettings) {
+if (-not $global:PSWSManSettings) {
     $schemaPath = [IO.Path]::Combine($PSScriptRoot, 'settings.schema.json')
     $settingsPath = [IO.Path]::Combine($PSScriptRoot, '..', 'test.settings.json')
     if (Test-Path -LiteralPath $settingsPath) {
         $settingsJson = Get-Content -LiteralPath $settingsPath -Raw
-
         Test-Json -Json $settingsJson -SchemaFile $schemaPath -ErrorAction Stop
+
         $settings = ConvertFrom-Json -InputObject $settingsJson -AsHashtable
 
         $credentials = @{}
@@ -80,9 +88,47 @@ if (-not $global:PSOpenADSettings) {
             $scenarios[$scenarioName] = $hostName
         }
 
+        $caCert = $null
+        $jeaConfiguration = $null
+        $clientCert = $null
+        if ($settings.data) {
+            if (Test-Path -LiteralPath $settings.data.ca_file) {
+                $caCert = Get-PfxCertificate -FilePath $settings.data.ca_file
+            }
+
+            if ($settings.data.client_certificate) {
+                if (-not (Test-Path -LiteralPath $settings.data.client_certificate.path)) {
+                    throw "client_certificate.path cannot be found"
+                }
+
+                $pfxParams = @{
+                    FilePath            = $settings.data.client_certificate.path
+                    NoPromptForPassword = $true
+                }
+                if ($settings.data.client_certificate.password) {
+                    $pfxParams.Password = (ConvertTo-SecureString -AsPlainText -Force -String $settings.data.client_certificate.password)
+                }
+                $clientCert = Get-PfxCertificate @pfxParams
+            }
+
+            if ($settings.data.jea_configuration) {
+                if (-not $scenarios.ContainsKey('jea')) {
+                    throw "jea_configuration set but no jea scenario set."
+                }
+
+                $jeaConfiguration = [JEAConfiguration]@{
+                    Name             = $settings.data.jea_configuration.name
+                    ExpectedUserName = $settings.data.jea_configuration.username
+                }
+            }
+        }
+
         $global:PSWSManSettings = [PSWSManSettings]@{
-            Servers   = $servers
-            Scenarios = $scenarios
+            Servers           = $servers
+            Scenarios         = $scenarios
+            CACert            = $caCert
+            JEAConfiguration  = $jeaConfiguration
+            ClientCertificate = $clientCert
         }
     }
     else {
