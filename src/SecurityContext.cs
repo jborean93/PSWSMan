@@ -356,7 +356,8 @@ internal class SspiContext : SecurityContext
     private byte[]? _bindingData;
     private UInt32 _blockSize = 0;
     private UInt32 _trailerSize = 0;
-    private UInt32 _seqNo = 0;
+    private UInt32 _sendSeqNo = 0;
+    private UInt32 _recvSeqNo = 0;
 
     public SspiContext(string? username, string? password, AuthenticationMethod method, string target,
         bool requestDelegate)
@@ -474,7 +475,7 @@ internal class SspiContext : SecurityContext
                     buffers[2].cbBuffer = _blockSize;
                     buffers[2].pvBuffer = paddingPtr;
 
-                    SSPI.EncryptMessage(_context, 0, buffers, NextSeqNo());
+                    SSPI.EncryptMessage(_context, 0, buffers, NextSendSeqNo());
 
                     byte[] wrapped = new byte[buffers[0].cbBuffer + buffers[1].cbBuffer + buffers[2].cbBuffer];
                     int offset = 0;
@@ -527,7 +528,7 @@ internal class SspiContext : SecurityContext
                     buffers[1].cbBuffer = (UInt32)data.Length;
                     buffers[1].pvBuffer = dataPtr;
 
-                    SSPI.EncryptMessage(_context, 0, buffers, NextSeqNo());
+                    SSPI.EncryptMessage(_context, 0, buffers, NextSendSeqNo());
 
                     byte[] header = new Span<byte>(buffers[0].pvBuffer, (int)buffers[0].cbBuffer).ToArray();
                     encryptedLength = (int)buffers[1].cbBuffer;
@@ -561,7 +562,7 @@ internal class SspiContext : SecurityContext
                 buffers[1].cbBuffer = 0;
                 buffers[1].pvBuffer = null;
 
-                SSPI.DecryptMessage(_context, buffers, NextSeqNo());
+                SSPI.DecryptMessage(_context, buffers, NextRecvSeqNo());
 
                 byte[] unwrapped = new byte[buffers[1].cbBuffer];
                 Marshal.Copy((IntPtr)buffers[1].pvBuffer, unwrapped, 0, unwrapped.Length);
@@ -593,7 +594,7 @@ internal class SspiContext : SecurityContext
                 buffers[1].cbBuffer = (UInt32)encData.Length;
                 buffers[1].pvBuffer = dataPtr;
 
-                SSPI.DecryptMessage(_context, buffers, NextSeqNo());
+                SSPI.DecryptMessage(_context, buffers, NextRecvSeqNo());
 
                 // Data is decrypted in place, just return a span that points to the decrypted payload.
                 return encData[..(int)buffers[1].cbBuffer];
@@ -649,12 +650,18 @@ internal class SspiContext : SecurityContext
         }
     }
 
-    private UInt32 NextSeqNo()
+    private UInt32 NextSendSeqNo()
     {
-        UInt32 seqNo = _seqNo;
-        _seqNo++;
+        UInt32 nextSeqNo = _sendSeqNo;
+        _sendSeqNo++;
+        return nextSeqNo;
+    }
 
-        return seqNo;
+    private UInt32 NextRecvSeqNo()
+    {
+        UInt32 nextSeqNo = _recvSeqNo;
+        _recvSeqNo++;
+        return nextSeqNo;
     }
 
     public override void Dispose()
