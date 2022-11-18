@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Management.Automation;
 using System.Management.Automation.Runspaces;
 using System.Management.Automation.Remoting;
 using System.Management.Automation.Remoting.Client;
@@ -194,7 +195,7 @@ internal class WSManPSRPShim
                     {
                         foreach (byte[] stream in entry.Value)
                         {
-                            // Console.WriteLine("Received CmdId: '{0}' - {1} - {2)}",
+                            // Console.WriteLine("Received CmdId: '{0}' - {1} - {2}",
                             //     commandId, entry.Key, Convert.ToBase64String(stream));
                             tm.ProcessRawData(stream, entry.Key);
                         }
@@ -205,29 +206,23 @@ internal class WSManPSRPShim
                         break;
                     }
                 }
-                catch (WSManFault e) when (e.WSManFaultCode == 0x80338029)
+                catch (WSManFault e) when (e.WSManFaultCode == unchecked((int)0x80338029))
                 {
                     // ERROR_WSMAN_OPERATION_TIMEDOUT - try it again
                     continue;
                 }
                 catch (WSManFault e) when (
-                    e.WSManFaultCode == 0x000003E3 ||
-                    e.WSManFaultCode == 0x000004C7 ||
-                    e.WSManFaultCode == 0x8033805B ||
-                    e.WSManFaultCode == 0x803381C4 ||
-                    e.WSManFaultCode == 0x803381DE
+                    e.WSManFaultCode == 0x000003E3 || // ERROR_OPERATION_ABORTED - 0x000003E3
+                    e.WSManFaultCode == 0x000004C7 || // ERROR_CANCELLED - 0x000004C7
+                    e.WSManFaultCode == unchecked((int)0x8033805B) || // ERROR_WSMAN_UNEXPECTED_SELECTORS - 0x8033805B
+                    e.WSManFaultCode == unchecked((int)0x803381C4) || // ERROR_WINRS_SHELL_DISCONNECTED - 0x803381C4
+                    e.WSManFaultCode == unchecked((int)0x803381DE) // ERROR_WSMAN_SERVICE_STREAM_DISCONNECTED - 0x803381DE
                 )
                 {
-                    // ERROR_OPERATION_ABORTED - 0x000003E3 - The shell or cmd has been closed
-                    // ERROR_CANCELLED - 0x000004C7
-                    // ERROR_WSMAN_UNEXPECTED_SELECTORS - 0x8033805B
-                    // ERROR_WINRS_SHELL_DISCONNECTED - 0x803381C4
-                    // ERROR_WSMAN_SERVICE_STREAM_DISCONNECTED - 0x803381DE
                     break;
                 }
                 catch (Exception e)
                 {
-                    Console.WriteLine($"Receive Task failure: {e.Message}\n{e}");
                     TransportErrorOccuredEventArgs err = new(new PSRemotingTransportException(e.Message, e),
                         TransportMethodEnum.CreateShellEx);
                     if (tm is WSManClientSessionTransportManager clientTM)

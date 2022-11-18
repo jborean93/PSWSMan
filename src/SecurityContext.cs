@@ -363,7 +363,12 @@ internal class SspiContext : SecurityContext
     {
         _targetSpn = target;
 
-        string package = method == AuthenticationMethod.Kerberos ? "Kerberos" : "Negotiate";
+        string package = method switch
+        {
+            AuthenticationMethod.NTLM => "NTLM",
+            AuthenticationMethod.Kerberos => "Kerberos",
+            _ => "Negotiate",
+        };
         WinNTAuthIdentity? identity = null;
         if (!string.IsNullOrEmpty(username) || !string.IsNullOrEmpty(password))
         {
