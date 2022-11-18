@@ -1,9 +1,11 @@
 using System;
+using System.Management.Automation;
 using System.Management.Automation.Remoting;
 using System.Management.Automation.Remoting.Client;
 using HarmonyLib;
 
 namespace PSWSMan.Patches;
+
 
 [HarmonyPatch(typeof(WSManClientCommandTransportManager))]
 [HarmonyPatch(nameof(WSManClientCommandTransportManager.CreateAsync))]
@@ -11,7 +13,7 @@ internal static class Pwsh_WSManClientCommandTransportManagerCreateAsync
 {
     static bool Prefix(WSManClientCommandTransportManager __instance, IntPtr ____wsManShellOperationHandle,
         SerializedDataStream ___serializedPipeline, WSManClientSessionTransportManager ____sessnTm,
-        Guid ___powershellInstanceId)
+        Guid ___powershellInstanceId, PSTraceSource ___tracer)
     {
         WSManPSRPShim session = WSManCompatState.SessionInfo[____sessnTm.SessionHandle];
         byte[] cmdPart1 = ___serializedPipeline.ReadOrRegisterCallback(null) ?? Array.Empty<byte>();
@@ -27,7 +29,7 @@ internal static class Pwsh_WSManClientCommandTransportManagerCreateAsync
             __instance.ProcessWSManTransportError(err);
         }
 
-        session.StartReceiveTask(__instance, commandId: ___powershellInstanceId);
+        session.StartReceiveTask(__instance, ___tracer, commandId: ___powershellInstanceId);
 
         // FIXME: Send more packets if available
         // __instance.SendOneItem();
