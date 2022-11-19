@@ -19,6 +19,8 @@ internal class WSManPSRPShim
     private readonly WSManConnectionInfo _connInfo;
     private List<Task> _receiveThreads = new();
 
+    public Guid RunspacePoolId => _runspacePoolId;
+
     private WSManPSRPShim(Guid runspacePoolId, WSManSession session, WSManConnectionInfo connInfo)
     {
         _runspacePoolId = runspacePoolId;
@@ -172,13 +174,25 @@ internal class WSManPSRPShim
         await _session.PostRequest<WSManSignalResponse>(payload);
     }
 
+    public async Task<WSManReceiveResponse> Receive(string stream, Guid? commandId = null)
+    {
+        string payload = _session.WinRS.Receive(stream, commandId: commandId);
+        return await _session.PostRequest<WSManReceiveResponse>(payload);
+    }
+
     public async Task SendAsync(string stream, byte[] data, Guid? commandId = null)
     {
         string payload = _session.WinRS.Send(stream, data, commandId: commandId);
         await _session.PostRequest<WSManSendResponse>(payload);
     }
 
-    public void StartReceiveTask(BaseClientTransportManager tm, Guid? commandId = null)
+    public async Task StopCommandAsync(Guid commandId)
+    {
+        string payload = _session.WinRS.Signal(SignalCode.PSCtrlC, commandId: commandId);
+        await _session.PostRequest<WSManSignalResponse>(payload);
+    }
+
+    public void StartReceiveTask(BaseClientTransportManager tm, PSTraceSource tracer, Guid? commandId = null)
     {
         _receiveThreads.Add(Task.Run(() =>
         {
@@ -188,8 +202,11 @@ internal class WSManPSRPShim
                 try
                 {
                     string payload = session.WinRS.Receive("stdout", commandId: commandId);
+
+                    tracer.WriteLine("PSWSMan Receive Task sending Receive Request. CmdId: '{0}'", commandId);
                     WSManReceiveResponse response = session.PostRequest<WSManReceiveResponse>(payload)
                         .GetAwaiter().GetResult();
+                    tracer.WriteLine("PSWSMan Received Response. CmdId: '{0}'", commandId);
 
                     foreach (KeyValuePair<string, byte[][]> entry in response.Streams)
                     {
@@ -203,12 +220,15 @@ internal class WSManPSRPShim
 
                     if (response.State == CommandState.Done)
                     {
+                        tracer.WriteLine("PSWSMan Receive Task Complete. CmdId: '{0}'", commandId);
                         break;
                     }
                 }
                 catch (WSManFault e) when (e.WSManFaultCode == unchecked((int)0x80338029))
                 {
                     // ERROR_WSMAN_OPERATION_TIMEDOUT - try it again
+                    tracer.WriteLine("PSWSMan Received Operation Timeout and will try again. CmdId: '{0}'\n{1}",
+                        commandId, e);
                     continue;
                 }
                 catch (WSManFault e) when (
@@ -219,10 +239,14 @@ internal class WSManPSRPShim
                     e.WSManFaultCode == unchecked((int)0x803381DE) // ERROR_WSMAN_SERVICE_STREAM_DISCONNECTED - 0x803381DE
                 )
                 {
+                    tracer.WriteLine("PSWSMan Received Task Shutdown WSMan Fault Received CmdId: '{0}'\n{1}",
+                        commandId, e);
                     break;
                 }
                 catch (Exception e)
                 {
+                    tracer.WriteLine("PSWSMan Receive Task Failure CmdId: '{0}'\n{1}", commandId, e);
+
                     TransportErrorOccuredEventArgs err = new(new PSRemotingTransportException(e.Message, e),
                         TransportMethodEnum.CreateShellEx);
                     if (tm is WSManClientSessionTransportManager clientTM)

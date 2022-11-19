@@ -1,6 +1,6 @@
+using HarmonyLib;
 using System;
 using System.Management.Automation.Remoting.Client;
-using HarmonyLib;
 
 namespace PSWSMan.Patches;
 

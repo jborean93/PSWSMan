@@ -1,7 +1,7 @@
+using HarmonyLib;
 using System.Management.Automation;
 using System.Management.Automation.Remoting;
 using System.Management.Automation.Runspaces;
-using HarmonyLib;
 
 namespace PSWSMan.Patches;
 
