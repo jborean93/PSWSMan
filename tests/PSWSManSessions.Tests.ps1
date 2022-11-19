@@ -357,21 +357,21 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
 }
 
 Describe "PSWSMan Kerberos tests" -Skip:(-not $PSWSManSettings.GetScenarioServer('domain_auth')) {
-    It "Connects with implicit credential" {
+    # It "Connects with implicit credential" {
 
-    }
+    # }
 
-    It "Connects with default - no delegation" {
+    # It "Connects with default - no delegation" {
 
-    }
+    # }
 
-    It "Connects with delegation - implicit cred" {
+    # It "Connects with delegation - implicit cred" {
 
-    }
+    # }
 
-    It "Connects with delegate - explicit cred" {
+    # It "Connects with delegate - explicit cred" {
 
-    }
+    # }
 }
 
 Describe "PSWSMan Exchange Online tests" -Skip {
@@ -417,42 +417,163 @@ Describe "PSWSMan PSRemoting tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         $SessionParams.SessionOption = New-PSWSManSessionOption -ApplicationArguments $appArgs
         $actual = Invoke-Command @sessionparams -ScriptBlock { $PSSenderInfo.ApplicationArguments }
 
+        $actual.Key.Length | Should -Be 1MB
         $actual.Key | Should -Be ('a' * 1MB)
     }
 
     It "Runs command with large Command data" {
+        $actual = Invoke-Command @sessionparams -ScriptBlock { $args[0] } -ArgumentList ('a' * 1MB)
 
+        $actual.Length | Should -Be 1MB
+        $actual | Should -Be ('a' * 1MB)
     }
 
     It "Pipes data into command" {
+        $actual = ('a' * 1MB) | Invoke-Command @sessionparams -ScriptBlock { process { $_ } }
 
+        $actual.Length | Should -Be 1MB
+        $actual | Should -Be ('a' * 1MB)
     }
 
     It "Responds to user events" {
+        $eventParams = @{
+            EventName        = "PSEventReceived"
+            SourceIdentifier = "PSWSMan.UserEvent"
+        }
 
+        $session = New-PSSession @sessionParams
+        try {
+            $customEvent = Register-ObjectEvent -InputObject $session.Runspace.Events.ReceivedEvents @eventParams
+
+            Invoke-Command -Session $session -ScriptBlock {
+                $null = $Host.Runspace.Events.SubscribeEvent(
+                    $null,
+                    "PSWSManEvent",
+                    "PSWSManEvent",
+                    $null,
+                    $null,
+                    $true,
+                    $true)
+                $null = $Host.Runspace.Events.GenerateEvent(
+                    "PSWSManEvent",
+                    "sender",
+                    @("my", "args"),
+                    "extra data")
+            }
+
+            $actual = Wait-Event -SourceIdentifier $eventParams.SourceIdentifier -Timeout 1 | Select-Object *
+        }
+        finally {
+            if ($customEvent) {
+                Unregister-Event -SourceIdentifier $eventParams.SourceIdentifier
+            }
+            $session | Remove-PSSession
+        }
+
+        $actual | Should -Not -BeNullOrEmpty
+        $actual.Sender.ComputerName | Should -Be $session.ComputerName
+        $actual.SourceIdentifier | Should -Be PSWSMan.UserEvent
+        $actual.SourceArgs[0] | Should -Be sender
+        $actual.SourceArgs[1].RunspaceId | Should -Be $session.Runspace.InstanceId
+        $actual.SourceArgs[1].SourceArgs | Should -Be @('my', 'args')
     }
 
-    It "Exchanges SecureString" {
+    It "Receives a SecureString" {
+        $actual = Invoke-Command @sessionParams -ScriptBlock { ConvertTo-SecureString -AsPlainText -Force -String secret }
 
+        $actual.Length | Should -Be 6
+        [PSCredential]::new('dummy', $actual).GetNetworkCredential().Password | Should -Be secret
     }
 
-    It "Sets max runspaces" {
+    It "Sends a SecureString" {
+        $ss = ConvertTo-SecureString -AsPlainText -Force -String secret
+        $actual = Invoke-Command @sessionParams -ScriptBlock {
+            param([securestring]$obj)
 
+            $obj.GetType().FullName
+            [PSCredential]::new('dummy', $obj).GetNetworkCredential().Password
+        } -ArgumentList $ss
+
+        $actual[0] | Should -Be System.Security.SecureString
+        $actual[1] | Should -Be secret
     }
 
-    It "Sets min runspaces" {
+    It "Sets max and min runspaces" {
+        $connInfo = [System.Management.Automation.Runspaces.WSManConnectionInfo]@{
+            ComputerName = $sessionParams.ComputerName
+        }
+        if ($sessionParams.ContainsKey('Credential')) {
+            $connInfo.Credential = $sessionParams.Credential
+        }
 
+        $rp = [runspacefactory]::CreateRunspacePool(2, 5, $connInfo)
+        $rp.Open()
+        try {
+            $rp.SetMaxRunspaces(1) | Should -BeFalse
+            $rp.SetMaxRunspaces(5) | Should -BeFalse
+            $rp.SetMaxRunspaces(4) | Should -BeTrue
+
+            $rp.SetMinRunspaces(6) | Should -BeFalse
+            $rp.SetMinRunspaces(2) | Should -BeFalse
+            $rp.SetMinRunspaces(1) | Should -BeTrue
+
+            $rp.GetAvailableRunspaces() | Should -Be 4
+        }
+        finally {
+            $rp.Dispose()
+        }
     }
 
     It "Resets runspace" {
+        $session = New-PSSession @sessionParams
 
+        try {
+            Invoke-Command -Session $session -ScriptBlock { $global:test = 'foo' }
+
+            $out = Invoke-Command -Session $session -ScriptBlock { $global:test }
+            $out | Should -Be foo
+
+            $session.Runspace.ResetRunspaceState()
+
+            $out = Invoke-Command -Session $session -ScriptBlock { $global:test }
+            $out | Should -BeNullOrEmpty
+        }
+        finally {
+            $session | Remove-PSSession
+        }
     }
 
     It "Stops a pipeline" {
+        $session = New-PSSession @sessionParams
 
-    }
+        try {
+            $ps = [PowerShell]::Create()
+            $ps.Runspace = $session.Runspace
+            $null = $ps.AddScript('sleep 10')
 
-    It "Gets command metadata" {
+            $start = Get-Date
+            $task = $ps.BeginInvoke()
 
+            $ps.Stop()
+
+            $err = $null
+            try {
+                $ps.EndInvoke($task)
+            }
+            catch {
+                $err = $_
+            }
+
+            $elapsed = (Get-Date) - $start
+
+            $ps.InvocationStateInfo.State | Should -Be Stopped
+        }
+        finally {
+            $session | Remove-PSSession
+        }
+
+        $elapsed.TotalSeconds | Should -BeLessThan 10
+        $err | Should -Not -BeNullOrEmpty
+        [string]$err | Should -BeLike '*The remote pipeline has been stopped*'
     }
 }

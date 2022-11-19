@@ -186,6 +186,12 @@ internal class WSManPSRPShim
         await _session.PostRequest<WSManSendResponse>(payload);
     }
 
+    public async Task StopCommandAsync(Guid commandId)
+    {
+        string payload = _session.WinRS.Signal(SignalCode.PSCtrlC, commandId: commandId);
+        await _session.PostRequest<WSManSignalResponse>(payload);
+    }
+
     public void StartReceiveTask(BaseClientTransportManager tm, PSTraceSource tracer, Guid? commandId = null)
     {
         _receiveThreads.Add(Task.Run(() =>

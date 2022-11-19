@@ -1,11 +1,10 @@
+using HarmonyLib;
 using System;
-using System.Collections.Generic;
 using System.Management.Automation;
 using System.Management.Automation.Remoting;
 using System.Management.Automation.Remoting.Client;
 using System.Management.Automation.Runspaces;
 using System.Reflection;
-using HarmonyLib;
 
 namespace PSWSMan.Patches;
 
@@ -29,8 +28,6 @@ internal static class Pwsh_WSManClientSessionTransportManagerInitialize
             The patched code sets the same properties as Initialize and stores the mapping of the connection details
             into a global state for later referencing. Building the actual connection and setting the options is done
             later on when the connection is being created.
-
-            https://github.com/PowerShell/PowerShell/blob/042765dd1c4d46a86a4545e7e0df0a7ee19f4dd6/src/System.Management.Automation/engine/remoting/fanin/WSManTransportManager.cs#L1361-L1627
         */
         ___tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.Initialized - Called");
         try
@@ -68,8 +65,7 @@ internal static class Pwsh_WSManClientSessionTransportManagerInitialize
         }
         catch (Exception e)
         {
-            ___tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.Initialized - Error\n{1}", e.Message,
-                e.ToString());
+            ___tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.Initialized - Error\n{0}", e.ToString());
             throw;
         }
 
@@ -82,7 +78,7 @@ internal static class Pwsh_WSManClientSessionTransportManagerInitialize
 internal static class Pwsh_WSManClientSessionTransportManagerCreateAsync
 {
     static bool Prefix(WSManClientSessionTransportManager __instance, ref IntPtr ____wsManSessionHandle,
-        PrioritySendDataCollection ___dataToBeSent,
+        ref IntPtr ____wsManShellOperationHandle, PrioritySendDataCollection ___dataToBeSent,
         PrioritySendDataCollection.OnDataAvailableCallback ____onDataAvailableToSendCallback, PSTraceSource ___tracer)
     {
         /*
@@ -118,6 +114,9 @@ internal static class Pwsh_WSManClientSessionTransportManagerCreateAsync
                 return false;
             }
 
+            // Satifies some Debug.Assert statements in pwsh
+            ____wsManShellOperationHandle = (IntPtr)1;
+
             // FUTURE: Add disconnect support
             __instance.GetType()
                 .GetProperty("SupportsDisconnect", BindingFlags.NonPublic | BindingFlags.Instance)
@@ -125,50 +124,14 @@ internal static class Pwsh_WSManClientSessionTransportManagerCreateAsync
 
             __instance.RaiseCreateCompleted(new CreateCompleteEventArgs(__instance.ConnectionInfo.Copy()));
 
-            // There's a race condition where starting the receive task but sending more data at the same time causes the
-            // server to process the input objects out of order causing an error. It is important to do 1 receive task to
-            // get the SessionCapability of the server before starting the thread and then sending the remaining data.
-            ___tracer.WriteLine(
-                "PSWSMan: WSManClientSessionTransportManager.CreateAsync - Sending first Receive for {0}",
-                session.RunspacePoolId);
-            try
-            {
-                WSManReceiveResponse response = session.Receive("stdout").GetAwaiter().GetResult();
-                foreach (KeyValuePair<string, byte[][]> entry in response.Streams)
-                {
-                    foreach (byte[] stream in entry.Value)
-                    {
-                        __instance.ProcessRawData(stream, entry.Key);
-                    }
-                }
-            }
-            catch (Exception e)
-            {
-                ___tracer.WriteLine(
-                    "PSWSMan: WSManClientSessionTransportManager.CreateAsync - Receive failed for {0}\n{1}",
-                    session.RunspacePoolId, e);
-
-                WSManCompatState.SessionInfo.Remove(____wsManSessionHandle);
-                ____wsManSessionHandle = IntPtr.Zero;
-
-                TransportErrorOccuredEventArgs err = new(new PSRemotingTransportException(e.Message, e),
-                    TransportMethodEnum.CreateShellEx);
-                __instance.ProcessWSManTransportError(err);
-                return false;
-            }
-
-            // Start the receive thread that continuously polls the receive output.
+            // Start the receive thread that continuously polls the receive output. The first message expected back
+            // is the SessionCapability which will fire the AdjustForProtocolVariations and StartReceivingData methods
+            // where the remaining Runspace creation messages (if any) are sent.
             session.StartReceiveTask(__instance, ___tracer);
-
-            typeof(WSManClientSessionTransportManager).GetMethod(
-                "SendOneItem",
-                BindingFlags.NonPublic | BindingFlags.Instance)
-                ?.Invoke(__instance, Array.Empty<Type>());
         }
         catch (Exception e)
         {
-            ___tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.CreateAsync - Error\n{1}", e.Message,
-                e.ToString());
+            ___tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.CreateAsync - Error\n{0}", e.ToString());
             throw;
         }
 
@@ -190,7 +153,7 @@ internal static class Pwsh_WSManClientSessionTransportManagerCloseAsync
 
         try
         {
-            if (____wsManSessionHandle == IntPtr.Zero)
+            if (____wsManSessionHandle != IntPtr.Zero)
             {
                 WSManPSRPShim session = WSManCompatState.SessionInfo[____wsManSessionHandle];
 
@@ -220,8 +183,7 @@ internal static class Pwsh_WSManClientSessionTransportManagerCloseAsync
         }
         catch (Exception e)
         {
-            ___tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.CloseAsync - Error\n{1}", e.Message,
-                e.ToString());
+            ___tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.CloseAsync - Error\n{0}", e.ToString());
             throw;
         }
 
@@ -251,8 +213,7 @@ internal static class Pwsh_WSManClientSessionTransportManagerDispose
         }
         catch (Exception e)
         {
-            ___tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.Dispose - Error\n{1}", e.Message,
-                e.ToString());
+            ___tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.Dispose - Error\n{0}", e.ToString());
             throw;
         }
 
@@ -309,8 +270,7 @@ internal static class Pwsh_WSManClientSessionTransportManagerSendData
         }
         catch (Exception e)
         {
-            ___tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.SendData - Error\n{1}", e.Message,
-                e.ToString());
+            ___tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.SendData - Error\n{0}", e.ToString());
             throw;
         }
 
@@ -348,12 +308,16 @@ internal static class Pwsh_WSManClientSessionTransportManagerAdjustForProtocolVa
 
                 int newEnvelopeSize = 500 << 10;
                 wsman.MaxEnvelopeSize = newEnvelopeSize;
-                __instance.Fragmentor.FragmentSize = newEnvelopeSize;
+
+                // The fragmenter size needs to fit a base64 encoded value of those bytes into the WSMan envelope. Use
+                // 2048 as a high level envelope size and (_ / 4) * 3 to get the max length that can fit in a base64
+                // encoded string in the envelope.
+                __instance.Fragmentor.FragmentSize = ((newEnvelopeSize - 2048) / 4) * 3;
             }
         }
         catch (Exception e)
         {
-            ___tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.AdjustForProtocolVariations - Error\n{1}", e.Message,
+            ___tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.AdjustForProtocolVariations - Error\n{0}",
                 e.ToString());
             throw;
         }
@@ -366,13 +330,28 @@ internal static class Pwsh_WSManClientSessionTransportManagerAdjustForProtocolVa
 [HarmonyPatch(nameof(WSManClientSessionTransportManager.StartReceivingData))]
 internal static class Pwsh_WSManClientSessionTransportManagerStartReceivingData
 {
-    static bool Prefix(PSTraceSource ___tracer)
+    static bool Prefix(WSManClientSessionTransportManager __instance, PSTraceSource ___tracer)
     {
         /*
-            Explicitly called by pwsh once the runspace pool state has been received after creating. It's already been
-            started so nothing needs to be done here.
+            Explicitly called by pwsh once the SessionCapability message has been received and processed. At this point
+            we need to check if there is more data to send to create the Runspace. It is imperative this is called
+            after the first receive has a response to avoid a race condition on the WSMan server.
         */
         ___tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.StartReceivingData - Called");
+
+        try
+        {
+            typeof(WSManClientSessionTransportManager).GetMethod(
+                    "SendOneItem",
+                    BindingFlags.NonPublic | BindingFlags.Instance)
+                    ?.Invoke(__instance, Array.Empty<Type>());
+        }
+        catch (Exception e)
+        {
+            ___tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.StartReceivingData - Error\n{0}",
+                e.ToString());
+            throw;
+        }
         return false;
     }
 }
