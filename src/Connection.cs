@@ -19,10 +19,10 @@ namespace PSWSMan;
 
 internal class WSManInitialRequest : HttpRequestMessage
 {
-    internal AuthenticationProvider Authentication { get; }
+    internal HttpAuthProvider Authentication { get; }
     internal SslClientAuthenticationOptions? SslOptions { get; set; }
 
-    public WSManInitialRequest(HttpMethod method, Uri uri, AuthenticationProvider authProvider,
+    public WSManInitialRequest(HttpMethod method, Uri uri, HttpAuthProvider authProvider,
         SslClientAuthenticationOptions? sslOptions)
         : base(method, uri)
     {
@@ -36,7 +36,7 @@ internal class WSManConnection : IDisposable
 {
     private const string CONTENT_TYPE = "application/soap+xml";
 
-    private readonly AuthenticationProvider _authProvider;
+    private readonly HttpAuthProvider _authProvider;
     private readonly Uri _connectionUri;
     private readonly SslClientAuthenticationOptions? _sslOptions;
     private readonly IWinRMEncryptor? _encryptor;
@@ -53,7 +53,7 @@ internal class WSManConnection : IDisposable
     /// Encrypt the payloads using the authentication provider. If true the authProvider must implement
     /// IWinRMEncryptor.
     /// </param>
-    public WSManConnection(Uri connectionUri, AuthenticationProvider authProvider,
+    public WSManConnection(Uri connectionUri, HttpAuthProvider authProvider,
         SslClientAuthenticationOptions? sslOptions, bool encrypt, TimeSpan? connectTimeout)
     {
         _connectionUri = connectionUri;
@@ -340,7 +340,7 @@ internal class WSManConnection : IDisposable
     public void Dispose()
     {
         _http?.Dispose();
-        _authProvider.Dispose();
+        _authProvider?.Dispose();
         GC.SuppressFinalize(this);
     }
     ~WSManConnection() { Dispose(); }
@@ -383,7 +383,7 @@ internal class WSManConnection : IDisposable
         Stream stream = new NetworkStream(socket, ownsSocket: true);
         if (request is WSManInitialRequest wsmanRequest)
         {
-            AuthenticationProvider authProvider = wsmanRequest.Authentication;
+            HttpAuthProvider authProvider = wsmanRequest.Authentication;
             if (wsmanRequest.SslOptions is not null)
             {
                 SslStream sslStream = new(stream);

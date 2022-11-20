@@ -12,6 +12,15 @@ internal static class GlobalState
 
     /// <summary>The loaded GSSAPI library on Linux.</summary>
     internal static LibraryInfo? GssapiLib;
+
+    /// <summary>The loaded SSPI library on Windows.</summary>
+    internal static LibraryInfo? SspiLib;
+
+    /// <summary>The loaded DevolutionsSspi library.</summary>
+    internal static LibraryInfo? DevolutionsLib;
+
+    /// <summary>The default authentication provider set for the process.</summary>
+    internal static AuthenticationProvider DefaultProvider = AuthenticationProvider.Native;
 }
 
 internal sealed class WSManSession : IDisposable
@@ -79,6 +88,8 @@ internal class WSManSessionOption
 
     public AuthenticationMethod AuthMethod { get; set; } = AuthenticationMethod.Default;
 
+    public AuthenticationProvider AuthProvider { get; set; } = AuthenticationProvider.Default;
+
     public string? UserName { get; set; }
 
     public string? Password { get; set; }
@@ -120,7 +131,7 @@ internal class WSManSessionOption
     {
         bool isTls = ConnectionUri.Scheme == Uri.UriSchemeHttps;
         bool encrypt = !(isTls || NoEncryption);
-        AuthenticationProvider authProvider = GenerateAuthProvider();
+        HttpAuthProvider authProvider = GenerateAuthProvider();
 
         if (encrypt && authProvider is not IWinRMEncryptor)
         {
@@ -153,7 +164,7 @@ internal class WSManSessionOption
         return new(uriBuilder.Uri, authProvider, sslOptions, encrypt, connectTimeout);
     }
 
-    internal AuthenticationProvider GenerateAuthProvider()
+    internal HttpAuthProvider GenerateAuthProvider()
     {
         string spnService = SPNService ?? "host";
         string spnHostName = SPNHostName ?? ConnectionUri.DnsSafeHost;
@@ -195,6 +206,7 @@ internal class WSManSessionOption
                 username,
                 Password,
                 CredSSPAuthMethod,
+                AuthProvider,
                 spnService,
                 spnHostName,
                 false);
@@ -212,6 +224,7 @@ internal class WSManSessionOption
                 spnService,
                 spnHostName,
                 authMethod,
+                AuthProvider,
                 authMethod == AuthenticationMethod.Kerberos ? "Kerberos" : "Negotiate",
                 RequestKerberosDelegate);
         }

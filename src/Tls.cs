@@ -275,8 +275,8 @@ internal class TlsSecurityContext : IDisposable
 
     public void Dispose()
     {
-        _ssl.Dispose();
-        _bio.Dispose();
+        _ssl?.Dispose();
+        _bio?.Dispose();
         GC.SuppressFinalize(this);
     }
     ~TlsSecurityContext() { Dispose(); }

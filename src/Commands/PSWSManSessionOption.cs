@@ -83,7 +83,10 @@ public sealed class NewPSWSManSessionOption : PSCmdlet
     public string? SPNHostName { get; set; }
 
     [Parameter()]
-    public AuthenticationMethod AuthMethod { get; set; }
+    public AuthenticationMethod AuthMethod { get; set; } = AuthenticationMethod.Default;
+
+    [Parameter()]
+    public AuthenticationProvider AuthProvider { get; set; } = AuthenticationProvider.Default;
 
     [Parameter()]
     public SwitchParameter RequestKerberosDelegate { get; set; }
@@ -122,6 +125,7 @@ public sealed class NewPSWSManSessionOption : PSCmdlet
         PSWSManSessionOption extraOptions = new()
         {
             AuthMethod = AuthMethod,
+            AuthProvider = AuthProvider,
             SPNService = SPNService,
             SPNHostName = SPNHostName,
             RequestKerberosDelegate = RequestKerberosDelegate,

@@ -367,7 +367,7 @@ internal enum CredSSPStage
     Delegate,
 }
 
-internal class CredSSPAuthProvider : AuthenticationProvider, IWinRMEncryptor
+internal class CredSSPAuthProvider : HttpAuthProvider, IWinRMEncryptor
 {
     private readonly TSCredentialBase _credential;
     private readonly SecurityContext _secContext;
@@ -688,8 +688,8 @@ internal class CredSSPAuthProvider : AuthenticationProvider, IWinRMEncryptor
 
     public override void Dispose()
     {
-        _secContext.Dispose();
-        _tlsContext.Dispose();
+        _secContext?.Dispose();
+        _tlsContext?.Dispose();
         _tokenGenerator?.Dispose();
         GC.SuppressFinalize(this);
     }

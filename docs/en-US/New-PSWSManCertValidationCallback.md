@@ -107,6 +107,8 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 ## INPUTS
 
 ### None
+This function does not accept input from the pipeline.
+
 ## OUTPUTS
 
 ### System.Net.Security.RemoteCertificateValidationCallback

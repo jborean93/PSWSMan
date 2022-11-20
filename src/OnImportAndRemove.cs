@@ -1,6 +1,7 @@
 using PSWSMan.Native;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Management.Automation;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -92,20 +93,31 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
     {
         Resolver = new NativeResolver();
 
-        // For testing with Devolution sspi-rs which is an SSPI replacement written in rust.
-        string? devolutionsDllPath = Environment.GetEnvironmentVariable("PSWSMAN_DEVOLUTIONS_SSPI_DLL");
-        if (!string.IsNullOrWhiteSpace(devolutionsDllPath))
+        string osName;
+        string libExt;
+        string libPrefix = "";
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            GlobalState.GssapiLib = Resolver.CacheLibrary(SSPI.LIB_SSPI, new[] { devolutionsDllPath }, required: true);
-            GlobalState.GssapiProvider = GssapiProvider.SSPI;
-        }
-        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            GlobalState.GssapiLib = Resolver.CacheLibrary(SSPI.LIB_SSPI, new[] { "Secur32.dll" });
+            osName = "win";
+            libExt = "dll";
+            GlobalState.SspiLib = Resolver.CacheLibrary("Windows.Sspi", new[] { "Secur32.dll" });
             GlobalState.GssapiProvider = GssapiProvider.SSPI;
         }
         else
         {
+            libPrefix = "lib";
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            {
+                osName = "osx";
+                libExt = "dylib";
+            }
+            else
+            {
+                // FUTURE: Check musl vs glibc
+                osName = "linux";
+                libExt = "so";
+            }
+
             GlobalState.GssapiLib = Resolver.CacheLibrary(GSSAPI.LIB_GSSAPI, new[] {
                 MACOS_GSS_FRAMEWORK, // macOS GSS Framework (technically Heimdal)
                 "libgssapi_krb5.so.2", // MIT krb5
@@ -131,6 +143,14 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
                 GlobalState.GssapiProvider = GssapiProvider.MIT;
             }
         }
+
+        string devolutionsPaths = Path.Combine(
+            Path.GetDirectoryName(typeof(OnModuleImportAndRemove).Assembly.Location) ?? "",
+            "runtimes",
+            $"{osName}-{RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant()}",
+            "native",
+            $"{libPrefix}DevolutionsSspi.{libExt}");
+        GlobalState.DevolutionsLib = Resolver.CacheLibrary("Devolutions.Sspi", new[] { devolutionsPaths });
     }
 
     public void OnRemove(PSModuleInfo module)

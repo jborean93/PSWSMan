@@ -14,9 +14,15 @@ PowerShell module that adds support of WSMan on Linux, macOS, and Windows.
 ### [Enable-PSWSMan](Enable-PSWSMan.md)
 Enables PSWSMan as the transport method for WSMan based transports in PowerShell.
 
+### [Get-PSWSManAuthProvider](Get-PSWSManAuthProvider.md)
+Gets the default authentication provider used by PSWSMan.
+
 ### [New-PSWSManCertValidationCallback](New-PSWSManCertValidationCallback.md)
 Create a scriptblock delegate to validate certificates.
 
 ### [New-PSWSManSessionOption](New-PSWSManSessionOption.md)
 Creates an object that specifies custom connection options for a WSMan PSSession.
+
+### [Set-PSWSManAuthProvider](Set-PSWSManAuthProvider.md)
+Sets the default authentication provider used by PSWSMan.
 

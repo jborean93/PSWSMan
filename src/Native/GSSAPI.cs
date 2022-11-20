@@ -176,7 +176,7 @@ internal class IOVResult : IDisposable
     public void Dispose()
     {
         GSSAPI.gss_release_iov_buffer.Value(out var _, _raw, 0);
-        _raw.Dispose();
+        _raw?.Dispose();
         GC.SuppressFinalize(this);
     }
     ~IOVResult() => Dispose();

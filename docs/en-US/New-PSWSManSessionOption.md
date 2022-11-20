@@ -19,8 +19,9 @@ New-PSWSManSessionOption [-MaximumRedirection <Int32>] [-NoMachineProfile] [-Cul
  [-MaxConnectionRetryCount <Int32>] [-ApplicationArguments <PSPrimitiveDictionary>] [-OpenTimeout <Int32>]
  [-CancelTimeout <Int32>] [-SkipCACheck] [-SkipCNCheck] [-ClientCertificate <X509Certificate>]
  [-OperationTimeout <Int32>] [-NoEncryption] [-SPNService <String>] [-SPNHostName <String>]
- [-AuthMethod <AuthenticationMethod>] [-RequestKerberosDelegate] [-CredSSPAuthMethod <AuthenticationMethod>]
- [-CredSSPTlsOption <SslClientAuthenticationOptions>] [<CommonParameters>]
+ [-AuthMethod <AuthenticationMethod>] [-AuthProvider <AuthenticationProvider>] [-RequestKerberosDelegate]
+ [-CredSSPAuthMethod <AuthenticationMethod>] [-CredSSPTlsOption <SslClientAuthenticationOptions>]
+ [<CommonParameters>]
 ```
 
 ### TlsOption
@@ -29,9 +30,10 @@ New-PSWSManSessionOption [-MaximumRedirection <Int32>] [-NoMachineProfile] [-Cul
  [-UICulture <CultureInfo>] [-MaximumReceivedDataSizePerCommand <Int32>] [-MaximumReceivedObjectSize <Int32>]
  [-MaxConnectionRetryCount <Int32>] [-ApplicationArguments <PSPrimitiveDictionary>] [-OpenTimeout <Int32>]
  [-CancelTimeout <Int32>] [-OperationTimeout <Int32>] [-NoEncryption] [-SPNService <String>]
- [-SPNHostName <String>] [-AuthMethod <AuthenticationMethod>] [-RequestKerberosDelegate]
- [-TlsOption <SslClientAuthenticationOptions>] [-CredSSPAuthMethod <AuthenticationMethod>]
- [-CredSSPTlsOption <SslClientAuthenticationOptions>] [<CommonParameters>]
+ [-SPNHostName <String>] [-AuthMethod <AuthenticationMethod>] [-AuthProvider <AuthenticationProvider>]
+ [-RequestKerberosDelegate] [-TlsOption <SslClientAuthenticationOptions>]
+ [-CredSSPAuthMethod <AuthenticationMethod>] [-CredSSPTlsOption <SslClientAuthenticationOptions>]
+ [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -161,6 +163,29 @@ Type: AuthenticationMethod
 Parameter Sets: (All)
 Aliases:
 Accepted values: Default, Basic, Negotiate, NTLM, Kerberos, CredSSP
+
+Required: False
+Position: Named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -AuthProvider
+The authentication provider to use when doing `NTLM`, `Kerberos`, `Negotiate`, or `CredSSP` authentication.
+If omitted, or set to `Default`, then the process wide default provider is used.
+Use [Get-PSWSManAuthProvider](./Get-PSWSManAuthProvider.md) to get the process wide default and [Set-PSWSManAuthProvider](./Set-PSWSManAuthProvider.md) to set the process wide default.
+
+Using `Native` will use the system provided authentication provider.
+On Windows this is `SSPI`, on Linux this is `GSSAPI`, and on macOS this is `GSS.Framework`.
+
+Using `Devolutions` will use the [sspi-rs](https://github.com/Devolutions/sspi-rs) provider from Devolutions which is a standalone Kerberos and NTLM implementation written in Rust.
+The `Devolutions` package is bundled with PSWSMan but is not tested as thourougly as the `Native` implementations.
+
+```yaml
+Type: AuthenticationProvider
+Parameter Sets: (All)
+Aliases:
 
 Required: False
 Position: Named
@@ -543,7 +568,7 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 ## INPUTS
 
 ### None
-You cannot pipe input to his cmdlet.
+This function does not accept input from the pipeline.
 
 ## OUTPUTS
 

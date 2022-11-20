@@ -2,7 +2,7 @@ using System.Net.Http;
 
 namespace PSWSMan;
 
-internal class CertificateAuthProvider : AuthenticationProvider
+internal class CertificateAuthProvider : HttpAuthProvider
 {
     public override bool Complete => false;
 

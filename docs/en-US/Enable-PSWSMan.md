@@ -55,7 +55,7 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 ## INPUTS
 
 ### None
-This functin does not accept input from the pipeline.
+This function does not accept input from the pipeline.
 
 ## OUTPUTS
 

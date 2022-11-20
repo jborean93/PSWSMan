@@ -4,7 +4,7 @@ using System.Text;
 
 namespace PSWSMan;
 
-internal class BasicAuthProvider : AuthenticationProvider
+internal class BasicAuthProvider : HttpAuthProvider
 {
     private readonly string _authValue;
 
