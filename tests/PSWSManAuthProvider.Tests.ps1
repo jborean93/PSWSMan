@@ -5,13 +5,13 @@ BeforeDiscovery {
 Describe "Get and Set-PSWSManAuthProvider" {
     It "Gets the default auth provider" {
         $actual = Get-PSWSManAuthProvider
-        $actual | Should -Be ([PSWSMan.AuthenticationProvider]::Native)
+        $actual | Should -Be ([PSWSMan.AuthenticationProvider]::System)
     }
 
     It "Sets the default auth provider with WhatIf" {
         Set-PSWSManAuthProvider -AuthProvider Devolutions -WhatIf
         $actual = Get-PSWSManAuthProvider
-        $actual | Should -Be ([PSWSMan.AuthenticationProvider]::Native)
+        $actual | Should -Be ([PSWSMan.AuthenticationProvider]::System)
     }
 
     It "Sets the default auth provider" {
@@ -21,17 +21,17 @@ Describe "Get and Set-PSWSManAuthProvider" {
             $actual | Should -Be ([PSWSMan.AuthenticationProvider]::Devolutions)
         }
         finally {
-            Set-PSWSManAuthProvider -AuthProvider Native
+            Set-PSWSManAuthProvider -AuthProvider System
         }
 
         $actual = Get-PSWSManAuthProvider
-        $actual | Should -Be ([PSWSMan.AuthenticationProvider]::Native)
+        $actual | Should -Be ([PSWSMan.AuthenticationProvider]::System)
     }
 
     It "Fails to set the default auth provider to Default" {
         $out = Set-PSWSManAuthProvider -AuthProvider Default -ErrorAction SilentlyContinue -ErrorVariable err
         $out | Should -BeNullOrEmpty
         $err.Count | Should -Be 1
-        [string]$err[0] | Should -BeLike '*AuthProvider cannot be set to Default, must be Native or Devolutions*'
+        [string]$err[0] | Should -BeLike '*AuthProvider cannot be set to Default, must be System or Devolutions*'
     }
 }

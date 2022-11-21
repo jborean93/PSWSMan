@@ -20,7 +20,7 @@ internal static class GlobalState
     internal static LibraryInfo? DevolutionsLib;
 
     /// <summary>The default authentication provider set for the process.</summary>
-    internal static AuthenticationProvider DefaultProvider = AuthenticationProvider.Native;
+    internal static AuthenticationProvider DefaultProvider = AuthenticationProvider.System;
 }
 
 internal sealed class WSManSession : IDisposable
@@ -129,22 +129,12 @@ internal class WSManSessionOption
 
     internal WSManConnection CreateConnection()
     {
-        bool isTls = ConnectionUri.Scheme == Uri.UriSchemeHttps;
-        bool encrypt = !(isTls || NoEncryption);
+        bool encrypt = !(ConnectionUri.Scheme == Uri.UriSchemeHttps || NoEncryption);
         HttpAuthProvider authProvider = GenerateAuthProvider();
 
         if (encrypt && authProvider is not IWinRMEncryptor)
         {
             throw new ArgumentException($"Cannot perform encryption for {authProvider.GetType().Name}");
-        }
-
-        SslClientAuthenticationOptions? sslOptions = null;
-        if (isTls)
-        {
-            sslOptions = TlsOptions ?? new()
-            {
-                TargetHost = ConnectionUri.DnsSafeHost,
-            };
         }
 
         // Until net7 is the minimum we need to rewrite the URI so that the scheme is always http. This allows the
@@ -161,7 +151,7 @@ internal class WSManSessionOption
             connectTimeout = new(((long)OpenTimeout) * TimeSpan.TicksPerMillisecond);
         }
 
-        return new(uriBuilder.Uri, authProvider, sslOptions, encrypt, connectTimeout);
+        return new(uriBuilder.Uri, authProvider, TlsOptions, encrypt, connectTimeout);
     }
 
     internal HttpAuthProvider GenerateAuthProvider()
@@ -214,6 +204,7 @@ internal class WSManSessionOption
             return new CredSSPAuthProvider(
                 credSSPCreds,
                 subAuth,
+                ConnectionUri.DnsSafeHost,
                 CredSSPTlsOptions);
         }
         else

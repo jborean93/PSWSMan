@@ -19,15 +19,15 @@ Get-PSWSManAuthProvider [<CommonParameters>]
 ## DESCRIPTION
 Gets the authentication provider used when doing `NTLM`, `Kerberos`, `Negotiate`, or `CredSSP` authentication.
 
-Using `Native` will use the system provided authentication provider.
+Using `System` will use the system provided authentication provider.
 On Windows this is `SSPI`, on Linux this is `GSSAPI`, and on macOS this is `GSS.Framework`.
 
 Using `Devolutions` will use the [sspi-rs](https://github.com/Devolutions/sspi-rs) provider from Devolutions which is a standalone Kerberos and NTLM implementation written in Rust.
-The `Devolutions` package is bundled with PSWSMan but is not tested as thourougly as the `Native` implementations.
+The `Devolutions` package is bundled with PSWSMan but is not tested as thourougly as the `System` implementations.
 
 The default authentication provider is used when `NTLM`, `Kerberos`, `Negotiate`, or `CredSSP` authentication is selected for a PSSession and no explicit provider is specified for the connection.
 
-The default provider set is `Native`.
+The default provider set is `System`.
 
 ## EXAMPLES
 
@@ -51,7 +51,7 @@ This function does not accept input from the pipeline.
 ## OUTPUTS
 
 ### PSWSMan.AuthenticationProvider
-The authentication provider, either `Native` or `Devolutions`.
+The authentication provider, either `System` or `Devolutions`.
 
 ## NOTES
 

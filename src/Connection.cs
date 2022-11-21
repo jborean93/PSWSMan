@@ -389,6 +389,12 @@ internal class WSManConnection : IDisposable
                 SslStream sslStream = new(stream);
                 stream = sslStream;
 
+                TlsSessionResumeSetting.ResetTlsResumeDelegate? resetTlsResumeSetting = null;
+                if ((wsmanRequest.SslOptions.ClientCertificates?.Count ?? 0) > 0)
+                {
+                    // We only need to disable TLS Resume when dealing with client certificates.
+                    resetTlsResumeSetting = TlsSessionResumeSetting.DisableTlsSessionResume();
+                }
                 try
                 {
                     await sslStream.AuthenticateAsClientAsync(wsmanRequest.SslOptions, cancelToken).ConfigureAwait(false);
@@ -397,6 +403,10 @@ internal class WSManConnection : IDisposable
                 {
                     sslStream.Dispose();
                     throw;
+                }
+                finally
+                {
+                    resetTlsResumeSetting?.Invoke();
                 }
 
                 authProvider.SetChannelBindings(GetTlsChannelBindings(sslStream));
@@ -409,7 +419,7 @@ internal class WSManConnection : IDisposable
         return stream;
     }
 
-    /// <summary>Get channel binding data for SASL auth</summary>
+    /// <summary>Get channel binding data for Negotiate auth</summary>
     /// <remarks>
     /// While .NET has it's own function to retrieve this value it returns an opaque pointer with no publicly
     /// documented structure. To avoid using any internal implementation details this just does the same work to

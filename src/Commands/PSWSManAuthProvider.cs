@@ -32,7 +32,7 @@ public sealed class SetPSWSManAuthProvider : PSCmdlet
         if (AuthProvider == AuthenticationProvider.Default)
         {
             ErrorRecord err = new(
-                new ArgumentException($"AuthProvider cannot be set to {AuthProvider}, must be Native or Devolutions"),
+                new ArgumentException($"AuthProvider cannot be set to {AuthProvider}, must be System or Devolutions"),
                 "SetAuthProviderDefault",
                 ErrorCategory.InvalidArgument,
                 AuthProvider);

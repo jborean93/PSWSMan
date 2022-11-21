@@ -38,12 +38,12 @@ public enum AuthenticationProvider
     Default,
 
     /// <summary>
-    /// Uses the OS native authentication provider for authentication. On Windows this is SSPI which supports all auth
+    /// Uses the OS system authentication provider for authentication. On Windows this is SSPI which supports all auth
     /// methods. On macOS this is GSS.Framework which supports all auth methods. On Linux this is GSSAPI through either
     /// MIT krb5 or Heimdal which typically support Kerberos out of the box and NTLM with extra packages installed.
     /// GSSAPI on Linux is usually not provided out of the box and requires extra packages to be installed.
     /// </summary>
-    Native,
+    System,
 
     /// <summary>
     /// Uses Devolutions.Sspi as the authentication provider which is a self contained Rust library that implements

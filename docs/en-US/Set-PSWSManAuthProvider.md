@@ -19,24 +19,24 @@ Set-PSWSManAuthProvider [-AuthProvider] <AuthenticationProvider> [-WhatIf] [-Con
 ## DESCRIPTION
 Sets the authentication provider used when doing `NTLM`, `Kerberos`, `Negotiate`, or `CredSSP` authentication.
 
-Using `Native` will use the system provided authentication provider.
+Using `System` will use the system provided authentication provider.
 On Windows this is `SSPI`, on Linux this is `GSSAPI`, and on macOS this is `GSS.Framework`.
 
 Using `Devolutions` will use the [sspi-rs](https://github.com/Devolutions/sspi-rs) provider from Devolutions which is a standalone Kerberos and NTLM implementation written in Rust.
-The `Devolutions` package is bundled with PSWSMan but is not tested as thourougly as the `Native` implementations.
+The `Devolutions` package is bundled with PSWSMan but is not tested as thourougly as the `System` implementations.
 
 The default authentication provider is used when `NTLM`, `Kerberos`, `Negotiate`, or `CredSSP` authentication is selected for a PSSession and no explicit provider is specified for the connection.
 
-The default provider set is `Native`.
+The default provider set is `System`.
 
 ## EXAMPLES
 
-### Example 1: Set Native as the default provider
+### Example 1: Set System as the default provider
 ```powershell
-PS C:\> Set-PSWSManAuthProvider -AuthProvider Native
+PS C:\> Set-PSWSManAuthProvider -AuthProvider System
 ```
 
-Sets the default authentication provider to the use native/system libraries.
+Sets the default authentication provider to the use system libraries (SSPI/GSSAPI).
 
 ### Example 2: Set Devolutions as the default provider
 ```powershell
@@ -49,14 +49,14 @@ Sets the default authentication provider to the use the bundles DevolutionsSspi 
 
 ### -AuthProvider
 The authentication provider to set asthe PSWSMan default.
-This must be either `Native` or `Devolutions`.
+This must be either `System` or `Devolutions`.
 Using `Default` will result in an error.
 
 ```yaml
 Type: AuthenticationProvider
 Parameter Sets: (All)
 Aliases:
-Accepted values: Default, Native, Devolutions
+Accepted values: Default, System, Devolutions
 
 Required: True
 Position: 0
