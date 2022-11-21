@@ -5,7 +5,7 @@ using System.Net.Http.Headers;
 
 namespace PSWSMan;
 
-internal class NegotiateAuthProvider : AuthenticationProvider, IWinRMEncryptor
+internal class NegotiateAuthProvider : HttpAuthProvider, IWinRMEncryptor
 {
     private readonly SecurityContext _secContext;
     private readonly string _authHeaderName;
@@ -27,13 +27,14 @@ internal class NegotiateAuthProvider : AuthenticationProvider, IWinRMEncryptor
     /// <param name="service">The SPN service part.</param>
     /// <param name="hostname">The SPN hostname part.</param>
     /// <param name="method">The negotiate authentication method to use through GSSAPI/SSPI.</param>
+    /// <param name="provider">The authentication provider to use.</param>
     /// <param name="authHeaderName">The WinRM authentication header name.</param>
     /// <param name="requestDelegate">Request a delegated ticket, Kerberos only.</param>
     public NegotiateAuthProvider(string? username, string? password, string service, string hostname,
-        AuthenticationMethod method, string authHeaderName, bool requestDelegate)
+        AuthenticationMethod method, AuthenticationProvider provider, string authHeaderName, bool requestDelegate)
     {
-        _secContext = SecurityContext.GetPlatformSecurityContext(username, password, method, service, hostname,
-            requestDelegate);
+        _secContext = SecurityContext.GetPlatformSecurityContext(username, password, method, provider, service,
+            hostname, requestDelegate);
         _authHeaderName = authHeaderName;
     }
 
@@ -90,7 +91,7 @@ internal class NegotiateAuthProvider : AuthenticationProvider, IWinRMEncryptor
 
     public override void Dispose()
     {
-        _secContext.Dispose();
+        _secContext?.Dispose();
         GC.SuppressFinalize(this);
     }
 }

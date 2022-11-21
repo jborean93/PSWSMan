@@ -83,7 +83,9 @@ task CopyToRelease {
         if (-not (Test-Path -LiteralPath $binFolder)) {
             New-Item -Path $binFolder -ItemType Directory | Out-Null
         }
-        Copy-Item ([IO.Path]::Combine($buildFolder, "*")) -Destination $binFolder
+        Copy-Item ([IO.Path]::Combine($buildFolder, "*")) -Destination $binFolder -Recurse
+        Remove-Item ([IO.Path]::Combine($binFolder, 'runtimes', 'android*')) -Recurse -Force
+        Remove-Item ([IO.Path]::Combine($binFolder, 'runtimes', 'ios*')) -Recurse -Force
     }
 }
 

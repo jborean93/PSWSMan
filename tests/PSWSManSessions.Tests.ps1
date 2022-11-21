@@ -56,6 +56,29 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         $s.State | Should -Be 'Closed'
     }
 
+    It "Connects over HTTP with Devolutions <AuthMethod>" -TestCases @(
+        @{AuthMethod = "Negotiate" }
+        @{AuthMethod = "Ntlm" }
+        # @{AuthMethod = "CredSSP" }  # https://github.com/Devolutions/sspi-rs/issues/84
+    ) {
+        param ($AuthMethod)
+
+        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('default')
+        $sessionParams.SessionOption = New-PSWSManSessionOption -AuthMethod $AuthMethod -AuthProvider Devolutions
+
+        $s = New-PSSession @sessionParams
+        try {
+            $s.ComputerName | Should -Be $sessionParams.ComputerName
+            $s.State | Should -Be 'Opened'
+            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
+        }
+        finally {
+            $s | Remove-PSSession
+        }
+
+        $s.State | Should -Be 'Closed'
+    }
+
     It "Fails to connect over HTTP with Basic without -NoEncryption" {
         $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('default')
         $sessionParams.SessionOption = New-PSWSManSessionOption -AuthMethod Basic
@@ -83,6 +106,24 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
     It "Connects over HTTP with Kerberos" -Skip:(-not $PSWSManSettings.GetScenarioServer('domain_auth')) {
         $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('domain_auth')
         $sessionParams.Authentication = 'Kerberos'
+
+        $s = New-PSSession @sessionParams -Authentication Kerberos
+        try {
+            $s.ComputerName | Should -Be $sessionParams.ComputerName
+            $s.State | Should -Be 'Opened'
+            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
+        }
+        finally {
+            $s | Remove-PSSession
+        }
+
+        $s.State | Should -Be 'Closed'
+    }
+
+    It "Connects over HTTP with Devolutions Kerberos" -Skip:(-not $PSWSManSettings.GetScenarioServer('domain_auth')) {
+        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('domain_auth')
+        $sessionParams.Authentication = 'Kerberos'
+        $sessionParams.SessionOption = New-PSWSManSessionOption -AuthProvider Devolutions
 
         $s = New-PSSession @sessionParams -Authentication Kerberos
         try {
@@ -160,7 +201,31 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         $s.State | Should -Be 'Closed'
     }
 
-    It "Connects over HTTP with Basic" -Skip:(-not $PSWSManSettings.GetScenarioServer('https_local_auth')) {
+    It "Connects over HTTPS with Devolutions <AuthMethod>" -Skip:(-not $PSWSManSettings.GetScenarioServer('https_trusted')) -TestCases @(
+        @{AuthMethod = "Negotiate" }
+        @{AuthMethod = "Ntlm" }
+        # @{AuthMethod = "CredSSP" }  # https://github.com/Devolutions/sspi-rs/issues/84
+    ) {
+        param ($AuthMethod)
+
+        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('https_trusted')
+        $sessionParams.UseSSL = $true
+        $sessionParams.SessionOption = New-PSWSManSessionOption -AuthMethod $AuthMethod -AuthProvider Devolutions
+
+        $s = New-PSSession @sessionParams
+        try {
+            $s.ComputerName | Should -Be $sessionParams.ComputerName
+            $s.State | Should -Be 'Opened'
+            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
+        }
+        finally {
+            $s | Remove-PSSession
+        }
+
+        $s.State | Should -Be 'Closed'
+    }
+
+    It "Connects over HTTPS with Basic" -Skip:(-not $PSWSManSettings.GetScenarioServer('https_local_auth')) {
         $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('https_local_auth')
         $sessionParams.UseSSL = $true
         $sessionParams.Authentication = 'Basic'
@@ -178,10 +243,29 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         $s.State | Should -Be 'Closed'
     }
 
-    It "Connects over HTTP with Kerberos" -Skip:(-not $PSWSManSettings.GetScenarioServer('https_domain_auth')) {
+    It "Connects over HTTPS with Kerberos" -Skip:(-not $PSWSManSettings.GetScenarioServer('https_domain_auth')) {
         $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('https_domain_auth')
         $sessionParams.UseSSL = $true
         $sessionParams.Authentication = 'Kerberos'
+
+        $s = New-PSSession @sessionParams -Authentication Kerberos
+        try {
+            $s.ComputerName | Should -Be $sessionParams.ComputerName
+            $s.State | Should -Be 'Opened'
+            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
+        }
+        finally {
+            $s | Remove-PSSession
+        }
+
+        $s.State | Should -Be 'Closed'
+    }
+
+    It "Connects over HTTPS with Devolutions Kerberos" -Skip:(-not $PSWSManSettings.GetScenarioServer('https_domain_auth')) {
+        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('https_domain_auth')
+        $sessionParams.UseSSL = $true
+        $sessionParams.Authentication = 'Kerberos'
+        $sessionParams.SessionOption = New-PSWSManSessionOption -AuthProvider Devolutions
 
         $s = New-PSSession @sessionParams -Authentication Kerberos
         try {
@@ -272,6 +356,11 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         -not $PSWSManSettings.GetScenarioServer('https_trusted') -or
         -not $PSWSManSettings.ClientCertificate
     ) {
+        # FIXME: Check if this is Linux only or not.
+        if ([Environment]::Version -lt [Version]'7.0') {
+            Set-ItResult -Skipped -Because "Cert auth over TLS 1.3 only supported since dotnet 7.0"
+        }
+
         $store = [System.Security.Cryptography.X509Certificates.X509Store]::new(
             [System.Security.Cryptography.X509Certificates.StoreName]::My,
             [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser,
@@ -317,13 +406,19 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         -not $PSWSManSettings.GetScenarioServer('https_trusted') -or
         -not $PSWSManSettings.ClientCertificate
     ) {
+        # FIXME: Check if this is Linux only or not.
+        if ([Environment]::Version -lt [Version]'7.0') {
+            Set-ItResult -Skipped -Because "Cert auth over TLS 1.3 only supported since dotnet 7.0"
+        }
+
         $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('https_trusted')
         $sessionParams.Remove('Credential')
         $sessionParams.UseSSL = $true
         $sessionParams.SessionOption = New-PSWSManSessionOption -ClientCertificate $PSWSManSettings.ClientCertificate
 
-        $s = New-PSSession @sessionParams
+        $s = New-PSSession @sessionParams$s = $null
         try {
+
             $s.ComputerName | Should -Be $sessionParams.ComputerName
             $s.State | Should -Be 'Opened'
             $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
@@ -335,14 +430,49 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         $s.State | Should -Be 'Closed'
     }
 
-    It "Connects over HTTPS with handshake failure" {
+    It "Connects over HTTPS with cert auth and explicit TLS options" {
+        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('https_trusted')
+        $sessionParams.Remove('Credential')
+        $sessionParams.UseSSL = $true
+
+        $tlsOption = [System.Net.Security.SslClientAuthenticationOptions]@{
+            TargetHost                          = $sessionParams.ComputerName
+            RemoteCertificateValidationCallback = New-PSWSManCertValidationCallback { $true }
+            ClientCertificates                  = [System.Security.Cryptography.X509Certificates.X509CertificateCollection]::new(
+                @($PSWSManSettings.ClientCertificate))
+        }
+
+        # FIXME: Check if this is Linux only or not.
+        if ([Environment]::Version -lt [Version]'7.0') {
+            # For dotnet versions older than 7.0, the TLS protocol must be restricted to TLS 1.2 as only dotnet 7
+            # has implemented the necessary components for client auth over TLS 1.3
+            $tlsOption.EnabledSslProtocols = [System.Security.Authentication.SslProtocols]::Tls12
+        }
+
+        $sessionParams.SessionOption = New-PSWSManSessionOption -TlsOption $tlsOption
+
+        $s = New-PSSession @sessionParams
+        try {
+
+            $s.ComputerName | Should -Be $sessionParams.ComputerName
+            $s.State | Should -Be 'Opened'
+            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
+        }
+        finally {
+            $s | Remove-PSSession
+        }
+
+        $s.State | Should -Be 'Closed'
+    }
+
+    It "Connects over HTTPS with handshake failure" -Skip:(-not $PSWSManSettings.GetScenarioServer('https_trusted')) {
         $tlsOption = [System.Net.Security.SslClientAuthenticationOptions]@{
             EnabledSslProtocols                 = 'Ssl3'
             TargetHost                          = $sessionParams.ComputerName
             RemoteCertificateValidationCallback = New-PSWSManCertValidationCallback { $true }
         }
 
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('https_untrusted')
+        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('https_trusted')
         $sessionParams.UseSSL = $true
         $sessionParams.SessionOption = New-PSWSManSessionOption -TlsOption $tlsOption
 

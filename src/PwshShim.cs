@@ -114,6 +114,7 @@ internal class WSManPSRPShim
             MaxEnvelopeSize = maxEnvelopeSize,
             TlsOptions = tlsOptions,
             AuthMethod = authMethod,
+            AuthProvider = extraConnInfo?.AuthProvider ?? AuthenticationProvider.Default,
             UserName = connInfo.Credential?.UserName,
             Password = connInfo.Credential?.GetNetworkCredential()?.Password,
             NoEncryption = connInfo.NoEncryption,
@@ -289,6 +290,7 @@ public sealed class PSWSManSessionOption
     public const string PSWSMAN_SESSION_OPTION_PROP = "_PSWSManSessionOption";
 
     public AuthenticationMethod AuthMethod { get; set; } = AuthenticationMethod.Default;
+    public AuthenticationProvider AuthProvider { get; set; } = AuthenticationProvider.Default;
     public string? SPNService { get; set; }
     public string? SPNHostName { get; set; }
     public bool RequestKerberosDelegate { get; set; }

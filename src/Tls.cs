@@ -5,10 +5,59 @@ using System.IO;
 using System.Net.Security;
 using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
+using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace PSWSMan;
+
+internal static class TlsSessionResumeSetting
+{
+    private static FieldInfo? OpenSslField = typeof(SslStream).Assembly.GetType("Interop+OpenSsl", false, true)
+        ?.GetField("s_disableTlsResume", BindingFlags.Static | BindingFlags.NonPublic);
+
+    public static ResetTlsResumeDelegate DisableTlsSessionResume()
+    {
+        /*
+            Dotnet by default tries to use a resumed TLS session if one is available. This causes problems with:
+
+            * CredSSP - SSPI provider stops the handshake and doesn't send a response token
+            * Client Authentication (TLS 1.3) - WSMan service errors with 503
+
+            The workaround here is to disable TLS session resume functionality to support these features without the
+            caller disabling it globally in the process. Until a public API is in place we need to rely on reflection
+            to tweak the internal structures to disable it temporarily.
+
+            https://github.com/dotnet/runtime/issues/78305
+        */
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && OpenSslField != null)
+        {
+            // Linux support for TLS Resume was added in dotnet 7 and is marked by the precence of the
+            // s_disableTlsResume field. Older dotnet versions don't support TLS Resume so can be ignored. Disabling
+            // TLS resume is achieved by setting s_disableTlsResume to a value of 1. Resetting is just setting the
+            // original value back.
+
+            int? currentResult = (int?)OpenSslField.GetValue(null);
+            if (currentResult != null && (currentResult == -1 || currentResult == 0))
+            {
+                OpenSslField.SetValue(null, 1);
+                return () => OpenSslField.SetValue(null, currentResult);
+            }
+        }
+        // FIXME: Figure out how to disable this on Windows.
+        // else if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        // {
+
+        // }
+
+        // macOS currently does not support TLS Resume so nothing needs to be done there.
+
+        return () => { };
+    }
+
+    public delegate void ResetTlsResumeDelegate();
+}
 
 /// <summary>Used as an in memory BIO stream for SslStream.</summary>
 internal class TlsBIOStream : Stream
@@ -149,12 +198,15 @@ internal class TlsSecurityContext : IDisposable
         using CancellationTokenSource handshakeDone = new();
         Task handshakeTask = Task.Run(() =>
         {
+            // This class is only used for CredSSP which does not support TLS resume.
+            var resetTlsResumeSetting = TlsSessionResumeSetting.DisableTlsSessionResume();
             try
             {
                 _ssl.AuthenticateAsClient(_sslOptions);
             }
             finally
             {
+                resetTlsResumeSetting();
                 handshakeDone.Cancel();
             }
         });
@@ -275,8 +327,8 @@ internal class TlsSecurityContext : IDisposable
 
     public void Dispose()
     {
-        _ssl.Dispose();
-        _bio.Dispose();
+        _ssl?.Dispose();
+        _bio?.Dispose();
         GC.SuppressFinalize(this);
     }
     ~TlsSecurityContext() { Dispose(); }

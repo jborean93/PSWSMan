@@ -367,7 +367,7 @@ internal enum CredSSPStage
     Delegate,
 }
 
-internal class CredSSPAuthProvider : AuthenticationProvider, IWinRMEncryptor
+internal class CredSSPAuthProvider : HttpAuthProvider, IWinRMEncryptor
 {
     private readonly TSCredentialBase _credential;
     private readonly SecurityContext _secContext;
@@ -385,8 +385,9 @@ internal class CredSSPAuthProvider : AuthenticationProvider, IWinRMEncryptor
     /// <summary>CredSSP authentication context</summary>
     /// <param name="credential">The CredSSP credential that will be delegated.</param>
     /// <param name="subAuthContext">The Negotiate authentication context used for authentication.</param>
+    /// <param name="hostname">The target hostname to use in the SSL SNI extension.</param>
     /// <param name="sslOptions">Explicit SSL options to use for the CredSSP TLS context.</param>
-    public CredSSPAuthProvider(TSCredentialBase credential, SecurityContext subAuthContext,
+    public CredSSPAuthProvider(TSCredentialBase credential, SecurityContext subAuthContext, string hostname,
         SslClientAuthenticationOptions? sslOptions = null)
     {
         _credential = credential;
@@ -396,10 +397,7 @@ internal class CredSSPAuthProvider : AuthenticationProvider, IWinRMEncryptor
         {
             sslOptions = new()
             {
-                // A unique hostname is used to avoid internal TLS session caching
-                // FIXME: Try to disable caching instead to allow custom options.
-                // https://github.com/dotnet/runtime/issues/78305
-                TargetHost = Guid.NewGuid().ToString(),
+                TargetHost = hostname,
             };
             // Default for CredSSP is to not do any certificate validation.
             sslOptions.RemoteCertificateValidationCallback = (_1, _2, _3, _4) => true;
@@ -688,8 +686,8 @@ internal class CredSSPAuthProvider : AuthenticationProvider, IWinRMEncryptor
 
     public override void Dispose()
     {
-        _secContext.Dispose();
-        _tlsContext.Dispose();
+        _secContext?.Dispose();
+        _tlsContext?.Dispose();
         _tokenGenerator?.Dispose();
         GC.SuppressFinalize(this);
     }

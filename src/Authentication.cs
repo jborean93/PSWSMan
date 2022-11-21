@@ -30,8 +30,30 @@ public enum AuthenticationMethod
     CredSSP
 }
 
+public enum AuthenticationProvider
+{
+    /// <summary>
+    /// Uses the process wide default authentication provider.
+    /// </summary>
+    Default,
+
+    /// <summary>
+    /// Uses the OS system authentication provider for authentication. On Windows this is SSPI which supports all auth
+    /// methods. On macOS this is GSS.Framework which supports all auth methods. On Linux this is GSSAPI through either
+    /// MIT krb5 or Heimdal which typically support Kerberos out of the box and NTLM with extra packages installed.
+    /// GSSAPI on Linux is usually not provided out of the box and requires extra packages to be installed.
+    /// </summary>
+    System,
+
+    /// <summary>
+    /// Uses Devolutions.Sspi as the authentication provider which is a self contained Rust library that implements
+    /// Kerberos and NTLM support without any system dependencies.
+    /// </summary>
+    Devolutions,
+}
+
 /// <summary>Base class used for WinRM authentication.</summary>
-internal abstract class AuthenticationProvider : IDisposable
+internal abstract class HttpAuthProvider : IDisposable
 {
     /// <summary>Whether the authentication phase is complete.</summary>
     public abstract bool Complete { get; }
@@ -50,5 +72,5 @@ internal abstract class AuthenticationProvider : IDisposable
     public virtual void SetChannelBindings(ChannelBindings? bindings) { }
 
     public virtual void Dispose() => GC.SuppressFinalize(this);
-    ~AuthenticationProvider() => Dispose();
+    ~HttpAuthProvider() => Dispose();
 }

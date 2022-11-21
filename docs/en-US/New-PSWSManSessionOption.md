@@ -19,8 +19,9 @@ New-PSWSManSessionOption [-MaximumRedirection <Int32>] [-NoMachineProfile] [-Cul
  [-MaxConnectionRetryCount <Int32>] [-ApplicationArguments <PSPrimitiveDictionary>] [-OpenTimeout <Int32>]
  [-CancelTimeout <Int32>] [-SkipCACheck] [-SkipCNCheck] [-ClientCertificate <X509Certificate>]
  [-OperationTimeout <Int32>] [-NoEncryption] [-SPNService <String>] [-SPNHostName <String>]
- [-AuthMethod <AuthenticationMethod>] [-RequestKerberosDelegate] [-CredSSPAuthMethod <AuthenticationMethod>]
- [-CredSSPTlsOption <SslClientAuthenticationOptions>] [<CommonParameters>]
+ [-AuthMethod <AuthenticationMethod>] [-AuthProvider <AuthenticationProvider>] [-RequestKerberosDelegate]
+ [-CredSSPAuthMethod <AuthenticationMethod>] [-CredSSPTlsOption <SslClientAuthenticationOptions>]
+ [<CommonParameters>]
 ```
 
 ### TlsOption
@@ -29,9 +30,10 @@ New-PSWSManSessionOption [-MaximumRedirection <Int32>] [-NoMachineProfile] [-Cul
  [-UICulture <CultureInfo>] [-MaximumReceivedDataSizePerCommand <Int32>] [-MaximumReceivedObjectSize <Int32>]
  [-MaxConnectionRetryCount <Int32>] [-ApplicationArguments <PSPrimitiveDictionary>] [-OpenTimeout <Int32>]
  [-CancelTimeout <Int32>] [-OperationTimeout <Int32>] [-NoEncryption] [-SPNService <String>]
- [-SPNHostName <String>] [-AuthMethod <AuthenticationMethod>] [-RequestKerberosDelegate]
- [-TlsOption <SslClientAuthenticationOptions>] [-CredSSPAuthMethod <AuthenticationMethod>]
- [-CredSSPTlsOption <SslClientAuthenticationOptions>] [<CommonParameters>]
+ [-SPNHostName <String>] [-AuthMethod <AuthenticationMethod>] [-AuthProvider <AuthenticationProvider>]
+ [-RequestKerberosDelegate] [-TlsOption <SslClientAuthenticationOptions>]
+ [-CredSSPAuthMethod <AuthenticationMethod>] [-CredSSPTlsOption <SslClientAuthenticationOptions>]
+ [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -169,6 +171,29 @@ Accept pipeline input: False
 Accept wildcard characters: False
 ```
 
+### -AuthProvider
+The authentication provider to use when doing `NTLM`, `Kerberos`, `Negotiate`, or `CredSSP` authentication.
+If omitted, or set to `Default`, then the process wide default provider is used.
+Use [Get-PSWSManAuthProvider](./Get-PSWSManAuthProvider.md) to get the process wide default and [Set-PSWSManAuthProvider](./Set-PSWSManAuthProvider.md) to set the process wide default.
+
+Using `System` will use the system provided authentication provider.
+On Windows this is `SSPI`, on Linux this is `GSSAPI`, and on macOS this is `GSS.Framework`.
+
+Using `Devolutions` will use the [sspi-rs](https://github.com/Devolutions/sspi-rs) provider from Devolutions which is a standalone Kerberos and NTLM implementation written in Rust.
+The `Devolutions` package is bundled with PSWSMan but is not tested as thourougly as the `System` implementations.
+
+```yaml
+Type: AuthenticationProvider
+Parameter Sets: (All)
+Aliases:
+
+Required: False
+Position: Named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
 ### -CancelTimeout
 Determines how long PowerShell waits for a cancel operation (`ctrl + c`) to finish before ending it.
 The value is measures in milliseconds.
@@ -191,10 +216,16 @@ Accept wildcard characters: False
 ### -ClientCertificate
 The `X509Certificate` object that is used for TLS client authentication, otherwise known as Certificate auth with WinRM.
 This certificate must have a private key associated with it for this to be used for certificate auth.
-The `-UseSSL` option much be set on the cmdlets that create the PSSession for certificates to be used.
+The `-UseSSL` option must be set on the cmdlets that create the PSSession for certificates to be used.
 
 This is a PSWSMan specific option that is used to specify a certificate for authentication for certificates that don't exist in the user or system wide certificate store.
 Use the `-CertificateThumbprint` parameter on cmdlets that create the session to refer to certificates by thumbprint in the `Cert:\CurrentUser\My` or `Cert:\LocalMachine\My` store.
+
+You cannot use this parameter with `-TlsOption`.
+If using `-TlsOption` the `ClientCertificates` property must be set to utilise TLS client authentication.
+
+Client authentication has known problems with TLS 1.3 when using dotnet versions older than dotnet 7.
+If using dotnet 6, then the TLS protocols must be set to not use TLS 1.3 for client authentication to work.
 
 ```yaml
 Type: X509Certificate
@@ -229,7 +260,6 @@ Accept wildcard characters: False
 ### -CredSSPTlsOption
 Controls the TLS options that is used by CredSSP when it establishes its TLS connection to the server.
 This allows you to control TLS behaviour that the CredSSP connection uses to do things like validate the server certificate, control the TLS protocol or cipher suite selections.
-Due to an API limitation in dotnet, the `TargetName` of these custom options must be set to a unique name when running on Linux or Windows.
 
 ```yaml
 Type: SslClientAuthenticationOptions
@@ -493,12 +523,17 @@ Accept wildcard characters: False
 
 ### -TlsOption
 Set the TLS authentication options used on a HTTPS connection.
-This option is mutually exclusive to `-SkipCACheck` and `-SkipCNCheck`.
+This option is mutually exclusive to `-SkipCACheck`, `-SkipCNCheck`, and `-ClientCertificate`.
 
-Unlike `-SkipCACheck` and `-SkipCNCheck`, this can control more options around the TLS protocol, like the protocols and cipher suites used in a connection.
+This value can control a finer selection of options around the TLS handshake, like the protocols and cipher suites used in a connection.
 It can also be used to specify a custom certificate verification logic than what is provided by dotnet.
 
 The [New-PSWSManCertValidationCallback](./New-PSWSManCertValidationCallback.md) cmdlet can be used to create a delegate for `RemoteCertificateValidationCallback` of this object that will run the PowerShell scriptblock for validation.
+
+Using an explicit `-TlsOption` will ignore the `-CertificateThumbprint` parameter used when creating a PSSession and the `-ClientCertificate` parameter on this cmdlet.
+Use the `ClientCertificates` property of the TLS options to specify a client certificate for certificate based authentication.
+Support for TLS 1.3 and client certificate authentication is limited to dotnet 7+.
+If using an older dotnet version with client certificate authentication, TLS 1.3 must be disabled with the `EnabledSslProtocols` property.
 
 ```yaml
 Type: SslClientAuthenticationOptions
@@ -543,7 +578,7 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 ## INPUTS
 
 ### None
-You cannot pipe input to his cmdlet.
+This function does not accept input from the pipeline.
 
 ## OUTPUTS
 

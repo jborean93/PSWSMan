@@ -95,16 +95,24 @@ internal abstract class SecurityContext : IDisposable
     /// <param name="username">The username to authenticate with or null for the current user context.</param>
     /// <param name="password">The password to authenticate with or null to rely on a cached credential.</param>
     /// <param name="method">The Negotiate authentication method to use.</param>
+    /// <param name="provider">The authentication provider to use.</param>
     /// <param name="service">The SPN service part, e.g. host, cifs, ldap.</param>
     /// <param name="target">The SPN principal part, i.e. the hostname.</param>
     /// <param name="requestDelegate">Request a delegatable ticket, used with Kerberos auth only.</param>
     /// <returns>The SecurityContext that can be used for Negotiate authentication.</returns>
     public static SecurityContext GetPlatformSecurityContext(string? username, string? password,
-        AuthenticationMethod method, string service, string target, bool requestDelegate)
+        AuthenticationMethod method, AuthenticationProvider provider, string service, string target,
+        bool requestDelegate)
     {
-        if (GlobalState.GssapiProvider == GssapiProvider.SSPI)
+        if (provider == AuthenticationProvider.Default)
+        {
+            provider = GlobalState.DefaultProvider;
+        }
+
+        if (provider == AuthenticationProvider.Devolutions || GlobalState.GssapiProvider == GssapiProvider.SSPI)
         {
             return new SspiContext(
+                provider == AuthenticationProvider.Devolutions ? DevolutionsSSPI.Provider : WindowsSSPI.Provider,
                 username,
                 password,
                 method,
@@ -347,6 +355,7 @@ internal class GssapiContext : SecurityContext
 
 internal class SspiContext : SecurityContext
 {
+    private readonly SSPIProvider _provider;
     private readonly SafeSspiCredentialHandle _credential;
     private readonly string _targetSpn;
     private readonly InitiatorContextRequestFlags _flags = InitiatorContextRequestFlags.ISC_REQ_MUTUAL_AUTH |
@@ -359,9 +368,10 @@ internal class SspiContext : SecurityContext
     private UInt32 _sendSeqNo = 0;
     private UInt32 _recvSeqNo = 0;
 
-    public SspiContext(string? username, string? password, AuthenticationMethod method, string target,
-        bool requestDelegate)
+    public SspiContext(SSPIProvider provider, string? username, string? password, AuthenticationMethod method,
+        string target, bool requestDelegate)
     {
+        _provider = provider;
         _targetSpn = target;
 
         string package = method switch
@@ -383,7 +393,7 @@ internal class SspiContext : SecurityContext
 
             identity = new WinNTAuthIdentity(username, domain, password);
         }
-        _credential = SSPI.AcquireCredentialsHandle(null, package, CredentialUse.SECPKG_CRED_OUTBOUND,
+        _credential = SSPI.AcquireCredentialsHandle(_provider, null, package, CredentialUse.SECPKG_CRED_OUTBOUND,
             identity).Creds;
 
         if (requestDelegate)
@@ -423,8 +433,9 @@ internal class SspiContext : SecurityContext
                     inputBuffers[idx].pvBuffer = cbBuffer;
                 }
 
-                SspiSecContext context = SSPI.InitializeSecurityContext(_credential, _context, _targetSpn, _flags,
-                    TargetDataRep.SECURITY_NATIVE_DREP, inputBuffers, new[] { SecBufferType.SECBUFFER_TOKEN, });
+                SspiSecContext context = SSPI.InitializeSecurityContext(_provider, _credential, _context, _targetSpn,
+                    _flags, TargetDataRep.SECURITY_NATIVE_DREP, inputBuffers,
+                    new[] { SecBufferType.SECBUFFER_TOKEN, });
                 _context = context.Context;
 
                 if (!context.MoreNeeded)
@@ -434,7 +445,7 @@ internal class SspiContext : SecurityContext
                     Span<Helpers.SecPkgContext_Sizes> sizes = stackalloc Helpers.SecPkgContext_Sizes[1];
                     fixed (Helpers.SecPkgContext_Sizes* sizesPtr = sizes)
                     {
-                        SSPI.QueryContextAttributes(_context, SecPkgAttribute.SECPKG_ATTR_SIZES,
+                        SSPI.QueryContextAttributes(_provider, _context, SecPkgAttribute.SECPKG_ATTR_SIZES,
                             (IntPtr)sizesPtr);
 
                         _trailerSize = sizes[0].cbSecurityTrailer;
@@ -475,7 +486,7 @@ internal class SspiContext : SecurityContext
                     buffers[2].cbBuffer = _blockSize;
                     buffers[2].pvBuffer = paddingPtr;
 
-                    SSPI.EncryptMessage(_context, 0, buffers, NextSendSeqNo());
+                    SSPI.EncryptMessage(_provider, _context, 0, buffers, NextSendSeqNo());
 
                     byte[] wrapped = new byte[buffers[0].cbBuffer + buffers[1].cbBuffer + buffers[2].cbBuffer];
                     int offset = 0;
@@ -528,7 +539,7 @@ internal class SspiContext : SecurityContext
                     buffers[1].cbBuffer = (UInt32)data.Length;
                     buffers[1].pvBuffer = dataPtr;
 
-                    SSPI.EncryptMessage(_context, 0, buffers, NextSendSeqNo());
+                    SSPI.EncryptMessage(_provider, _context, 0, buffers, NextSendSeqNo());
 
                     byte[] header = new Span<byte>(buffers[0].pvBuffer, (int)buffers[0].cbBuffer).ToArray();
                     encryptedLength = (int)buffers[1].cbBuffer;
@@ -562,7 +573,7 @@ internal class SspiContext : SecurityContext
                 buffers[1].cbBuffer = 0;
                 buffers[1].pvBuffer = null;
 
-                SSPI.DecryptMessage(_context, buffers, NextRecvSeqNo());
+                SSPI.DecryptMessage(_provider, _context, buffers, NextRecvSeqNo());
 
                 byte[] unwrapped = new byte[buffers[1].cbBuffer];
                 Marshal.Copy((IntPtr)buffers[1].pvBuffer, unwrapped, 0, unwrapped.Length);
@@ -594,7 +605,7 @@ internal class SspiContext : SecurityContext
                 buffers[1].cbBuffer = (UInt32)encData.Length;
                 buffers[1].pvBuffer = dataPtr;
 
-                SSPI.DecryptMessage(_context, buffers, NextRecvSeqNo());
+                SSPI.DecryptMessage(_provider, _context, buffers, NextRecvSeqNo());
 
                 // Data is decrypted in place, just return a span that points to the decrypted payload.
                 return encData[..(int)buffers[1].cbBuffer];
@@ -666,7 +677,7 @@ internal class SspiContext : SecurityContext
 
     public override void Dispose()
     {
-        _credential.Dispose();
+        _credential?.Dispose();
         _context?.Dispose();
     }
 }

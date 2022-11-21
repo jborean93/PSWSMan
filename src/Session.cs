@@ -12,6 +12,15 @@ internal static class GlobalState
 
     /// <summary>The loaded GSSAPI library on Linux.</summary>
     internal static LibraryInfo? GssapiLib;
+
+    /// <summary>The loaded SSPI library on Windows.</summary>
+    internal static LibraryInfo? SspiLib;
+
+    /// <summary>The loaded DevolutionsSspi library.</summary>
+    internal static LibraryInfo? DevolutionsLib;
+
+    /// <summary>The default authentication provider set for the process.</summary>
+    internal static AuthenticationProvider DefaultProvider = AuthenticationProvider.System;
 }
 
 internal sealed class WSManSession : IDisposable
@@ -79,6 +88,8 @@ internal class WSManSessionOption
 
     public AuthenticationMethod AuthMethod { get; set; } = AuthenticationMethod.Default;
 
+    public AuthenticationProvider AuthProvider { get; set; } = AuthenticationProvider.Default;
+
     public string? UserName { get; set; }
 
     public string? Password { get; set; }
@@ -118,22 +129,12 @@ internal class WSManSessionOption
 
     internal WSManConnection CreateConnection()
     {
-        bool isTls = ConnectionUri.Scheme == Uri.UriSchemeHttps;
-        bool encrypt = !(isTls || NoEncryption);
-        AuthenticationProvider authProvider = GenerateAuthProvider();
+        bool encrypt = !(ConnectionUri.Scheme == Uri.UriSchemeHttps || NoEncryption);
+        HttpAuthProvider authProvider = GenerateAuthProvider();
 
         if (encrypt && authProvider is not IWinRMEncryptor)
         {
             throw new ArgumentException($"Cannot perform encryption for {authProvider.GetType().Name}");
-        }
-
-        SslClientAuthenticationOptions? sslOptions = null;
-        if (isTls)
-        {
-            sslOptions = TlsOptions ?? new()
-            {
-                TargetHost = ConnectionUri.DnsSafeHost,
-            };
         }
 
         // Until net7 is the minimum we need to rewrite the URI so that the scheme is always http. This allows the
@@ -150,10 +151,10 @@ internal class WSManSessionOption
             connectTimeout = new(((long)OpenTimeout) * TimeSpan.TicksPerMillisecond);
         }
 
-        return new(uriBuilder.Uri, authProvider, sslOptions, encrypt, connectTimeout);
+        return new(uriBuilder.Uri, authProvider, TlsOptions, encrypt, connectTimeout);
     }
 
-    internal AuthenticationProvider GenerateAuthProvider()
+    internal HttpAuthProvider GenerateAuthProvider()
     {
         string spnService = SPNService ?? "host";
         string spnHostName = SPNHostName ?? ConnectionUri.DnsSafeHost;
@@ -195,6 +196,7 @@ internal class WSManSessionOption
                 username,
                 Password,
                 CredSSPAuthMethod,
+                AuthProvider,
                 spnService,
                 spnHostName,
                 false);
@@ -202,6 +204,7 @@ internal class WSManSessionOption
             return new CredSSPAuthProvider(
                 credSSPCreds,
                 subAuth,
+                ConnectionUri.DnsSafeHost,
                 CredSSPTlsOptions);
         }
         else
@@ -212,6 +215,7 @@ internal class WSManSessionOption
                 spnService,
                 spnHostName,
                 authMethod,
+                AuthProvider,
                 authMethod == AuthenticationMethod.Kerberos ? "Kerberos" : "Negotiate",
                 RequestKerberosDelegate);
         }

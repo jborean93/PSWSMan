@@ -19,10 +19,10 @@ namespace PSWSMan;
 
 internal class WSManInitialRequest : HttpRequestMessage
 {
-    internal AuthenticationProvider Authentication { get; }
+    internal HttpAuthProvider Authentication { get; }
     internal SslClientAuthenticationOptions? SslOptions { get; set; }
 
-    public WSManInitialRequest(HttpMethod method, Uri uri, AuthenticationProvider authProvider,
+    public WSManInitialRequest(HttpMethod method, Uri uri, HttpAuthProvider authProvider,
         SslClientAuthenticationOptions? sslOptions)
         : base(method, uri)
     {
@@ -36,7 +36,7 @@ internal class WSManConnection : IDisposable
 {
     private const string CONTENT_TYPE = "application/soap+xml";
 
-    private readonly AuthenticationProvider _authProvider;
+    private readonly HttpAuthProvider _authProvider;
     private readonly Uri _connectionUri;
     private readonly SslClientAuthenticationOptions? _sslOptions;
     private readonly IWinRMEncryptor? _encryptor;
@@ -53,7 +53,7 @@ internal class WSManConnection : IDisposable
     /// Encrypt the payloads using the authentication provider. If true the authProvider must implement
     /// IWinRMEncryptor.
     /// </param>
-    public WSManConnection(Uri connectionUri, AuthenticationProvider authProvider,
+    public WSManConnection(Uri connectionUri, HttpAuthProvider authProvider,
         SslClientAuthenticationOptions? sslOptions, bool encrypt, TimeSpan? connectTimeout)
     {
         _connectionUri = connectionUri;
@@ -340,7 +340,7 @@ internal class WSManConnection : IDisposable
     public void Dispose()
     {
         _http?.Dispose();
-        _authProvider.Dispose();
+        _authProvider?.Dispose();
         GC.SuppressFinalize(this);
     }
     ~WSManConnection() { Dispose(); }
@@ -383,12 +383,18 @@ internal class WSManConnection : IDisposable
         Stream stream = new NetworkStream(socket, ownsSocket: true);
         if (request is WSManInitialRequest wsmanRequest)
         {
-            AuthenticationProvider authProvider = wsmanRequest.Authentication;
+            HttpAuthProvider authProvider = wsmanRequest.Authentication;
             if (wsmanRequest.SslOptions is not null)
             {
                 SslStream sslStream = new(stream);
                 stream = sslStream;
 
+                TlsSessionResumeSetting.ResetTlsResumeDelegate? resetTlsResumeSetting = null;
+                if ((wsmanRequest.SslOptions.ClientCertificates?.Count ?? 0) > 0)
+                {
+                    // We only need to disable TLS Resume when dealing with client certificates.
+                    resetTlsResumeSetting = TlsSessionResumeSetting.DisableTlsSessionResume();
+                }
                 try
                 {
                     await sslStream.AuthenticateAsClientAsync(wsmanRequest.SslOptions, cancelToken).ConfigureAwait(false);
@@ -397,6 +403,10 @@ internal class WSManConnection : IDisposable
                 {
                     sslStream.Dispose();
                     throw;
+                }
+                finally
+                {
+                    resetTlsResumeSetting?.Invoke();
                 }
 
                 authProvider.SetChannelBindings(GetTlsChannelBindings(sslStream));
@@ -409,7 +419,7 @@ internal class WSManConnection : IDisposable
         return stream;
     }
 
-    /// <summary>Get channel binding data for SASL auth</summary>
+    /// <summary>Get channel binding data for Negotiate auth</summary>
     /// <remarks>
     /// While .NET has it's own function to retrieve this value it returns an opaque pointer with no publicly
     /// documented structure. To avoid using any internal implementation details this just does the same work to
