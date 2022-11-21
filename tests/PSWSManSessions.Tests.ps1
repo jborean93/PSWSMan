@@ -57,10 +57,9 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
     }
 
     It "Connects over HTTP with Devolutions <AuthMethod>" -TestCases @(
-        # FIXME: Figure out why this is failing
-        # @{AuthMethod = "Negotiate" }
+        @{AuthMethod = "Negotiate" }
         @{AuthMethod = "Ntlm" }
-        # @{AuthMethod = "CredSSP" }
+        # @{AuthMethod = "CredSSP" }  # https://github.com/Devolutions/sspi-rs/issues/84
     ) {
         param ($AuthMethod)
 
@@ -121,8 +120,7 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         $s.State | Should -Be 'Closed'
     }
 
-    # FIXME: Figure out why this fails
-    It "Connects over HTTP with Devolutions Kerberos" -Skip:($true -or -not $PSWSManSettings.GetScenarioServer('domain_auth')) {
+    It "Connects over HTTP with Devolutions Kerberos" -Skip:(-not $PSWSManSettings.GetScenarioServer('domain_auth')) {
         $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('domain_auth')
         $sessionParams.Authentication = 'Kerberos'
         $sessionParams.SessionOption = New-PSWSManSessionOption -AuthProvider Devolutions
@@ -204,10 +202,9 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
     }
 
     It "Connects over HTTPS with Devolutions <AuthMethod>" -Skip:(-not $PSWSManSettings.GetScenarioServer('https_trusted')) -TestCases @(
-        # FIXME: Figure out why this fails
-        # @{AuthMethod = "Negotiate" }
+        @{AuthMethod = "Negotiate" }
         @{AuthMethod = "Ntlm" }
-        # @{AuthMethod = "CredSSP" }
+        # @{AuthMethod = "CredSSP" }  # https://github.com/Devolutions/sspi-rs/issues/84
     ) {
         param ($AuthMethod)
 
@@ -264,8 +261,7 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         $s.State | Should -Be 'Closed'
     }
 
-    # FIXME: Figure out why this fails
-    It "Connects over HTTPS with Devolutions Kerberos" -Skip:($true -or -not $PSWSManSettings.GetScenarioServer('https_domain_auth')) {
+    It "Connects over HTTPS with Devolutions Kerberos" -Skip:(-not $PSWSManSettings.GetScenarioServer('https_domain_auth')) {
         $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('https_domain_auth')
         $sessionParams.UseSSL = $true
         $sessionParams.Authentication = 'Kerberos'

@@ -314,3 +314,4 @@ Otherwise `New-PSWSManSessionOption -AuthProvider Devolutions` can be used on a 
 The `New-PSWSManSessionOption -AuthProvider ...` takes precendence over the global process wide setting.
 
 Support for Devolutions is limited and while things should work it is an experimental feature and mileage may vary.
+Currently `CredSSP` will not work with Devolutions due to it missing the feature https://github.com/Devolutions/sspi-rs/issues/84.
