@@ -487,19 +487,77 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
 }
 
 Describe "PSWSMan Kerberos tests" -Skip:(-not $PSWSManSettings.GetScenarioServer('domain_auth')) {
-    # It "Connects with implicit credential" {
+    It "Connects with implicit credential with Linux" -Skip:$IsWindows {
+        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('domain_auth')
+        Invoke-Kinit -Credential $sessionParams.Credential
+
+        try {
+            $sessionParams.Remove('Credential')
+
+            $actual = Invoke-Command @sessionParams {
+                klist.exe |
+                    Select-String -Pattern 'Ticket Flags.*->\s*(.*)' |
+                    ForEach-Object { ($_.Matches.Groups[1].Value -split '\s+') -ne ''}
+            }
+            $actual | Should -Not -Contain 'forwardable'
+        }
+        finally {
+            kdestroy
+        }
+    }
+
+    It "Connects with implicit forwardable credential with Linux" -Skip:$IsWindows {
+        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('domain_auth')
+        Invoke-Kinit -Credential $sessionParams.Credential -Forwardable
+
+        try {
+            $sessionParams.Remove('Credential')
+
+            $actual = Invoke-Command @sessionParams {
+                klist.exe |
+                    Select-String -Pattern 'Ticket Flags.*->\s*(.*)' |
+                    ForEach-Object { ($_.Matches.Groups[1].Value -split '\s+') -ne ''}
+            }
+            $actual | Should -Not -Contain 'forwarded'
+        }
+        finally {
+            kdestroy
+        }
+    }
+
+    It "Connects with implicit forwardable credential with delegation Linux" -Skip:$IsWindows {
+        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('domain_auth')
+        Invoke-Kinit -Credential $sessionParams.Credential -Forwardable
+
+        try {
+            $sessionParams.Remove('Credential')
+            $sessionParams.SessionOption = (New-PSWSManSessionOption -RequestKerberosDelegate)
+
+            $actual = Invoke-Command @sessionParams {
+                klist.exe |
+                    Select-String -Pattern 'Ticket Flags.*->\s*(.*)' |
+                    ForEach-Object { ($_.Matches.Groups[1].Value -split '\s+') -ne ''}
+            }
+            $actual | Should -Contain 'forwarded'
+        }
+        finally {
+            kdestroy
+        }
+    }
+
+    # It "Connects with implicit credentials with Windows" -Skip:(-not $IsWindows) {
 
     # }
 
-    # It "Connects with default - no delegation" {
+    # It "Connects with implicit credentials with Windows and delegate" -Skip:(-not $IsWindows) {
 
     # }
 
-    # It "Connects with delegation - implicit cred" {
+    # It "Connects with explicit credentials with Windows" -Skip:(-not $IsWindows) {
 
     # }
 
-    # It "Connects with delegate - explicit cred" {
+    # It "Connects with explicit credentials with Windows and delegate" -Skip:(-not $IsWindows) {
 
     # }
 }

@@ -86,6 +86,7 @@ task CopyToRelease {
         Copy-Item ([IO.Path]::Combine($buildFolder, "*")) -Destination $binFolder -Recurse
         Remove-Item ([IO.Path]::Combine($binFolder, 'runtimes', 'android*')) -Recurse -Force
         Remove-Item ([IO.Path]::Combine($binFolder, 'runtimes', 'ios*')) -Recurse -Force
+        Remove-Item ([IO.Path]::Combine($binFolder, 'runtimes', 'osx-universal')) -Recurse -Force
     }
 }
 

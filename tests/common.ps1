@@ -154,3 +154,26 @@ Function global:Get-PSSessionSplat {
 
     $params
 }
+
+Function global:Invoke-Kinit {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory=$true)]
+        [PSCredential]
+        $Credential,
+
+        [Switch]
+        $Forwardable
+    )
+
+    $kinitArgs = @(
+        if ($Forwardable) { '-f' }
+
+        # Heimdal (used by macOS) requires this argument to successfully send the password to kinit
+        if ($IsMacOs) { '--password-file=STDIN' }
+
+        $Credential.UserName
+    )
+
+    $null = $Credential.GetNetworkCredential().Password | kinit $kinitArgs
+}

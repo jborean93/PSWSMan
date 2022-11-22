@@ -299,7 +299,9 @@ Linux and macOS can also only delegate if:
 
 To verify if the cred retrieved from `kinit` is forwardable, run `klist -f` and the flags should have `F`.
 
-To veirfy if the remote PSSession has a forwardable ticket that it can use for delegation, the `klist.exe` command will display the `forwardable` flag.
+To verify if the remote PSSession has a forwardable ticket that it can use for delegation, the `klist.exe` command will display the `forwarded` flag.
+
+The Devolutions auth provider does not currently support `-RequestKerberosDelegation` as it is missing the feature https://github.com/Devolutions/sspi-rs/issues/81.
 
 # DEVOLUTIONS SSPI
 By default the PSWSMan authentication process will use the system provided library, SSPI and GSSPI.
