@@ -4,9 +4,15 @@ BeforeDiscovery {
 
 BeforeAll {
     if ($PSWSManSettings.CACert) {
+        $location = if ($IsWindows) {
+            [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine
+        }
+        else {
+            [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser
+        }
         $store = [System.Security.Cryptography.X509Certificates.X509Store]::new(
             [System.Security.Cryptography.X509Certificates.StoreName]::Root,
-            [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser,
+            $location,
             [System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
         try {
             $store.Add($PSWSManSettings.CACert)
@@ -19,9 +25,15 @@ BeforeAll {
 
 AfterAll {
     if ($PSWSManSettings.CACert) {
+        $location = if ($IsWindows) {
+            [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine
+        }
+        else {
+            [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser
+        }
         $store = [System.Security.Cryptography.X509Certificates.X509Store]::new(
             [System.Security.Cryptography.X509Certificates.StoreName]::Root,
-            [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser,
+            $location,
             [System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
         try {
             $store.Remove($PSWSManSettings.CACert)

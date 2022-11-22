@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
@@ -14,10 +15,20 @@ namespace PSWSMan;
 
 internal static class TlsSessionResumeSetting
 {
-    private static FieldInfo? OpenSslField = typeof(SslStream).Assembly.GetType("Interop+OpenSsl", false, true)
+    private static FieldInfo? OpenSslField = typeof(SslStream).Assembly
+        .GetType("Interop+OpenSsl", false, true)
         ?.GetField("s_disableTlsResume", BindingFlags.Static | BindingFlags.NonPublic);
 
-    public static ResetTlsResumeDelegate DisableTlsSessionResume()
+    // Added in dotnet 7
+    private static MethodInfo? SchannelResetMethod7 = typeof(SslStream)
+        .GetMethod("SetRefreshCredentialNeeded", BindingFlags.Instance | BindingFlags.NonPublic, Array.Empty<Type>());
+
+    // Older method for dotnet 6
+    private static FieldInfo? SchannelCachedCredential = typeof(SslStream).Assembly
+        .GetType("System.Net.Security.SslSessionsCache", false, true)
+        ?.GetField("s_cachedCreds", BindingFlags.Static | BindingFlags.NonPublic);
+
+    public static ResetTlsResumeDelegate DisableTlsSessionResume(SslStream stream)
     {
         /*
             Dotnet by default tries to use a resumed TLS session if one is available. This causes problems with:
@@ -45,11 +56,31 @@ internal static class TlsSessionResumeSetting
                 return () => OpenSslField.SetValue(null, currentResult);
             }
         }
-        // FIXME: Figure out how to disable this on Windows.
-        // else if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        // {
-
-        // }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            if (SchannelResetMethod7 != null)
+            {
+                SchannelResetMethod7.Invoke(stream, Array.Empty<object>());
+            }
+            else if (SchannelCachedCredential != null)
+            {
+                Hashtable backupCache = new();
+                IDictionary sessionCache = (IDictionary)SchannelCachedCredential.GetValue(null)!;
+                foreach (DictionaryEntry entry in sessionCache)
+                {
+                    backupCache[entry.Key] = entry.Value;
+                }
+                sessionCache.Clear();
+                return () =>
+                {
+                    sessionCache.Clear();
+                    foreach (DictionaryEntry entry in backupCache)
+                    {
+                        sessionCache[entry.Key] = entry.Value;
+                    }
+                };
+            }
+        }
 
         // macOS currently does not support TLS Resume so nothing needs to be done there.
 
@@ -199,7 +230,7 @@ internal class TlsSecurityContext : IDisposable
         Task handshakeTask = Task.Run(() =>
         {
             // This class is only used for CredSSP which does not support TLS resume.
-            var resetTlsResumeSetting = TlsSessionResumeSetting.DisableTlsSessionResume();
+            var resetTlsResumeSetting = TlsSessionResumeSetting.DisableTlsSessionResume(_ssl);
             try
             {
                 _ssl.AuthenticateAsClient(_sslOptions);

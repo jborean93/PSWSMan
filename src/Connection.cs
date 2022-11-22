@@ -393,7 +393,7 @@ internal class WSManConnection : IDisposable
                 if ((wsmanRequest.SslOptions.ClientCertificates?.Count ?? 0) > 0)
                 {
                     // We only need to disable TLS Resume when dealing with client certificates.
-                    resetTlsResumeSetting = TlsSessionResumeSetting.DisableTlsSessionResume();
+                    resetTlsResumeSetting = TlsSessionResumeSetting.DisableTlsSessionResume(sslStream);
                 }
                 try
                 {

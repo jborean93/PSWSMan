@@ -4,9 +4,15 @@ BeforeDiscovery {
 
 BeforeAll {
     if ($PSWSManSettings.CACert) {
+        $location = if ($IsWindows) {
+            [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine
+        }
+        else {
+            [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser
+        }
         $store = [System.Security.Cryptography.X509Certificates.X509Store]::new(
             [System.Security.Cryptography.X509Certificates.StoreName]::Root,
-            [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser,
+            $location,
             [System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
         try {
             $store.Add($PSWSManSettings.CACert)
@@ -19,9 +25,15 @@ BeforeAll {
 
 AfterAll {
     if ($PSWSManSettings.CACert) {
+        $location = if ($IsWindows) {
+            [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine
+        }
+        else {
+            [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser
+        }
         $store = [System.Security.Cryptography.X509Certificates.X509Store]::new(
             [System.Security.Cryptography.X509Certificates.StoreName]::Root,
-            [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser,
+            $location,
             [System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
         try {
             $store.Remove($PSWSManSettings.CACert)
@@ -152,7 +164,14 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         $out = New-PSSession @sessionParams -ErrorAction SilentlyContinue -ErrorVariable err
         $out | Should -BeNullOrEmpty
         $err.Count | Should -Be 1
-        [string]$err[0] | Should -BeLike '*CredSSP server did not response to token during the stage TlsHandshake*'
+
+        $expected = if ($IsWindows) {
+            'CredSSP authentication failure during the stage TlsHandshake'
+        }
+        else {
+            'CredSSP server did not response to token during the stage TlsHandshake'
+        }
+        [string]$err[0] | Should -BeLike "*$expected*"
     }
 
     It "Connects with invalid credential" {
@@ -356,8 +375,7 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         -not $PSWSManSettings.GetScenarioServer('https_trusted') -or
         -not $PSWSManSettings.ClientCertificate
     ) {
-        # FIXME: Check if this is Linux only or not.
-        if ([Environment]::Version -lt [Version]'7.0') {
+        if ($IsLinux -and [Environment]::Version -lt [Version]'7.0') {
             Set-ItResult -Skipped -Because "Cert auth over TLS 1.3 only supported since dotnet 7.0"
         }
 
@@ -406,8 +424,7 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         -not $PSWSManSettings.GetScenarioServer('https_trusted') -or
         -not $PSWSManSettings.ClientCertificate
     ) {
-        # FIXME: Check if this is Linux only or not.
-        if ([Environment]::Version -lt [Version]'7.0') {
+        if ($IsLinux -and [Environment]::Version -lt [Version]'7.0') {
             Set-ItResult -Skipped -Because "Cert auth over TLS 1.3 only supported since dotnet 7.0"
         }
 
@@ -416,7 +433,7 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         $sessionParams.UseSSL = $true
         $sessionParams.SessionOption = New-PSWSManSessionOption -ClientCertificate $PSWSManSettings.ClientCertificate
 
-        $s = New-PSSession @sessionParams$s = $null
+        $s = New-PSSession @sessionParams
         try {
 
             $s.ComputerName | Should -Be $sessionParams.ComputerName
@@ -482,7 +499,13 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         [string]$err[0] | Should -BeLike '*Authentication failed, see inner exception*'
 
         # Unfortunately the true error is hidden deep within the stack, nothing we can do about that
-        $err[0].Exception.InnerException.InnerException.InnerException.Message | Should -BeLike '*SSL Handshake failed*'
+        $expected = if ($IsWindows) {
+            'The client and server cannot communicate, because they do not possess a common algorithm'
+        }
+        else {
+            'SSL handshake failed'
+        }
+        $err[0].Exception.InnerException.InnerException.InnerException.Message | Should -BeLike "*$expected*"
     }
 }
 
@@ -497,9 +520,9 @@ Describe "PSWSMan Kerberos tests" -Skip:(-not $PSWSManSettings.GetScenarioServer
             $actual = Invoke-Command @sessionParams {
                 klist.exe |
                     Select-String -Pattern 'Ticket Flags.*->\s*(.*)' |
-                    ForEach-Object { ($_.Matches.Groups[1].Value -split '\s+') -ne ''}
+                    ForEach-Object { ($_.Matches.Groups[1].Value -split '\s+') -ne '' }
             }
-            $actual | Should -Not -Contain 'forwardable'
+            $actual | Should -Not -Contain 'forwarded'
         }
         finally {
             kdestroy
@@ -516,7 +539,7 @@ Describe "PSWSMan Kerberos tests" -Skip:(-not $PSWSManSettings.GetScenarioServer
             $actual = Invoke-Command @sessionParams {
                 klist.exe |
                     Select-String -Pattern 'Ticket Flags.*->\s*(.*)' |
-                    ForEach-Object { ($_.Matches.Groups[1].Value -split '\s+') -ne ''}
+                    ForEach-Object { ($_.Matches.Groups[1].Value -split '\s+') -ne '' }
             }
             $actual | Should -Not -Contain 'forwarded'
         }
@@ -536,7 +559,7 @@ Describe "PSWSMan Kerberos tests" -Skip:(-not $PSWSManSettings.GetScenarioServer
             $actual = Invoke-Command @sessionParams {
                 klist.exe |
                     Select-String -Pattern 'Ticket Flags.*->\s*(.*)' |
-                    ForEach-Object { ($_.Matches.Groups[1].Value -split '\s+') -ne ''}
+                    ForEach-Object { ($_.Matches.Groups[1].Value -split '\s+') -ne '' }
             }
             $actual | Should -Contain 'forwarded'
         }
@@ -545,21 +568,59 @@ Describe "PSWSMan Kerberos tests" -Skip:(-not $PSWSManSettings.GetScenarioServer
         }
     }
 
-    # It "Connects with implicit credentials with Windows" -Skip:(-not $IsWindows) {
+    It "Connects with implicit credentials with Windows" -Skip:(-not $IsWindows) {
+        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('domain_auth')
+        $sessionParams.Remove('Credential')
 
-    # }
+        $actual = Invoke-Command @sessionParams {
+            klist.exe |
+                Select-String -Pattern 'Ticket Flags.*->\s*(.*)' |
+                ForEach-Object { ($_.Matches.Groups[1].Value -split '\s+') -ne '' }
+        }
+        $actual | Should -Not -Contain 'forwarded'
+    }
 
-    # It "Connects with implicit credentials with Windows and delegate" -Skip:(-not $IsWindows) {
+    It "Connects with implicit credentials with Windows and delegate" -Skip:(
+        -not $IsWindows -or
+        -not $PSWSManSettings.GetScenarioServer('trusted_for_delegation')
+    ) {
+        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('trusted_for_delegation')
+        $sessionParams.Remove('Credential')
+        $sessionParams.SessionOption = (New-PSWSManSessionOption -RequestKerberosDelegate)
 
-    # }
+        $actual = Invoke-Command @sessionParams {
+            klist.exe |
+                Select-String -Pattern 'Ticket Flags.*->\s*(.*)' |
+                ForEach-Object { ($_.Matches.Groups[1].Value -split '\s+') -ne '' }
+        }
+        $actual | Should -Contain 'forwarded'
+    }
 
-    # It "Connects with explicit credentials with Windows" -Skip:(-not $IsWindows) {
+    It "Connects with explicit credentials with Windows" -Skip:(-not $IsWindows) {
+        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('domain_auth')
 
-    # }
+        $actual = Invoke-Command @sessionParams {
+            klist.exe |
+                Select-String -Pattern 'Ticket Flags.*->\s*(.*)' |
+                ForEach-Object { ($_.Matches.Groups[1].Value -split '\s+') -ne '' }
+        }
+        $actual | Should -Not -Contain 'forwarded'
+    }
 
-    # It "Connects with explicit credentials with Windows and delegate" -Skip:(-not $IsWindows) {
+    It "Connects with explicit credentials with Windows and delegate" -Skip:(
+        -not $IsWindows -or
+        -not $PSWSManSettings.GetScenarioServer('trusted_for_delegation')
+    ) {
+        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('trusted_for_delegation')
+        $sessionParams.SessionOption = (New-PSWSManSessionOption -RequestKerberosDelegate)
 
-    # }
+        $actual = Invoke-Command @sessionParams {
+            klist.exe |
+                Select-String -Pattern 'Ticket Flags.*->\s*(.*)' |
+                ForEach-Object { ($_.Matches.Groups[1].Value -split '\s+') -ne '' }
+        }
+        $actual | Should -Contain 'forwarded'
+    }
 }
 
 Describe "PSWSMan Exchange Online tests" -Skip {

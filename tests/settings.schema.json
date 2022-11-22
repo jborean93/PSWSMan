@@ -208,6 +208,11 @@
                     "type": "string",
                     "title": "JEA endpoint",
                     "description": "The host to connect to the JEA endpoint that jea_configuration is on"
+                },
+                "trusted_for_delegation": {
+                    "type": "string",
+                    "title": "Host Trusted for Unconstrained Kerberos Delegation",
+                    "description": "The host that is trusted for unconstrained delegation"
                 }
             },
             "additionalProperties": false

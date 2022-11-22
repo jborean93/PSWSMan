@@ -146,7 +146,8 @@ Set-Item -Path WSMan:\localhost\Service\Auth\Basic -Value True
 If the local account's password expires, the credential and the certificate needs to be remapped.
 
 Support for using certificate authentication with TLS 1.3 enabled servers is limited.
-While it should work out of the box for PowerShell 7.3 or anything else based on dotnet 7, earlier versions will have to limit the TLS protocol to TLS 1.2 in order to use certificate authentication.
+Client certificate authentication does not currently work on Linux hosts running PowerShell 7.2 (dotnet 6) and with a TLS 1.3 connection.
+In order to use certificate auth with TLS 1.3 on Linux either upgrade to PowerShell 7.3 or limit the TLS protocol to TLS 1.2.
 
 ```powershell
 $tlsOption = [System.Net.Security.SslClientAuthenticationOptions]@{
@@ -155,7 +156,7 @@ $tlsOption = [System.Net.Security.SslClientAuthenticationOptions]@{
         @($ClientCertificate))
 }
 
-if ([Environment]::Version -lt [Version]'7.0') {
+if ($IsLinux -and [Environment]::Version -lt [Version]'7.0') {
     $tlsOption.EnabledSslProtocols = [System.Security.Authentication.SslProtocols]::Tls12
 }
 
