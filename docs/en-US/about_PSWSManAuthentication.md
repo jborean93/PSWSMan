@@ -47,6 +47,10 @@ This is a list of known issues with the various authentication methods and provi
 
   + No supported on Linux with PowerShell 7.2.x (dotnet 6) on a TLS 1.3 connection
 
++ Kerberos
+
+  + Currently broken with the `Devolutions` authentication provider, requires a new release of the [DevolutionsSspi nuget package](https://www.nuget.org/packages/Devolutions.Sspi)
+
 + CredSSP
 
   + Currently not supported with the `Devolutions` authentication provider - https://github.com/Devolutions/sspi-rs/issues/84

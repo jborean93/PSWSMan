@@ -15,15 +15,12 @@ namespace PSWSMan;
 
 internal static class TlsSessionResumeSetting
 {
+    // For Linux
     private static FieldInfo? OpenSslField = typeof(SslStream).Assembly
         .GetType("Interop+OpenSsl", false, true)
         ?.GetField("s_disableTlsResume", BindingFlags.Static | BindingFlags.NonPublic);
 
-    // Added in dotnet 7
-    private static MethodInfo? SchannelResetMethod7 = typeof(SslStream)
-        .GetMethod("SetRefreshCredentialNeeded", BindingFlags.Instance | BindingFlags.NonPublic, Array.Empty<Type>());
-
-    // Older method for dotnet 6
+    // For Windows
     private static FieldInfo? SchannelCachedCredential = typeof(SslStream).Assembly
         .GetType("System.Net.Security.SslSessionsCache", false, true)
         ?.GetField("s_cachedCreds", BindingFlags.Static | BindingFlags.NonPublic);
@@ -56,30 +53,26 @@ internal static class TlsSessionResumeSetting
                 return () => OpenSslField.SetValue(null, currentResult);
             }
         }
-        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && SchannelCachedCredential is not null)
         {
-            if (SchannelResetMethod7 != null)
+            // Windows has supported TLS Resume for all the platforms we care about. To disable it from using the
+            // cached credential we need to temporarily clear out the cache dictionary and set the original values
+            // back once finished.
+            Hashtable backupCache = new();
+            IDictionary sessionCache = (IDictionary)SchannelCachedCredential.GetValue(null)!;
+            foreach (DictionaryEntry entry in sessionCache)
             {
-                SchannelResetMethod7.Invoke(stream, Array.Empty<object>());
+                backupCache[entry.Key] = entry.Value;
             }
-            else if (SchannelCachedCredential != null)
+            sessionCache.Clear();
+            return () =>
             {
-                Hashtable backupCache = new();
-                IDictionary sessionCache = (IDictionary)SchannelCachedCredential.GetValue(null)!;
-                foreach (DictionaryEntry entry in sessionCache)
-                {
-                    backupCache[entry.Key] = entry.Value;
-                }
                 sessionCache.Clear();
-                return () =>
+                foreach (DictionaryEntry entry in backupCache)
                 {
-                    sessionCache.Clear();
-                    foreach (DictionaryEntry entry in backupCache)
-                    {
-                        sessionCache[entry.Key] = entry.Value;
-                    }
-                };
-            }
+                    sessionCache[entry.Key] = entry.Value;
+                }
+            };
         }
 
         // macOS currently does not support TLS Resume so nothing needs to be done there.

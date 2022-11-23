@@ -13,7 +13,13 @@ It has been tested to work on the following platforms:
 
 + Windows
 
-+ macOS
++ macOS - Intel only
+
+Due to missing features in a downstream package, support for PowerShell 7.3 is limited.
+It may work on Linux or macOS but Windows most likely will not.
+Follow [the issue on Harmony](https://github.com/pardeike/Harmony/issues/504) for more information.
+
+Support for macOS ARM is limited by [this issue on Harmony](https://github.com/pardeike/Harmony/issues/424).
 
 A list of the cmdlets in this module can be found at [PSWSMan](./PSWSMan.md).
 

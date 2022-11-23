@@ -15,7 +15,7 @@ Documentation for this module and details on the cmdlets included can be found [
 
 These cmdlets have the following requirements
 
-* PowerShell v7.2 or newer
+* PowerShell v7.2 or newer (7.3 has limited support right now)
 
 ## Installing
 
