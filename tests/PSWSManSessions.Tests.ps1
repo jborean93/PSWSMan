@@ -3,7 +3,7 @@ BeforeDiscovery {
 }
 
 BeforeAll {
-    if ($PSWSManSettings.CACert) {
+    if ($PSWSManSettings.CACert -and -not $IsMacOS) {
         $location = if ($IsWindows) {
             [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine
         }
@@ -24,7 +24,7 @@ BeforeAll {
 }
 
 AfterAll {
-    if ($PSWSManSettings.CACert) {
+    if ($PSWSManSettings.CACert -and -not $IsMacOS) {
         $location = if ($IsWindows) {
             [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine
         }
@@ -68,6 +68,118 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         $s.State | Should -Be 'Closed'
     }
 
+    It "Connects over HTTP with Negotiate - Kerberos" -Skip:(-not $PSWSManSettings.GetScenarioServer('domain_auth')) {
+        param ($AuthMethod)
+
+        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('domain_auth')
+
+        $s = New-PSSession @sessionParams
+        try {
+            $s.ComputerName | Should -Be $sessionParams.ComputerName
+            $s.State | Should -Be 'Opened'
+            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
+        }
+        finally {
+            $s | Remove-PSSession
+        }
+
+        $s.State | Should -Be 'Closed'
+    }
+
+    It "Connects over HTTP with Negotiate - NTLM" -Skip:(-not $PSWSManSettings.GetScenarioServer('local_auth')) {
+        param ($AuthMethod)
+
+        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('local_auth')
+
+        $s = New-PSSession @sessionParams
+        try {
+            $s.ComputerName | Should -Be $sessionParams.ComputerName
+            $s.State | Should -Be 'Opened'
+            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
+        }
+        finally {
+            $s | Remove-PSSession
+        }
+
+        $s.State | Should -Be 'Closed'
+    }
+
+    It "Connects over HTTP with CredSSP + Negotiate - Kerberos" -Skip:(-not $PSWSManSettings.GetScenarioServer('domain_auth')) {
+        param ($AuthMethod)
+
+        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('domain_auth')
+        $sessionParams.Authentication = 'Credssp'
+
+        $s = New-PSSession @sessionParams
+        try {
+            $s.ComputerName | Should -Be $sessionParams.ComputerName
+            $s.State | Should -Be 'Opened'
+            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
+        }
+        finally {
+            $s | Remove-PSSession
+        }
+
+        $s.State | Should -Be 'Closed'
+    }
+
+    It "Connects over HTTP with CredSSP + Keberos" -Skip:(-not $PSWSManSettings.GetScenarioServer('domain_auth')) {
+        param ($AuthMethod)
+
+        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('domain_auth')
+        $sessionParams.SessionOption = New-PSWSManSessionOption -AuthMethod CredSSP -CredSSPAuthMethod Kerberos
+
+        $s = New-PSSession @sessionParams
+        try {
+            $s.ComputerName | Should -Be $sessionParams.ComputerName
+            $s.State | Should -Be 'Opened'
+            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
+        }
+        finally {
+            $s | Remove-PSSession
+        }
+
+        $s.State | Should -Be 'Closed'
+    }
+
+    It "Connects over HTTP with CredSSP + Negotiate - NTLM" -Skip:(-not $PSWSManSettings.GetScenarioServer('local_auth')) {
+        param ($AuthMethod)
+
+        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('local_auth')
+        $sessionParams.Authentication = 'Credssp'
+
+        $s = New-PSSession @sessionParams
+        try {
+            $s.ComputerName | Should -Be $sessionParams.ComputerName
+            $s.State | Should -Be 'Opened'
+            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
+        }
+        finally {
+            $s | Remove-PSSession
+        }
+
+        $s.State | Should -Be 'Closed'
+    }
+
+    It "Connects over HTTP with CredSSP + NTLM" -Skip:(-not $PSWSManSettings.GetScenarioServer('local_auth')) {
+        param ($AuthMethod)
+
+        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('local_auth')
+        $sessionParams.SessionOption = New-PSWSManSessionOption -AuthMethod CredSSP -CredSSPAuthMethod NTLM
+
+        $s = New-PSSession @sessionParams
+        try {
+            $s.ComputerName | Should -Be $sessionParams.ComputerName
+            $s.State | Should -Be 'Opened'
+            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
+        }
+        finally {
+            $s | Remove-PSSession
+        }
+
+        $s.State | Should -Be 'Closed'
+    }
+
     It "Connects over HTTP with Devolutions <AuthMethod>" -TestCases @(
         @{AuthMethod = "Negotiate" }
         @{AuthMethod = "Ntlm" }
@@ -77,6 +189,44 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
 
         $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('default')
         $sessionParams.SessionOption = New-PSWSManSessionOption -AuthMethod $AuthMethod -AuthProvider Devolutions
+
+        $s = New-PSSession @sessionParams
+        try {
+            $s.ComputerName | Should -Be $sessionParams.ComputerName
+            $s.State | Should -Be 'Opened'
+            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
+        }
+        finally {
+            $s | Remove-PSSession
+        }
+
+        $s.State | Should -Be 'Closed'
+    }
+
+    It "Connects over HTTP with Devolutions Negotiate - Kerberos" -Skip:(-not $PSWSManSettings.GetScenarioServer('domain_auth')) {
+        param ($AuthMethod)
+
+        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('domain_auth')
+        $sessionParams.SessionOption = New-PSWSManSessionOption -AuthProvider Devolutions
+
+        $s = New-PSSession @sessionParams
+        try {
+            $s.ComputerName | Should -Be $sessionParams.ComputerName
+            $s.State | Should -Be 'Opened'
+            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
+        }
+        finally {
+            $s | Remove-PSSession
+        }
+
+        $s.State | Should -Be 'Closed'
+    }
+
+    It "Connects over HTTP with Devolutions Negotiate - NTLM" -Skip:(-not $PSWSManSettings.GetScenarioServer('local_auth')) {
+        param ($AuthMethod)
+
+        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('local_auth')
+        $sessionParams.SessionOption = New-PSWSManSessionOption -AuthProvider Devolutions
 
         $s = New-PSSession @sessionParams
         try {
@@ -299,7 +449,7 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         $s.State | Should -Be 'Closed'
     }
 
-    It "Connects over HTTPS with CBT has <HashType>" -TestCases @(
+    It "Connects over HTTPS with CBT hash <HashType>" -TestCases @(
         @{HashType = "sha1" }
         @{HashType = "sha256" }
         @{HashType = "sha256_pss" }
@@ -316,6 +466,15 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
 
         $sessionParams = Get-PSSessionSplat -Server $server
         $sessionParams.UseSSL = $true
+
+        if ($IsMacOS -and $HashType -eq 'sha1') {
+            # macOS doesn't trust SHA1 signed certs now
+            $sessionParams.SessionOption = New-PSWSManSessionOption -SkipCNCheck
+        }
+        if ($IsMacOS -and $HashType.EndsWith('_pss')) {
+            # macOS doesn't trust RSA-PSS cert chains
+            $sessionParams.SessionOption = New-PSWSManSessionOption -SkipCACheck
+        }
 
         $s = New-PSSession @sessionParams
         try {
@@ -372,11 +531,14 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
     }
 
     It "Connects over HTTPS with Certificate auth by thumbprint" -Skip:(
+        # macOS doesn't let you import into the My store without user interaction
+        # Cert auth is tested below on macOS through the cert object
+        $IsMacOS -or
         -not $PSWSManSettings.GetScenarioServer('https_trusted') -or
         -not $PSWSManSettings.ClientCertificate
     ) {
         if ($IsLinux -and [Environment]::Version -lt [Version]'7.0') {
-            Set-ItResult -Skipped -Because "Cert auth over TLS 1.3 only supported since dotnet 7.0"
+            Set-ItResult -Skipped -Because "Cert auth on Linux over TLS 1.3 only supported since dotnet 7.0"
         }
 
         $store = [System.Security.Cryptography.X509Certificates.X509Store]::new(
@@ -425,7 +587,7 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         -not $PSWSManSettings.ClientCertificate
     ) {
         if ($IsLinux -and [Environment]::Version -lt [Version]'7.0') {
-            Set-ItResult -Skipped -Because "Cert auth over TLS 1.3 only supported since dotnet 7.0"
+            Set-ItResult -Skipped -Because "Cert auth on Linux over TLS 1.3 only supported since dotnet 7.0"
         }
 
         $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('https_trusted')
@@ -459,10 +621,9 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
                 @($PSWSManSettings.ClientCertificate))
         }
 
-        # FIXME: Check if this is Linux only or not.
-        if ([Environment]::Version -lt [Version]'7.0') {
-            # For dotnet versions older than 7.0, the TLS protocol must be restricted to TLS 1.2 as only dotnet 7
-            # has implemented the necessary components for client auth over TLS 1.3
+        if ($IsLinux -and [Environment]::Version -lt [Version]'7.0') {
+            # Linux only supports post handshake cert auth on TLS 1.3 since dotnet 7. For older hosts restrict the
+            # protocol to TLS 1.2 in this test.
             $tlsOption.EnabledSslProtocols = [System.Security.Authentication.SslProtocols]::Tls12
         }
 
@@ -496,11 +657,19 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         $out = New-PSSession @sessionParams -ErrorAction SilentlyContinue -ErrorVariable err
         $out | Should -BeNullOrEmpty
         $err.Count | Should -Be 1
-        [string]$err[0] | Should -BeLike '*Authentication failed, see inner exception*'
+        if ($IsMacOS) {
+            [string]$err[0] | Should -BeLike '*Connection reset by peer*'
+        }
+        else {
+            [string]$err[0] | Should -BeLike '*Authentication failed, see inner exception*'
+        }
 
         # Unfortunately the true error is hidden deep within the stack, nothing we can do about that
         $expected = if ($IsWindows) {
             'The client and server cannot communicate, because they do not possess a common algorithm'
+        }
+        elseif ($IsMacOS) {
+            'Connection reset by peer'
         }
         else {
             'SSL handshake failed'

@@ -3,7 +3,7 @@ BeforeDiscovery {
 }
 
 BeforeAll {
-    if ($PSWSManSettings.CACert) {
+    if ($PSWSManSettings.CACert -and -not $IsMacOS) {
         $location = if ($IsWindows) {
             [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine
         }
@@ -24,7 +24,7 @@ BeforeAll {
 }
 
 AfterAll {
-    if ($PSWSManSettings.CACert) {
+    if ($PSWSManSettings.CACert -and -not $IsMacOS) {
         $location = if ($IsWindows) {
             [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine
         }

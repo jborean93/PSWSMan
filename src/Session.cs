@@ -195,7 +195,7 @@ internal class WSManSessionOption
             SecurityContext subAuth = SecurityContext.GetPlatformSecurityContext(
                 username,
                 Password,
-                CredSSPAuthMethod,
+                CredSSPAuthMethod == AuthenticationMethod.Default ? AuthenticationMethod.Negotiate : CredSSPAuthMethod,
                 AuthProvider,
                 spnService,
                 spnHostName,

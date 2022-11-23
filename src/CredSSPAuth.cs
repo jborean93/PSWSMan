@@ -538,9 +538,11 @@ internal class CredSSPAuthProvider : HttpAuthProvider, IWinRMEncryptor
         _stage = CredSSPStage.VerifyServerKey;
 
         tsRequest = UnwrapTSRequest(buffer);
-        if (tsRequest.Tokens?.Length > 0)
+        if (tsRequest.Tokens?.Length > 0 && !_secContext.Complete)
         {
-            // NTLM over SPNEGO auth returned the mechListMIC for us to verify.
+            // NTLM over SPNEGO auth returned the mechListMIC for us to verify. On macOS with NTLM over Negotiate the
+            // server may return the MIC token but it will fail to process as it considered the context complete so
+            // this is skipped is secContext is Complete.
             _secContext.Step(tsRequest.Tokens?[0]?.Token ?? Array.Empty<byte>());
         }
 

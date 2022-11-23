@@ -166,11 +166,6 @@ internal class GssapiContext : SecurityContext
             using SafeGssapiName name = GSSAPI.ImportName(username, GSSAPI.GSS_C_NT_USER_NAME);
             _credential = GSSAPI.AcquireCredWithPassword(name, password, 0, mechList,
                 GssapiCredUsage.GSS_C_INITIATE).Creds;
-
-            if (GlobalState.GssapiProvider != GssapiProvider.MIT)
-            {
-                _mech = null;
-            }
         }
         else
         {
@@ -209,6 +204,18 @@ internal class GssapiContext : SecurityContext
             throw new InvalidOperationException("Cannot wrap without a completed context");
 
         (byte[] wrappedData, bool _) = GSSAPI.Wrap(_context, true, 0, data);
+
+        if (_negotiatedMech?.SequenceEqual(GSSAPI.NTLM) == true && GlobalState.GssapiProvider == GssapiProvider.GSSFramework)
+        {
+            // gss_wrap on macOS for NTLM places the header at the end of the buffer and not the beginning as expected
+            // by Windows. It needs to be swapped around
+            Span<byte> header = stackalloc byte[16];
+            wrappedData.AsSpan(wrappedData.Length - 16, 16).CopyTo(header);
+
+            wrappedData.AsSpan(0, wrappedData.Length - 16).CopyTo(wrappedData.AsSpan(16));
+            header.CopyTo(wrappedData.AsSpan(0, 16));
+        }
+
         return wrappedData;
     }
 
@@ -270,7 +277,19 @@ internal class GssapiContext : SecurityContext
         if (_context == null)
             throw new InvalidOperationException("Cannot unwrap without a completed context");
 
+        if (_negotiatedMech?.SequenceEqual(GSSAPI.NTLM) == true && GlobalState.GssapiProvider == GssapiProvider.GSSFramework)
+        {
+            // gss_unwrap on macOS for NTLM requires the header to be placed at the end of the buffer and not the
+            // beginning.
+            byte[] newBuffer = new byte[data.Length];
+            data[16..].CopyTo(newBuffer.AsSpan()[..(data.Length - 16)]);
+            data.Slice(0, 16).CopyTo(newBuffer.AsSpan(newBuffer.Length - 16, 16));
+
+            data = newBuffer.AsSpan();
+        }
+
         (byte[] unwrappedData, bool _1, int _2) = GSSAPI.Unwrap(_context, data);
+
         return unwrappedData;
     }
 
@@ -294,8 +313,7 @@ internal class GssapiContext : SecurityContext
 
         if (_negotiatedMech?.SequenceEqual(GSSAPI.NTLM) == true || GlobalState.GssapiProvider != GssapiProvider.MIT)
         {
-            // gss_unwrap doesn't decrypt in place which the caller is expecting. The output array needs to be copied
-            // back into the input span.
+            // As gss_unwrap doesn't decrypt in place, the output array needs to be copied back into the input span.
             byte[] unwrappedData = Unwrap(data[4..]);
 
             Span<byte> decData = data.Slice(4 + headerLength, unwrappedData.Length);
