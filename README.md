@@ -10,6 +10,14 @@ See [about_PSWSMan](docs/en-US/about_PSWSMan.md) for more details.
 ## Documentation
 
 Documentation for this module and details on the cmdlets included can be found [here](docs/en-US/PSWSMan.md).
+This is currently an unreleased project and is meant to replace [my omi fork](https://github.com/jborean93/omi) as the way PowerShell uses WSMan as a client.
+The following things still need to be done before this could replace the `PSWSMan` PSGallery package:
+
++ Figure out a good way to get working on pwsh 7.3 - Harmony is currently incompatible
++ Check what would be involved to get working on macOS ARM - Harmony is currently incompatible
++ Add more documentation and automation around the tests
+  + Create script/playbook that builds the various Windows/Linux/PowerShell permutations and `test.settings.json` files for easier integration testing
++ Add tests for Exchange Online authentication, need to revist my developer account and see if I can still use it
 
 ## Requirements
 
