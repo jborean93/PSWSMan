@@ -249,8 +249,8 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
     }
 
     It "Connects over HTTP with Basic" -Skip:(-not $PSWSManSettings.GetScenarioServer('local_auth')) {
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('local_auth')
-        $sessionParams.SessionOption = New-PSWSManSessionOption -AuthMethod Basic -NoEncryption
+        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('local_auth') -ForBasicAuth
+        $sessionParams.SessionOption = New-PSWSManSessionOption -NoEncryption
 
         $s = New-PSSession @sessionParams
         try {
@@ -395,9 +395,8 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
     }
 
     It "Connects over HTTPS with Basic" -Skip:(-not $PSWSManSettings.GetScenarioServer('https_local_auth')) {
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('https_local_auth')
+        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('https_local_auth') -ForBasicAuth
         $sessionParams.UseSSL = $true
-        $sessionParams.Authentication = 'Basic'
 
         $s = New-PSSession @sessionParams
         try {

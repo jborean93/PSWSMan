@@ -183,6 +183,15 @@ internal class WSManSessionOption
                 throw new ArgumentException("Username and password must be set for CredSSP authentication");
             }
 
+            SecurityContext subAuth = SecurityContext.GetPlatformSecurityContext(
+                UserName,
+                Password,
+                CredSSPAuthMethod == AuthenticationMethod.Default ? AuthenticationMethod.Negotiate : CredSSPAuthMethod,
+                AuthProvider,
+                spnService,
+                spnHostName,
+                false);
+
             string domainName = "";
             string username = UserName;
             if (username.Contains('\\'))
@@ -191,15 +200,6 @@ internal class WSManSessionOption
                 domainName = stringSplit[0];
                 username = stringSplit[1];
             }
-
-            SecurityContext subAuth = SecurityContext.GetPlatformSecurityContext(
-                username,
-                Password,
-                CredSSPAuthMethod == AuthenticationMethod.Default ? AuthenticationMethod.Negotiate : CredSSPAuthMethod,
-                AuthProvider,
-                spnService,
-                spnHostName,
-                false);
             TSPasswordCreds credSSPCreds = new(domainName, username, Password);
             return new CredSSPAuthProvider(
                 credSSPCreds,

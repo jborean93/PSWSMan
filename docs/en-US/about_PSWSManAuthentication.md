@@ -24,27 +24,41 @@ There are 6 different types of authentication methods supported by WSMan:
 The `Negotiate` authentication package is an authentication method that will attempt to use `Kerberos` before falling back to `NTLM` if that is unavailable.
 Here is a simple matrix of each options and some of the features they support:
 
-|Method|Local Account|Domain Account|HTTP Encryption|Delegation|
-|-|-|-|-|-|
-|Basic|Y|N|N|N|
-|Certificate|Y|N|N/A¹|N|
-|NTLM|Y|Y|Y²|N|
-|Kerberos|N|Y|Y|Y|
-|Negotiate|Y|Y|Y|Y³|
-|CredSSP|Y|Y|Y|Y|
+|Method|Local Account|Domain Account|Implicit Credential|HTTP Encryption|Delegation|
+|-|-|-|-|-|-|
+|Basic|Y|N|N|N|N|
+|Certificate|Y|N|N|N/A¹|N|
+|NTLM|Y|Y|Y²|Y³|N|
+|Kerberos|N|Y|Y|Y|Y|
+|Negotiate|Y|Y|Y⁴|Y|Y⁵|
+|CredSSP|Y|Y|N|Y|Y|
 
 ¹ Certificate auth only available over HTTPS
-² NTLM HTTP Encryption is based on a weak RC4 cipher
-³ Only available if Kerberos was negotiated
+² Only on Windows with the System auth provider
+³ NTLM HTTP Encryption is based on a weak RC4 cipher and should not be used
+⁴ On Windows with the System auth provider or on other OS', implicit credentials will only work with Kerberos through Negotiate
+⁵ Only available if Kerberos was negotiated
 
 Exchange Online also offers Modern Auth (OAuth) but this just uses the Basic authentication headers to smuggle the OAuth token.
+
+This is a list of known issues with the various authentication methods and providers on PSWSMan:
+
++ Certificate
+
+  + No supported on Linux with PowerShell 7.2.x (dotnet 6) on a TLS 1.3 connection
+
++ CredSSP
+
+  + Currently not supported with the `Devolutions` authentication provider - https://github.com/Devolutions/sspi-rs/issues/84
 
 # BASIC AUTH
 Basic authentication is sending the username nad password as a base64 encoded value in the HTTP headers.
 This is the simplest authentication option available but also the weakeast.
 It only works for local accounts and should only be used over a HTTPS connection.
-Using it over a HTTP connection is dangerous as the credentials are simply encoded not encrypted and there is no encryption of the data exchanged between the client and server.
+When specifying a credential for Basic authentication only the username should be used.
+Do not specify the hostname portion of the username, e.g. use `username` and not `HOST\username`.
 
+Using it over a HTTP connection is dangerous as the credentials are simply encoded not encrypted and there is no encryption of the data exchanged between the client and server.
 If Basic authentication over HTTP is truly desired then `New-PSWSManSessionOption -NoEncryption` must be set and the server must allow unencrypted access.
 
 By default Basic authentication is disabled on the server, to enable it run:

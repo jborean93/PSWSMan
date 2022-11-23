@@ -141,7 +141,10 @@ Function global:Get-PSSessionSplat {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory)]
-        [PSWSManServer]$Server
+        [PSWSManServer]$Server,
+
+        [switch]
+        $ForBasicAuth
     )
 
     $params = @{
@@ -151,6 +154,15 @@ Function global:Get-PSSessionSplat {
     if ($Server.Port) {
         $params.Port = $Server.Port
     }
+    if ($ForBasicAuth) {
+        # If using Basic auth the domain/server portion needs to be stripped out
+        $newUserName = $params.Credential.UserName
+        if ($newUserName -like '*\*') {
+            $newUserName = ($newUserName -split '\\', 2)[1]
+        }
+        $params.Credential = [PSCredential]::new($newUserName, $params.Credential.Password)
+        $params.Authentication = 'Basic'
+    }
 
     $params
 }
@@ -158,7 +170,7 @@ Function global:Get-PSSessionSplat {
 Function global:Invoke-Kinit {
     [CmdletBinding()]
     param (
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [PSCredential]
         $Credential,
 
