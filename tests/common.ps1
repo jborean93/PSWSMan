@@ -14,6 +14,12 @@ class JEAConfiguration {
     [string]$ExpectedUserName
 }
 
+class EXOConfiguration {
+    [string]$Organization
+    [string]$AppId
+    [System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate
+}
+
 class PSWSManServer {
     [string]$HostName
     [PSCredential]$Credential
@@ -25,6 +31,7 @@ class PSWSManSettings {
     [System.Collections.Generic.Dictionary[[string], [string]]]$Scenarios = [System.Collections.Generic.Dictionary[[string], [string]]]::new()
     [System.Security.Cryptography.X509Certificates.X509Certificate2] $CACert
     [JEAConfiguration]$JEAConfiguration
+    [EXOConfiguration]$EXOConfiguration
     [System.Security.Cryptography.X509Certificates.X509Certificate2]$ClientCertificate
 
     [PSWSManServer] GetScenarioServer([string]$Scenario) {
@@ -90,6 +97,7 @@ if (-not $global:PSWSManSettings) {
 
         $caCert = $null
         $jeaConfiguration = $null
+        $exoConfiguration = $null
         $clientCert = $null
         if ($settings.data) {
             if (Test-Path -LiteralPath $settings.data.ca_file) {
@@ -121,6 +129,44 @@ if (-not $global:PSWSManSettings) {
                     ExpectedUserName = $settings.data.jea_configuration.username
                 }
             }
+
+            if ($settings.data.exchange_online) {
+                if (-not (Get-Module -Name ExchangeOnlineManagement)) {
+                    $exoDepPath = [System.IO.Path]::GetFullPath(
+                        [System.IO.Path]::Combine(
+                            $PSScriptRoot,
+                            '..',
+                            'tools',
+                            'Modules',
+                            'ExchangeOnlineManagement'))
+                    if (Test-Path -LiteralPath $exoDepPath) {
+                        # Favour the local dep if present
+                        Import-Module -Name $exoDepPath
+                    }
+                    else {
+                        # Otherwise rely on it being installed somewhere. Fail if it isn't
+                        Import-Module -Name ExchangeOnlineManagement -ErrorAction Stop
+                    }
+                }
+
+                $exoCertificate = $null
+                if ($certPath = $settings.data.exchange_online.certificate_path) {
+                    $pfxParams = @{
+                        FilePath    = $certPath
+                        ErrorAction = 'Stop'
+                    }
+                    if ($certPass = $settings.data.exchange_online.certificate_password) {
+                        $pfxParams.Password = ConvertTo-SecureString -AsPlainText -Force -String $certPass
+                    }
+                    $exoCertificate = Get-PfxCertificate @pfxParams
+                }
+
+                $exoConfiguration = [EXOConfiguration]@{
+                    Organization = $settings.data.exchange_online.organization
+                    AppId        = $settings.data.exchange_online.app_id
+                    Certificate  = $exoCertificate
+                }
+            }
         }
 
         $global:PSWSManSettings = [PSWSManSettings]@{
@@ -128,6 +174,7 @@ if (-not $global:PSWSManSettings) {
             Scenarios         = $scenarios
             CACert            = $caCert
             JEAConfiguration  = $jeaConfiguration
+            EXOConfiguration  = $exoConfiguration
             ClientCertificate = $clientCert
         }
     }

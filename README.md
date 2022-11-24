@@ -17,7 +17,6 @@ The following things still need to be done before this could replace the `PSWSMa
 + Check what would be involved to get working on macOS ARM - Harmony is currently incompatible
 + Add more documentation and automation around the tests
   + Create script/playbook that builds the various Windows/Linux/PowerShell permutations and `test.settings.json` files for easier integration testing
-+ Add tests for Exchange Online authentication, need to revist my developer account and see if I can still use it
 
 ## Requirements
 

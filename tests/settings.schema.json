@@ -256,13 +256,14 @@
                             "type": "string",
                             "title": "Client Certificate PFX Password"
                         }
-                    }
+                    },
+                    "additionalProperties": false
                 },
                 "jea_configuration": {
                     "type": "object",
                     "title": "JEA Settings",
                     "description": "The JEA test settings",
-                    "expamples": [
+                    "examples": [
                         {
                             "name": "JEA",
                             "username": "gmsa$"
@@ -282,7 +283,45 @@
                             "title": "JEA UserName",
                             "description": "The output of [Environment]::UserName in this JEA configuration"
                         }
-                    }
+                    },
+                    "additionalProperties": false
+                },
+                "exchange_online": {
+                    "type": "object",
+                    "title": "Exchange Online Settings",
+                    "description": "The Exchange Online test settings",
+                    "examples": [
+                        {
+                            "organization": "test.onmicrosoft.com",
+                            "app_id": "db1075e0-d097-4903-9765-39570eb43153",
+                            "certificate_path": "/home/user/PSWSMan/tests/integration/exchange-cert.pfx",
+                            "certificate_password": "...",
+                            "client_secret": "..."
+                        }
+                    ],
+                    "required": [
+                        "organization",
+                        "app_id"
+                    ],
+                    "properties": {
+                        "organization": {
+                            "type": "string",
+                            "title": "Exchange Organization Name"
+                        },
+                        "app_id": {
+                            "type": "string",
+                            "title": "The App Principal ID (GUID)"
+                        },
+                        "certificate_path": {
+                            "type": "string",
+                            "title": "Path to the certificate PFX"
+                        },
+                        "certificate_password": {
+                            "type": "string",
+                            "title": "Password for certificate PFX"
+                        }
+                    },
+                    "additionalProperties": false
                 }
             },
             "additionalProperties": false

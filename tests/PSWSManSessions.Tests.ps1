@@ -791,18 +791,20 @@ Describe "PSWSMan Kerberos tests" -Skip:(-not $PSWSManSettings.GetScenarioServer
     }
 }
 
-Describe "PSWSMan Exchange Online tests" -Skip {
-    # It "Connects using client secret" {
+Describe "PSWSMan Exchange Online tests" -Skip:(-not $PSWSManSettings.EXOConfiguration) {
+    BeforeAll {
+        $exoParams = @{
+            Organization  = $PSWSManSettings.EXOConfiguration.Organization
+            AppId         = $PSWSManSettings.EXOConfiguration.AppId
+            UseRPSSession = $true
+            ShowBanner    = $false
+        }
+    }
 
-    # }
-
-    # It "Connects using certificate" {
-
-    # }
-
-    # It "Connects with invalid credential and handles bad response" {
-
-    # }
+    It "Connects using certificate" -Skip:(-not $PSWSManSettings.EXOConfiguration.Certificate) {
+        Connect-ExchangeOnline @exoParams -Certificate $PSWSManSettings.EXOConfiguration.Certificate -CommandName Get-Mailbox
+        Get-Module -Name Get-Mailbox -ErrorAction Stop
+    }
 }
 
 Describe "PSWSMan PSRemoting tests" -Skip:(-not $PSWSManSettings.GetScenarioServer('default')) {
