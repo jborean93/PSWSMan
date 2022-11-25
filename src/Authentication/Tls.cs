@@ -11,7 +11,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PSWSMan;
+namespace PSWSMan.Authentication;
 
 internal static class TlsSessionResumeSetting
 {
@@ -213,7 +213,7 @@ internal class TlsSecurityContext : IDisposable
     /// server before starting the next enumerable entry. Not doing so will cause the code to block indefinitely.
     /// </remarks>
     /// <returns>Each TLS record as a base64 string is yielded until the handshake is complete.</returns>
-    public IEnumerable<string> DoHandshake()
+    public IEnumerable<byte[]> DoHandshake()
     {
         // The handshake operation is done in a background task as .NET doesn't have a non-blocking memory BIO method
         // to perform the handshake in steps. Each of the tokens to exchange are sent to the TlsBIOStream stream that
@@ -236,7 +236,7 @@ internal class TlsSecurityContext : IDisposable
         });
 
         Span<byte> token = _bio.ServerRead(handshakeDone.Token);
-        yield return Convert.ToBase64String(token);
+        yield return token.ToArray();
 
         // Keep on exchanging the tokens until the handshake is complete
         while (true)
@@ -251,7 +251,7 @@ internal class TlsSecurityContext : IDisposable
                 break;
             }
 
-            yield return Convert.ToBase64String(tlsPacket);
+            yield return tlsPacket.ToArray();
         }
 
         // Check that no failures occurred when doing the TLS handshake before continuing.
@@ -274,14 +274,10 @@ internal class TlsSecurityContext : IDisposable
 
     /// <summary>Write the input TLS token into the SslStream for processing.</summary>
     /// <param name="token">The TLS record as a base64 string.</param>
-    public void WriteInputToken(string token)
+    public void WriteInputToken(Span<byte> token)
     {
-        Span<byte> serverBuffer = _bio.IncomingBuffer.AsSpan();
-        if (!Convert.TryFromBase64String(token, serverBuffer, out var bytesWritten))
-        {
-            throw new AuthenticationException("Received input token that is too large to process.");
-        }
-        _bio.MarkIncomingWrite(bytesWritten);
+        token.CopyTo(_bio.IncomingBuffer.AsSpan());
+        _bio.MarkIncomingWrite(token.Length);
     }
 
     /// <summary>Get the processed input token from the server.</summary>

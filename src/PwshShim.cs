@@ -1,3 +1,4 @@
+using PSWSMan.Authentication;
 using System;
 using System.Collections.Generic;
 using System.Management.Automation;
@@ -12,20 +13,77 @@ using System.Xml.Linq;
 
 namespace PSWSMan;
 
-internal class WSManPSRPShim
+public enum AuthenticationMethod
 {
-    private readonly Guid _runspacePoolId;
+    /// <summary>
+    /// Selects the best negotiate method available which is Negotiate or uses Certificate auth is client certs are
+    /// specified.
+    /// </summary>
+    Default,
+
+    /// <summary>Simple Basic authentication, doesn't provide any encryption over HTTP.</summary>
+    Basic,
+
+    /// <summary>Tries Kerberos authentication with a fallback to NTLM if that's not available.</summary>
+    Negotiate,
+
+    /// <summary>Uses NTLM authentication, this is not as secure as Kerberos.</summary>
+    NTLM,
+
+    /// <summary>Uses Kerberos authentication, this has no fallback to NTLM if unavailable.</summary>
+    Kerberos,
+
+    /// <summary>
+    /// CredSSP authentication to delegate your credentials to the remote host. Relies on Negotiate authentication
+    /// internally and will be unavailable on Linux if the GSSAPI library is not found.
+    /// </summary>
+    CredSSP
+}
+
+public enum AuthenticationProvider
+{
+    /// <summary>
+    /// Uses the process wide default authentication provider.
+    /// </summary>
+    Default,
+
+    /// <summary>
+    /// Uses the OS system authentication provider for authentication. On Windows this is SSPI which supports all auth
+    /// methods. On macOS this is GSS.Framework which supports all auth methods. On Linux this is GSSAPI through either
+    /// MIT krb5 or Heimdal which typically support Kerberos out of the box and NTLM with extra packages installed.
+    /// GSSAPI on Linux is usually not provided out of the box and requires extra packages to be installed.
+    /// </summary>
+    System,
+
+    /// <summary>
+    /// Uses Devolutions.Sspi as the authentication provider which is a self contained Rust library that implements
+    /// Kerberos and NTLM support without any system dependencies.
+    /// </summary>
+    Devolutions,
+}
+
+internal class WSManPSRPShim : IDisposable
+{
     private readonly WSManSession _session;
-    private readonly WSManConnectionInfo _connInfo;
+    private readonly WSManSessionOption _options;
+    private readonly WinRSClient _winrs;
+    private readonly Guid _runspacePoolId;
+    private readonly bool _noMachineProfile;
+    private readonly string _shellUri;
+
     private List<Task> _receiveThreads = new();
 
     public Guid RunspacePoolId => _runspacePoolId;
 
-    private WSManPSRPShim(Guid runspacePoolId, WSManSession session, WSManConnectionInfo connInfo)
+    private WSManPSRPShim(WSManSessionOption options, Guid runspacePoolId, bool noMachineProfile,
+        string shellId, WinRSClient? client = null)
     {
+        _session = CreateSession(options);
+        _options = options;
+        _winrs = client ?? new(_session.Client);
         _runspacePoolId = runspacePoolId;
-        _session = session;
-        _connInfo = connInfo;
+        _noMachineProfile = noMachineProfile;
+        _shellUri = shellId;
     }
 
     public static WSManPSRPShim Create(
@@ -108,28 +166,40 @@ internal class WSManPSRPShim
             };
         }
 
+        NegotiateOptions negoOptions = new()
+        {
+            Flags = NegotiateRequestFlags.Default,
+            SPNHostName = extraConnInfo?.SPNHostName ?? connectionUri.DnsSafeHost,
+            SPNService = extraConnInfo?.SPNService,
+        };
+        if (extraConnInfo?.RequestKerberosDelegate == true)
+        {
+            negoOptions.Flags |= NegotiateRequestFlags.Delegate;
+        }
+
+        WSManCredential credential = GenerateWSManCredential(
+            authMethod,
+            extraConnInfo?.AuthProvider ?? AuthenticationProvider.Default,
+            connInfo.Credential?.UserName,
+            connInfo.Credential?.GetNetworkCredential()?.Password,
+            tlsOptions,
+            extraConnInfo?.CredSSPTlsOption,
+            extraConnInfo?.CredSSPAuthMethod ?? AuthenticationMethod.Default
+        );
         WSManSessionOption options = new(connectionUri, connInfo.OpenTimeout, connInfo.OperationTimeout,
-            connInfo.Culture.Name)
+            connInfo.Culture.Name, credential)
         {
             MaxEnvelopeSize = maxEnvelopeSize,
             TlsOptions = tlsOptions,
-            AuthMethod = authMethod,
-            AuthProvider = extraConnInfo?.AuthProvider ?? AuthenticationProvider.Default,
-            UserName = connInfo.Credential?.UserName,
-            Password = connInfo.Credential?.GetNetworkCredential()?.Password,
             NoEncryption = connInfo.NoEncryption,
-            SPNService = extraConnInfo?.SPNService,
-            SPNHostName = extraConnInfo?.SPNHostName,
-            RequestKerberosDelegate = extraConnInfo?.RequestKerberosDelegate ?? false,
-            CredSSPTlsOptions = extraConnInfo?.CredSSPTlsOption,
-            CredSSPAuthMethod = extraConnInfo?.CredSSPAuthMethod ?? AuthenticationMethod.Negotiate,
+            NegotiateOptions = negoOptions,
         };
         if (connInfo.UICulture is not null)
         {
             options.DataLocale = connInfo.UICulture.Name;
         }
 
-        return new(runspacePoolId, options.CreateSession(), connInfo);
+        return new(options, runspacePoolId, connInfo.NoMachineProfile, connInfo.ShellUri);
     }
 
     public async Task CreateShellAsync(byte[] psrpFragment)
@@ -139,25 +209,26 @@ internal class WSManPSRPShim
         OptionSet shellOptions = new();
         shellOptions.Add("protocolversion", "2.3");
 
-        if (_connInfo.NoMachineProfile)
+        if (_noMachineProfile)
         {
             shellOptions.Add("WINRS_NOPROFILE", "1", new() { { "mustComply", true } });
         }
 
-        string payload = _session.WinRS.Create(
-            _connInfo.ShellUri,
+        string payload = _winrs.Create(
+            _shellUri,
             inputStreams: "stdin pr",
             outputStreams: "stdout",
             shellId: _runspacePoolId,
             extra: extraContent,
             options: shellOptions);
 
-        await _session.PostRequest<WSManCreateResponse>(payload);
+        WSManCreateResponse resp = await _session.PostRequest<WSManCreateResponse>(payload);
+        _winrs.ProcessCreateResponse(resp);
     }
 
     public async Task CloseShellAsync()
     {
-        string payload = _session.WinRS.Delete();
+        string payload = _winrs.Delete();
         await _session.PostRequest<WSManDeleteResponse>(payload);
     }
 
@@ -165,31 +236,31 @@ internal class WSManPSRPShim
     {
         string psrpPayload = Convert.ToBase64String(psrpFragment);
 
-        string payload = _session.WinRS.Command("", new[] { psrpPayload }, commandId: commandId);
+        string payload = _winrs.Command("", new[] { psrpPayload }, commandId: commandId);
         await _session.PostRequest<WSManCommandResponse>(payload);
     }
 
     public async Task CloseCommandAsync(Guid commandId)
     {
-        string payload = _session.WinRS.Signal(SignalCode.Terminate, commandId: commandId);
+        string payload = _winrs.Signal(SignalCode.Terminate, commandId: commandId);
         await _session.PostRequest<WSManSignalResponse>(payload);
     }
 
     public async Task<WSManReceiveResponse> Receive(string stream, Guid? commandId = null)
     {
-        string payload = _session.WinRS.Receive(stream, commandId: commandId);
+        string payload = _winrs.Receive(stream, commandId: commandId);
         return await _session.PostRequest<WSManReceiveResponse>(payload);
     }
 
     public async Task SendAsync(string stream, byte[] data, Guid? commandId = null)
     {
-        string payload = _session.WinRS.Send(stream, data, commandId: commandId);
+        string payload = _winrs.Send(stream, data, commandId: commandId);
         await _session.PostRequest<WSManSendResponse>(payload);
     }
 
     public async Task StopCommandAsync(Guid commandId)
     {
-        string payload = _session.WinRS.Signal(SignalCode.PSCtrlC, commandId: commandId);
+        string payload = _winrs.Signal(SignalCode.PSCtrlC, commandId: commandId);
         await _session.PostRequest<WSManSignalResponse>(payload);
     }
 
@@ -197,15 +268,14 @@ internal class WSManPSRPShim
     {
         _receiveThreads.Add(Task.Run(() =>
         {
-            using WSManSession session = _session.Copy();
+            using WSManPSRPShim client = new(_options, _runspacePoolId, _noMachineProfile, _shellUri, client: _winrs);
+
             while (true)
             {
                 try
                 {
-                    string payload = session.WinRS.Receive("stdout", commandId: commandId);
-
                     tracer.WriteLine("PSWSMan Receive Task sending Receive Request. CmdId: '{0}'", commandId);
-                    WSManReceiveResponse response = session.PostRequest<WSManReceiveResponse>(payload)
+                    WSManReceiveResponse response = client.Receive("stdout", commandId: commandId)
                         .GetAwaiter().GetResult();
                     tracer.WriteLine("PSWSMan Received Response. CmdId: '{0}'", commandId);
 
@@ -213,8 +283,6 @@ internal class WSManPSRPShim
                     {
                         foreach (byte[] stream in entry.Value)
                         {
-                            // Console.WriteLine("Received CmdId: '{0}' - {1} - {2}",
-                            //     commandId, entry.Key, Convert.ToBase64String(stream));
                             tm.ProcessRawData(stream, entry.Key);
                         }
                     }
@@ -264,10 +332,131 @@ internal class WSManPSRPShim
         }));
     }
 
-    internal WSManClient GetWSManClient()
+    internal int GetMaxEnvelopeSize() => _session.Client.MaxEnvelopeSize;
+
+    internal void SetMaxEnvelopeSize(int size)
     {
-        return _session.WinRS.WSMan;
+        // Updates options as well so that new sessions use the new value
+        _session.Client.MaxEnvelopeSize = size;
+        _options.MaxEnvelopeSize = size;
     }
+
+    private WSManSession CreateSession(WSManSessionOption option)
+    {
+        bool encrypt = !(option.ConnectionUri.Scheme == Uri.UriSchemeHttps || option.NoEncryption);
+
+        // Until net7 is the minimum we need to rewrite the URI so that the scheme is always http. This allows the
+        // connection handler to wrap it's own TLS stream used to get the channel binding token information for
+        // authentication. When setting net7 as the minimum this can be removed as it adds an instance check for
+        // SslStream and doesn't try and wrap it again.
+        // https://github.com/dotnet/runtime/pull/63851
+        UriBuilder uriBuilder = new(option.ConnectionUri);
+        uriBuilder.Scheme = "http";
+
+        TimeSpan? connectTimeout = null;
+        if (option.OpenTimeout != 0)
+        {
+            connectTimeout = new(((long)option.OpenTimeout) * TimeSpan.TicksPerMillisecond);
+        }
+
+        WSManConnection connection = new(uriBuilder.Uri, option.Credential, option.NegotiateOptions ?? new(),
+            option.TlsOptions, encrypt, connectTimeout);
+        WSManClient client = new(option.ConnectionUri, option.MaxEnvelopeSize, option.OperationTimeout, option.Locale,
+            dataLocale: option.DataLocale);
+
+        return new(connection, client);
+    }
+
+    private static WSManCredential GenerateWSManCredential(AuthenticationMethod authMethod,
+        AuthenticationProvider authProvider, string? userName, string? password,
+        SslClientAuthenticationOptions? tlsOptions, SslClientAuthenticationOptions? credSSPTlsOptions,
+        AuthenticationMethod credSSPAuthMethod)
+    {
+        if (authMethod == AuthenticationMethod.Default)
+        {
+            if ((tlsOptions?.ClientCertificates?.Count ?? 0) > 0)
+            {
+                return new CertificateCredential();
+            }
+
+            authMethod = AuthenticationMethod.Negotiate;
+        }
+
+        if (authMethod == AuthenticationMethod.Basic)
+        {
+            return new BasicCredential(userName, password);
+        }
+
+        if (authMethod == AuthenticationMethod.CredSSP)
+        {
+            if (userName is null || password is null)
+            {
+                throw new ArgumentException("Username and password must be set for CredSSP authentication");
+            }
+
+            WSManCredential negoCredential = GetNegotiateCredential(credSSPAuthMethod, authProvider, userName,
+                password);
+
+            string domainName = "";
+            string username = userName;
+            if (username.Contains('\\'))
+            {
+                string[] stringSplit = username.Split('\\', 2);
+                domainName = stringSplit[0];
+                username = stringSplit[1];
+            }
+            TSPasswordCreds credSSPCreds = new(domainName, username, password);
+            return new CredSSPCredential(credSSPCreds, negoCredential, credSSPTlsOptions);
+        }
+        else
+        {
+            return GetNegotiateCredential(authMethod, authProvider, userName, password);
+        }
+    }
+
+    private static WSManCredential GetNegotiateCredential(AuthenticationMethod method, AuthenticationProvider provider,
+        string? userName, string? password)
+    {
+        NegotiateMethod negoMethod = method switch
+        {
+            AuthenticationMethod.NTLM => NegotiateMethod.NTLM,
+            AuthenticationMethod.Kerberos => NegotiateMethod.Kerberos,
+            _ => NegotiateMethod.Negotiate,
+        };
+
+        bool isDefault = false;
+        if (provider == AuthenticationProvider.Default)
+        {
+            isDefault = true;
+            provider = GlobalState.DefaultProvider;
+        }
+
+        if (provider == AuthenticationProvider.System)
+        {
+            if (GlobalState.Gssapi != null)
+            {
+                return new GssapiCredential(GlobalState.Gssapi, userName, password, negoMethod);
+            }
+            else if (GlobalState.WinSspi != null)
+            {
+                return new SspiCredential(GlobalState.WinSspi, userName, password, negoMethod);
+            }
+            else if (!isDefault)
+            {
+                string msg = "Failed to find System SSPI/GSSAPI library, can only use Default or Devolutions for Negotiate auth.";
+                throw new ArgumentException(msg);
+            }
+        }
+
+        return new SspiCredential(GlobalState.DevolutionsSspi, userName, password, negoMethod);
+    }
+
+    public void Dispose()
+    {
+        _session?.Dispose();
+        GC.SuppressFinalize(this);
+    }
+    ~WSManPSRPShim() { Dispose(); }
 }
 
 internal static class WSManCompatState

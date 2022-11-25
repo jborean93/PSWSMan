@@ -245,7 +245,7 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('default')
         $sessionParams.SessionOption = New-PSWSManSessionOption -AuthMethod Basic
 
-        { New-PSSession @sessionParams } | Should -Throw '*Cannot perform encryption for BasicAuthProvider*'
+        { New-PSSession @sessionParams } | Should -Throw '*Cannot encrypt WSMan payload as BasicAuthContext does not support message encryption*'
     }
 
     It "Connects over HTTP with Basic" -Skip:(-not $PSWSManSettings.GetScenarioServer('local_auth')) {
@@ -319,7 +319,7 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
             'CredSSP authentication failure during the stage TlsHandshake'
         }
         else {
-            'CredSSP server did not response to token during the stage TlsHandshake'
+            'WinRM authentication failure - server did not response to token during the stage TlsHandshake'
         }
         [string]$err[0] | Should -BeLike "*$expected*"
     }

@@ -581,8 +581,7 @@ internal class WSManClient
             new XElement(WSManNamespace.s + "Body", body)
         );
 
-        // FIXME: Do not pretty serialize
-        return envelope.ToString();
+        return envelope.ToString(SaveOptions.DisableFormatting);
     }
 
     private XElement CreateHeader(WSManAction action, string resourceUri, out Guid messageId,

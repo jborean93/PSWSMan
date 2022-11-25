@@ -22,6 +22,8 @@ There are 6 different types of authentication methods supported by WSMan:
 + `CredSSP` - Negotiate authentication with the ability to delegate credentials
 
 The `Negotiate` authentication package is an authentication method that will attempt to use `Kerberos` before falling back to `NTLM` if that is unavailable.
+It is also the default method used when no method is specified.
+
 Here is a simple matrix of each options and some of the features they support:
 
 |Method|Local Account|Domain Account|Implicit Credential|HTTP Encryption|Delegation|
@@ -280,7 +282,8 @@ There are two main ways an authentication method is set:
 
 The `-Authentication` parameter is limited to just `Basic`, `Kerberos`, `Negotiate`, or `CredSSP` while the `-AuthMethod` parameter also includes `NTLM` as an option.
 The `-AuthMethod` parameter takes priority over `-Authentication` if both are set.
-The default authentication method chosen in `Negotiate` which typically offers the best out of box experience but may require further system packages to be installed.
+The default authentication method chosen in `Negotiate` which typically offers the best out of box experience.
+It favours the system SSPI/GSSAPI library but on Linux it may fallback to the Devolutions provider if GSSAPI is not installed.
 
 # CREDENTIAL DELEGATION
 A common problem that is encountered with remote PSSessions is the lack of credential delegation on the default authentication methods.
@@ -329,7 +332,7 @@ The `sspi-rs` library is a cross platform implementation of the SSPI API that is
 This means it can use both NTLM and Kerberos authentication without relying on either SSPI or GSSAPI to be installed and configured.
 It also means that any behaviour on one platform is the same on any other.
 
-By default Devolutions SSPI is not used but it can be set as the default authentication provider process wide or on a specific session.
+By default Devolutions SSPI is only used if the builtin GSSAPI library is not installed on Linux but it can be set as the default authentication provider process wide or on a specific session.
 The code `Set-PSWSManAuthProvider -AuthProvider Devolutions` can be used to default the process wide default to use Devolutions SSPI.
 Otherwise `New-PSWSManSessionOption -AuthProvider Devolutions` can be used on a specific session setup to use Devolutions for that connection.
 The `New-PSWSManSessionOption -AuthProvider ...` takes precendence over the global process wide setting.
