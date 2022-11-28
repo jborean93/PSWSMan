@@ -207,6 +207,9 @@ internal static class Pwsh_WSManClientSessionTransportManagerDispose
         {
             if (____wsManSessionHandle != IntPtr.Zero)
             {
+                WSManPSRPShim session = WSManCompatState.SessionInfo[____wsManSessionHandle];
+                session.Dispose();
+
                 WSManCompatState.SessionInfo.Remove(____wsManSessionHandle);
                 ____wsManSessionHandle = IntPtr.Zero;
             }
@@ -300,14 +303,13 @@ internal static class Pwsh_WSManClientSessionTransportManagerAdjustForProtocolVa
             }
 
             WSManPSRPShim session = WSManCompatState.SessionInfo[____wsManSessionHandle];
-            WSManClient wsman = session.GetWSManClient();
-            if (serverProtocolVersion > new Version("2.1") && wsman.MaxEnvelopeSize == WSManSessionOption.DefaultMaxEnvelopeSize)
+            if (serverProtocolVersion > new Version("2.1") && session.GetMaxEnvelopeSize() == WSManSessionOption.DefaultMaxEnvelopeSize)
             {
                 ___tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.AdjustForProtocolVariations - Updating max fragmenent size to 500KiB for {0}",
                     session.RunspacePoolId);
 
                 int newEnvelopeSize = 500 << 10;
-                wsman.MaxEnvelopeSize = newEnvelopeSize;
+                session.SetMaxEnvelopeSize(newEnvelopeSize);
 
                 // The fragmenter size needs to fit a base64 encoded value of those bytes into the WSMan envelope. Use
                 // 2048 as a high level envelope size and (_ / 4) * 3 to get the max length that can fit in a base64

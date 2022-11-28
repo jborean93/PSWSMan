@@ -17,18 +17,6 @@ internal class WinRSClient
         _wsman = wsman;
     }
 
-    public T ReceiveData<T>(string data) where T : WSManPayload
-    {
-        T resp = WSManClient.ParseWSManPayload<T>(data);
-        if (resp is WSManCreateResponse createResp)
-        {
-            _resourceUri = createResp.ResourceUri;
-            _selectors = createResp.Selectors;
-        }
-
-        return resp;
-    }
-
     public string Command(string executable, IList<string>? arguments = null, bool noShell = false,
         Guid? commandId = null)
     {
@@ -75,6 +63,12 @@ internal class WinRSClient
         }
 
         return _wsman.Create(resourceUri, shell, options: options);
+    }
+
+    public void ProcessCreateResponse(WSManCreateResponse response)
+    {
+        _resourceUri = response.ResourceUri;
+        _selectors = response.Selectors;
     }
 
     public string Delete()

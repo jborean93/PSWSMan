@@ -1,7 +1,9 @@
+using PSWSMan.Authentication;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -19,57 +21,59 @@ namespace PSWSMan;
 
 internal class WSManInitialRequest : HttpRequestMessage
 {
-    internal HttpAuthProvider Authentication { get; }
-    internal SslClientAuthenticationOptions? SslOptions { get; set; }
+    internal WSManConnection Connection { get; }
 
-    public WSManInitialRequest(HttpMethod method, Uri uri, HttpAuthProvider authProvider,
-        SslClientAuthenticationOptions? sslOptions)
+    public WSManInitialRequest(HttpMethod method, Uri uri, WSManConnection connection)
         : base(method, uri)
     {
-        Authentication = authProvider;
-        SslOptions = sslOptions;
+        Connection = connection;
     }
 }
 
 /// <summary>Raw WSMan HTTP connection class.</summary>
-internal class WSManConnection : IDisposable
+public class WSManConnection : IDisposable
 {
     private const string CONTENT_TYPE = "application/soap+xml";
 
-    private readonly HttpAuthProvider _authProvider;
     private readonly Uri _connectionUri;
-    private readonly SslClientAuthenticationOptions? _sslOptions;
-    private readonly IWinRMEncryptor? _encryptor;
+    private readonly IWSManEncryptionContext? _encryptor;
+    private readonly NegotiateOptions _negoOptions;
     private readonly TimeSpan _connectTimeout;
 
     private HttpClient? _http;
 
+    internal AuthenticationContext AuthContext { get; }
+
+    internal SslClientAuthenticationOptions? SslOptions { get; }
+
+    internal ChannelBindings? ChannelBindings { get; set; }
+
     /// <summary>Create connection for WSMan payloads</summary>
     /// <param name="connectionUri">The connection URI.</param>
-    /// <param name="authProvider">The authentication provider used for the connection.</param>
+    /// <param name="credential">The authentication credential used to authenticate the connection.</param>
+    /// <param name="negoOptions">Extra options to provide for negotiate authentication contexts.</param>
     /// <param name="sslOptions">Set the TLS connection options for a HTTPS connection.</param>
     /// <param name="encrypt">Whether to use WinRM message encryption or not.</param>
     /// <param name="connectTimeout">The timeout for connecting to the host, null is InfiniteTimeSpan</param>
-    /// Encrypt the payloads using the authentication provider. If true the authProvider must implement
-    /// IWinRMEncryptor.
     /// </param>
-    public WSManConnection(Uri connectionUri, HttpAuthProvider authProvider,
+    public WSManConnection(Uri connectionUri, WSManCredential credential, NegotiateOptions negoOptions,
         SslClientAuthenticationOptions? sslOptions, bool encrypt, TimeSpan? connectTimeout)
     {
         _connectionUri = connectionUri;
-        _authProvider = authProvider;
-        _sslOptions = sslOptions;
         _connectTimeout = connectTimeout ?? Timeout.InfiniteTimeSpan;
+        _negoOptions = negoOptions;
+        AuthContext = credential.CreateAuthContext();
+        SslOptions = sslOptions;
 
         if (encrypt)
         {
-            if (authProvider is not IWinRMEncryptor)
+            if (AuthContext is not IWSManEncryptionContext)
             {
-                string provClass = authProvider.GetType().Name;
+                string provClass = AuthContext.GetType().Name;
                 throw new ArgumentException(
                     $"Cannot encrypt WSMan payload as {provClass} does not support message encryption.");
             }
-            _encryptor = (IWinRMEncryptor)authProvider;
+            _encryptor = (IWSManEncryptionContext)AuthContext;
         }
     }
 
@@ -105,11 +109,7 @@ internal class WSManConnection : IDisposable
             content ??= PrepareContent(message);
             request = new(HttpMethod.Post, _connectionUri);
             request.Content = content;
-
-            if (_authProvider.AlwaysAddHeaders)
-            {
-                _authProvider.AddAuthenticationHeaders(request, null);
-            }
+            AddAuthenticationHeaders(request, null);
 
             response = await _http.SendAsync(request, cancelToken).ConfigureAwait(false);
         }
@@ -126,6 +126,73 @@ internal class WSManConnection : IDisposable
         return responseContent;
     }
 
+    internal bool AddAuthenticationHeaders(HttpRequestMessage request, HttpResponseMessage? response)
+    {
+        if (AuthContext.Complete)
+        {
+            return false;
+        }
+
+        AuthenticationHeaderValue[]? respAuthHeader = response?.Headers.WwwAuthenticate.ToArray();
+        byte[]? inputToken = null;
+        if (respAuthHeader?.Length == 1 && respAuthHeader[0].Scheme == AuthContext.HttpAuthLabel)
+        {
+            inputToken = Convert.FromBase64String(respAuthHeader[0].Parameter ?? "");
+        }
+        else if (response is not null)
+        {
+            if (!string.IsNullOrWhiteSpace(AuthContext.AuthenticationStage) && response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                string msg = $"WinRM authentication failure - server did not response to token during the stage {AuthContext.AuthenticationStage}";
+                throw new AuthenticationException(msg);
+            }
+            else
+            {
+                // Pass back and let the connection code to handle it.
+                return false;
+            }
+        }
+
+        byte[]? outputToken;
+        try
+        {
+            outputToken = AuthContext.Step(inputToken, _negoOptions, ChannelBindings);
+        }
+        catch (AuthenticationException)
+        {
+            throw;
+        }
+        catch (Exception e)
+        {
+            string stageMsg = "";
+            if (!string.IsNullOrWhiteSpace(AuthContext.AuthenticationStage))
+            {
+                stageMsg = $" during the stage {AuthContext.AuthenticationStage}";
+            }
+            throw new AuthenticationException($"Unknown WinRM authentication failure{stageMsg}: {e.Message}", e);
+        }
+
+        if (outputToken == null)
+        {
+            return false;
+        }
+
+        string authValue;
+        if (outputToken.Length == 0)
+        {
+            authValue = AuthContext.HttpAuthLabel;
+        }
+        else
+        {
+            authValue = $"{AuthContext.HttpAuthLabel} {Convert.ToBase64String(outputToken)}";
+        }
+
+        // Some auth providers don't follow the RFC format 'Protocol Token' so TryAddWithoutValidation is used instead
+        request.Headers.TryAddWithoutValidation("Authorization", authValue);
+
+        return true;
+    }
+
     private async Task<HttpResponseMessage> Authenticate(HttpClient http, HttpContent content,
         CancellationToken cancelToken)
     {
@@ -136,8 +203,7 @@ internal class WSManConnection : IDisposable
         HttpRequestMessage request = new WSManInitialRequest(
             HttpMethod.Post,
             _connectionUri,
-            _authProvider,
-            _sslOptions);
+            this);
         request.Content = content;
 
         HttpResponseMessage response;
@@ -152,11 +218,11 @@ internal class WSManConnection : IDisposable
             throw e.GetBaseException();
         }
 
-        while (!_authProvider.Complete)
+        while (!AuthContext.Complete)
         {
             request = new HttpRequestMessage(HttpMethod.Post, _connectionUri);
             request.Content = content;
-            if (!_authProvider.AddAuthenticationHeaders(request, response))
+            if (!AddAuthenticationHeaders(request, response))
             {
                 // No more rounds needed to authenticate with the remote host.
                 break;
@@ -171,7 +237,7 @@ internal class WSManConnection : IDisposable
     {
         if (_encryptor is not null)
         {
-            if (_authProvider.Complete)
+            if (AuthContext.Complete)
             {
                 return PrepareEncryptedContent(message, _encryptor);
             }
@@ -187,7 +253,7 @@ internal class WSManConnection : IDisposable
         }
     }
 
-    private HttpContent PrepareEncryptedContent(string message, IWinRMEncryptor encryptor)
+    private HttpContent PrepareEncryptedContent(string message, IWSManEncryptionContext encryptor)
     {
         const string boundary = "Encrypted Boundary";
 
@@ -254,7 +320,7 @@ internal class WSManConnection : IDisposable
         return DecryptMimePayload(encData.AsSpan(), _encryptor);
     }
 
-    private string DecryptMimePayload(Span<byte> payload, IWinRMEncryptor encryptor)
+    private string DecryptMimePayload(Span<byte> payload, IWSManEncryptionContext encryptor)
     {
         // While the boundary text should be derived from the HTTP headers to form '--{boundary}\r\n' some endpoints,
         // like Exchange Servers, put a space after the hyphens to become '-- {boundary}\r\n'. Instead of this just
@@ -285,10 +351,16 @@ internal class WSManConnection : IDisposable
             nextIdx = payload.IndexOf(newLine);
             payload = payload[(nextIdx + 2)..];
             nextIdx = payload.IndexOf(boundaryBytes);
-            Span<byte> encryptedData = payload[..nextIdx];
+
+            Span<byte> encryptedBlock = payload[..nextIdx];
+            int headerLength = BitConverter.ToInt32(encryptedBlock[..4]);
+            encryptedBlock = encryptedBlock[4..];
+            Span<byte> header = encryptedBlock.Slice(0, headerLength);
+            Span<byte> encData = encryptedBlock[headerLength..];
+
             payload = payload[(nextIdx + boundaryBytes.Length + 2)..];
 
-            Span<byte> decData = encryptor.Decrypt(encryptedData);
+            Span<byte> decData = encryptor.UnwrapWinRM(encryptedBlock, header, encData);
             if (decData.Length != expectedLength)
             {
                 throw new ArgumentException("Mismatched WSMan encryption payload length");
@@ -299,10 +371,10 @@ internal class WSManConnection : IDisposable
         return response.ToString();
     }
 
-    private (byte[], int) EncryptWSManChunk(string boundary, IWinRMEncryptor encryptor, Span<byte> chunk,
+    private (byte[], int) EncryptWSManChunk(string boundary, IWSManEncryptionContext encryptor, Span<byte> chunk,
         ArrayPool<byte> arrayPool)
     {
-        byte[] encData = encryptor.Encrypt(chunk, out var paddingLength);
+        byte[] encBytes = encryptor.WrapWinRM(chunk, out var headerLength, out var paddingLength);
 
         StringBuilder mpHeader = new();
         mpHeader.AppendFormat("--{0}\r\n", boundary);
@@ -314,21 +386,24 @@ internal class WSManConnection : IDisposable
         byte[] multipartHeader = Encoding.UTF8.GetBytes(mpHeader.ToString());
         byte[] multipartFooter = Encoding.UTF8.GetBytes($"--{boundary}--\r\n");
 
-        int encryptedLength = multipartHeader.Length + encData.Length + multipartFooter.Length;
-        byte[] buffer = arrayPool.Rent(encryptedLength);
+        int bufferLength = multipartHeader.Length + 4 + encBytes.Length + multipartFooter.Length;
+        byte[] buffer = arrayPool.Rent(bufferLength);
         try
         {
-            int offset = 0;
+            Span<byte> bufferSpan = buffer.AsSpan();
 
-            Buffer.BlockCopy(multipartHeader, 0, buffer, 0, multipartHeader.Length);
-            offset += multipartHeader.Length;
+            multipartHeader.CopyTo(bufferSpan);
+            bufferSpan = bufferSpan[multipartHeader.Length..];
 
-            Buffer.BlockCopy(encData, 0, buffer, offset, encData.Length);
-            offset += encData.Length;
+            BitConverter.TryWriteBytes(bufferSpan, headerLength);
+            bufferSpan = bufferSpan[4..];
 
-            Buffer.BlockCopy(multipartFooter, 0, buffer, offset, multipartFooter.Length);
+            encBytes.CopyTo(bufferSpan);
+            bufferSpan = bufferSpan[encBytes.Length..];
 
-            return (buffer, encryptedLength);
+            multipartFooter.CopyTo(bufferSpan);
+
+            return (buffer, bufferLength);
         }
         catch
         {
@@ -336,14 +411,6 @@ internal class WSManConnection : IDisposable
             throw;
         }
     }
-
-    public void Dispose()
-    {
-        _http?.Dispose();
-        _authProvider?.Dispose();
-        GC.SuppressFinalize(this);
-    }
-    ~WSManConnection() { Dispose(); }
 
     private static HttpClient GetWSManHttpClient(TimeSpan connectTimeout)
     {
@@ -383,21 +450,22 @@ internal class WSManConnection : IDisposable
         Stream stream = new NetworkStream(socket, ownsSocket: true);
         if (request is WSManInitialRequest wsmanRequest)
         {
-            HttpAuthProvider authProvider = wsmanRequest.Authentication;
-            if (wsmanRequest.SslOptions is not null)
+            WSManConnection connection = wsmanRequest.Connection;
+
+            if (connection.SslOptions is not null)
             {
                 SslStream sslStream = new(stream);
                 stream = sslStream;
 
                 TlsSessionResumeSetting.ResetTlsResumeDelegate? resetTlsResumeSetting = null;
-                if ((wsmanRequest.SslOptions.ClientCertificates?.Count ?? 0) > 0)
+                if ((connection.SslOptions.ClientCertificates?.Count ?? 0) > 0)
                 {
                     // We only need to disable TLS Resume when dealing with client certificates.
                     resetTlsResumeSetting = TlsSessionResumeSetting.DisableTlsSessionResume(sslStream);
                 }
                 try
                 {
-                    await sslStream.AuthenticateAsClientAsync(wsmanRequest.SslOptions, cancelToken).ConfigureAwait(false);
+                    await sslStream.AuthenticateAsClientAsync(connection.SslOptions, cancelToken).ConfigureAwait(false);
                 }
                 catch
                 {
@@ -409,11 +477,11 @@ internal class WSManConnection : IDisposable
                     resetTlsResumeSetting?.Invoke();
                 }
 
-                authProvider.SetChannelBindings(GetTlsChannelBindings(sslStream));
+                connection.ChannelBindings = GetTlsChannelBindings(sslStream);
             }
 
             // Add the initial authentication headers now that the TLS bindings have been set.
-            authProvider.AddAuthenticationHeaders(wsmanRequest, null);
+            connection.AddAuthenticationHeaders(wsmanRequest, null);
         }
 
         return stream;
@@ -469,4 +537,13 @@ internal class WSManConnection : IDisposable
             ApplicationData = finalCB,
         };
     }
+
+    public void Dispose()
+    {
+        _http?.Dispose();
+        AuthContext?.Dispose();
+        GC.SuppressFinalize(this);
+    }
+    ~WSManConnection() { Dispose(); }
 }
+

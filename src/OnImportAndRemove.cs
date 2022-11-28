@@ -1,98 +1,32 @@
-using PSWSMan.Native;
+using PSWSMan.Authentication.Native;
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Management.Automation;
-using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Runtime.Loader;
 
 namespace PSWSMan;
 
-internal sealed class LibraryInfo : IDisposable
+internal static class GlobalState
 {
-    public string Id { get; }
-    public string Path { get; }
-    public IntPtr Handle { get; }
+    /// <summary>The loaded DevolutionsSspi library.</summary>
+    internal static SspiProvider DevolutionsSspi = default!;
 
-    public LibraryInfo(string id, string path)
-    {
-        Id = id;
-        Path = path;
-        Handle = NativeLibrary.Load(path);
-    }
+    /// <summary>The loaded SSPI library on Windows.</summary>
+    internal static SspiProvider? WinSspi = null;
 
-    public void Dispose()
-    {
-        if (Handle != IntPtr.Zero)
-            NativeLibrary.Free(Handle);
-    }
-    ~LibraryInfo() { Dispose(); }
-}
+    /// <summary>The loaded GSSAPI library on Linux.</summary>
+    internal static GssapiProvider? Gssapi = null;
 
-internal sealed class NativeResolver : IDisposable
-{
-    private readonly Dictionary<string, LibraryInfo> NativeHandles = new();
-
-    public NativeResolver()
-    {
-        AssemblyLoadContext.Default.ResolvingUnmanagedDll += ImportResolver;
-    }
-
-    public LibraryInfo? CacheLibrary(string id, string[] paths, bool required = false)
-    {
-        string? envOverride = Environment.GetEnvironmentVariable(id.ToUpperInvariant().Replace(".", "_"));
-        if (!string.IsNullOrWhiteSpace(envOverride))
-            paths = new[] { envOverride };
-
-        foreach (string libPath in paths)
-        {
-            try
-            {
-                NativeHandles[id] = new LibraryInfo(id, libPath);
-                return NativeHandles[id];
-            }
-            catch (DllNotFoundException) { }
-        }
-
-        if (required)
-        {
-            string searchPaths = string.Join("', '", paths);
-            throw new DllNotFoundException($"Failed to find required lib {id}, searched paths: '{searchPaths}'");
-        }
-
-        return null;
-    }
-
-    private IntPtr ImportResolver(Assembly assembly, string libraryName)
-    {
-        if (NativeHandles.ContainsKey(libraryName))
-            return NativeHandles[libraryName].Handle;
-
-        return IntPtr.Zero;
-    }
-
-    public void Dispose()
-    {
-        foreach (KeyValuePair<string, LibraryInfo> native in NativeHandles)
-            native.Value.Dispose();
-
-        AssemblyLoadContext.Default.ResolvingUnmanagedDll -= ImportResolver;
-        GC.SuppressFinalize(this);
-    }
-    ~NativeResolver() { Dispose(); }
+    /// <summary>The default authentication provider set for the process.</summary>
+    internal static AuthenticationProvider DefaultProvider = AuthenticationProvider.System;
 }
 
 public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemblyCleanup
 {
     internal const string MACOS_GSS_FRAMEWORK = "/System/Library/Frameworks/GSS.framework/GSS";
 
-    internal NativeResolver? Resolver;
-
     public void OnImport()
     {
-        Resolver = new NativeResolver();
-
         string osName;
         string libExt;
         string libPrefix = "";
@@ -100,8 +34,8 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
         {
             osName = "win";
             libExt = "dll";
-            GlobalState.SspiLib = Resolver.CacheLibrary("Windows.Sspi", new[] { "Secur32.dll" });
-            GlobalState.GssapiProvider = GssapiProvider.SSPI;
+
+            GlobalState.WinSspi = new(LoadLibrary("PSWSMan.SSPI", new[] { "Secur32.dll" }, required: true));
         }
         else
         {
@@ -118,29 +52,25 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
                 libExt = "so";
             }
 
-            GlobalState.GssapiLib = Resolver.CacheLibrary(GSSAPI.LIB_GSSAPI, new[] {
-                MACOS_GSS_FRAMEWORK, // macOS GSS Framework (technically Heimdal)
-                "libgssapi_krb5.so.2", // MIT krb5
-                "libgssapi.so.3", "libgssapi.so", // Heimdal
+            IntPtr gssapiLib = LoadLibrary("PSWSMan.GSSAPI", new[]
+            {
+                MACOS_GSS_FRAMEWORK
             });
-
-            if (GlobalState.GssapiLib is null)
+            if (gssapiLib != IntPtr.Zero)
             {
-                GlobalState.GssapiProvider = GssapiProvider.None;
-            }
-            else if (GlobalState.GssapiLib.Path == MACOS_GSS_FRAMEWORK)
-            {
-                GlobalState.GssapiProvider = GssapiProvider.GSSFramework;
-            }
-            else if (NativeLibrary.TryGetExport(GlobalState.GssapiLib.Handle, "krb5_xfree", out var _))
-            {
-                // While technically exported by the krb5 lib the Heimdal GSSAPI lib depends on it so the same
-                // symbol will be exported there and we can use that to detect if Heimdal is in use.
-                GlobalState.GssapiProvider = GssapiProvider.Heimdal;
+                GlobalState.Gssapi = new GSSFrameworkProvider(gssapiLib);
             }
             else
             {
-                GlobalState.GssapiProvider = GssapiProvider.MIT;
+                gssapiLib = LoadLibrary("PSWSMan.GSSAPI", new[]
+                {
+                    "libgssapi_krb5.so.2", // MIT krb5
+                    "libgssapi.so.3", "libgssapi.so", // Heimdal
+                });
+                if (gssapiLib != IntPtr.Zero)
+                {
+                    GlobalState.Gssapi = new(gssapiLib);
+                }
             }
         }
 
@@ -150,11 +80,38 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
             $"{osName}-{RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant()}",
             "native",
             $"{libPrefix}DevolutionsSspi.{libExt}");
-        GlobalState.DevolutionsLib = Resolver.CacheLibrary("Devolutions.Sspi", new[] { devolutionsPaths });
+        GlobalState.DevolutionsSspi = new(LoadLibrary("PSWSMan.Devolutions", new[] { devolutionsPaths },
+            required: true));
     }
 
     public void OnRemove(PSModuleInfo module)
     {
-        Resolver?.Dispose();
+        GlobalState.DevolutionsSspi?.Dispose();
+        GlobalState.WinSspi?.Dispose();
+        GlobalState.Gssapi?.Dispose();
+    }
+
+    private IntPtr LoadLibrary(string id, string[] paths, bool required = false)
+    {
+        string? envOverride = Environment.GetEnvironmentVariable(id.ToUpperInvariant().Replace(".", "_"));
+        if (!string.IsNullOrWhiteSpace(envOverride))
+            paths = new[] { envOverride };
+
+
+        foreach (string libPath in paths)
+        {
+            if (NativeLibrary.TryLoad(libPath, out var lib))
+            {
+                return lib;
+            }
+        }
+
+        if (required)
+        {
+            string searchPaths = string.Join("', '", paths);
+            throw new DllNotFoundException($"Failed to find required lib {id}, searched paths: '{searchPaths}'");
+        }
+
+        return IntPtr.Zero;
     }
 }

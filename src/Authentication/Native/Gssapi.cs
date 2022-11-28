@@ -1,11 +1,10 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.Authentication;
 using System.Text;
 
-namespace PSWSMan.Native;
+namespace PSWSMan.Authentication.Native;
 
 internal static partial class Helpers
 {
@@ -90,7 +89,7 @@ internal class GssapiCredential
     /// <summary>The GSSAPI mechanisms that the credential supports.</summary>
     public List<byte[]> Mechanisms { get; }
 
-    public GssapiCredential(SafeGssapiCred creds, UInt32 ttl, SafeHandle mechanisms)
+    public GssapiCredential(GssapiProvider provider, SafeGssapiCred creds, UInt32 ttl, SafeHandle mechanisms)
     {
         Creds = creds;
         TimeToLive = ttl;
@@ -102,7 +101,7 @@ internal class GssapiCredential
                 Helpers.gss_OID_set_desc* set = (Helpers.gss_OID_set_desc*)mechanisms.DangerousGetHandle();
                 Mechanisms = new List<byte[]>((int)set->count);
 
-                if (GSSAPI.IsIntelMacOS())
+                if (provider.IsStructPackTwo)
                 {
                     Span<Helpers.gss_OID_desc_macos> oids = new(set->elements.ToPointer(), (int)set->count);
                     foreach (Helpers.gss_OID_desc_macos memers in oids)
@@ -135,7 +134,7 @@ internal class GssapiSecContext
     public byte[] MechType { get; }
 
     /// <summary>The return buffer from the GSSAPI call.</summary>
-    public byte[] OutputToken { get; }
+    public byte[]? OutputToken { get; }
 
     /// <summary>The attributes used to describe the functionality available on the context.</summary>
     public GssapiContextFlags Flags { get; }
@@ -146,7 +145,7 @@ internal class GssapiSecContext
     /// <summary>Whether more data is neded from the acceptor to complete the context.</summary>
     public bool MoreNeeded { get; }
 
-    public GssapiSecContext(SafeGssapiSecContext context, byte[] mechType, byte[] outputToken,
+    public GssapiSecContext(SafeGssapiSecContext context, byte[] mechType, byte[]? outputToken,
         GssapiContextFlags flags, int ttl, bool moreNeeded)
     {
         Context = context;
@@ -162,94 +161,88 @@ internal class GssapiSecContext
 /// <remarks>This should be disposed when the results are no longer needed to cleanup unmanaged memory.</remarks>
 internal class IOVResult : IDisposable
 {
+    private readonly GssapiProvider _provider;
     private readonly SafeHandle _raw;
 
     /// <summary>The confidentiality state of the IOV wrapping operation.</summary>
     public int ConfState { get; }
 
-    public IOVResult(SafeHandle raw, int confState)
+    public IOVResult(GssapiProvider provider, SafeHandle raw, int confState)
     {
+        _provider = provider;
         _raw = raw;
         ConfState = confState;
     }
 
     public void Dispose()
     {
-        GSSAPI.gss_release_iov_buffer.Value(out var _, _raw, 0);
+        _provider.gss_release_iov_buffer(out var _, _raw, 0);
         _raw?.Dispose();
         GC.SuppressFinalize(this);
     }
     ~IOVResult() => Dispose();
 }
 
-internal static class GSSAPI
+/// <summary>Provides extern entrypoints for GSSAPI functions</summary>
+internal class GssapiProvider : IDisposable
 {
-    public const string LIB_GSSAPI = "PSWSMan.libgssapi";
+    private bool? _isHeimdal = null;
+    private IntPtr _module;
+    private Dictionary<string, IntPtr> _moduleExports = new();
 
-    // Name Types
-    public static byte[] GSS_C_NT_HOSTBASED_SERVICE = new byte[] {
-        0x2A, 0x86, 0x48, 0x86, 0xF7, 0x12, 0x01, 0x02, 0x01, 0x04
-    }; // 1.2.840.113554.1.2.1.4
+    public GssapiProvider(IntPtr module) => _module = module;
 
-    public static byte[] GSS_C_NT_USER_NAME = new byte[] {
-        0x2A, 0x86, 0x48, 0x86, 0xF7, 0x12, 0x01, 0x02, 0x01, 0x01
-    }; // 1.2.840.113554.1.2.1.1
+    public unsafe delegate int gss_add_oid_set_member_func(
+            out int min_stat,
+            SafeHandle member,
+            ref Helpers.gss_OID_set_desc* target_set);
 
-    // Mechanism OIDs
-    public static byte[] KERBEROS = new byte[] {
-        0x2A, 0x86, 0x48, 0x86, 0xF7, 0x12, 0x01, 0x02, 0x02
-    }; // 1.2.840.113554.1.2.2
+    public gss_add_oid_set_member_func gss_add_oid_set_member
+        => GetDelegateForFunctionPtr<gss_add_oid_set_member_func>(nameof(gss_add_oid_set_member));
 
-    public static byte[] NTLM = new byte[] {
-        0x2B, 0x06, 0x01, 0x04, 0x01, 0x82, 0x37, 0x02, 0x02, 0x0A
-    }; // 1.3.6.1.4.1.311.2.2.10
-
-    public static byte[] SPNEGO = new byte[] {
-        0x2B, 0x06, 0x01, 0x05, 0x05, 0x02
-    }; // 1.3.6.1.5.5.2
-
-    [DllImport(LIB_GSSAPI)]
-    public static unsafe extern int gss_add_oid_set_member(
-        out int min_stat,
-        SafeHandle member,
-        ref Helpers.gss_OID_set_desc* target_set);
-
-    [DllImport(LIB_GSSAPI)]
-    public static unsafe extern int gss_acquire_cred(
+    public unsafe delegate int gss_acquire_cred_func(
         out int min_stat,
         SafeHandle desired_name,
         UInt32 ttl,
         Helpers.gss_OID_set_desc* mechs,
         GssapiCredUsage cred_usage,
-        out SafeGssapiCred output_creds,
-        out SafeGssapiOidSet actual_mechs,
+        out IntPtr output_creds,
+        out IntPtr actual_mechs,
         out UInt32 actual_ttl);
 
-    [DllImport(LIB_GSSAPI)]
-    public static unsafe extern int gss_acquire_cred_with_password(
+    public gss_acquire_cred_func gss_acquire_cred
+        => GetDelegateForFunctionPtr<gss_acquire_cred_func>(nameof(gss_acquire_cred));
+
+    public unsafe delegate int gss_acquire_cred_with_password_func(
         out int min_stat,
         SafeHandle desired_name,
         ref Helpers.gss_buffer_desc password,
         UInt32 ttl,
         Helpers.gss_OID_set_desc* desired_mechs,
         GssapiCredUsage cred_usage,
-        out SafeGssapiCred output_creds,
-        out SafeGssapiOidSet actual_mechs,
+        out IntPtr output_creds,
+        out IntPtr actual_mechs,
         out UInt32 actual_ttl);
 
-    [DllImport(LIB_GSSAPI)]
-    public static unsafe extern int gss_create_empty_oid_set(
+    public gss_acquire_cred_with_password_func gss_acquire_cred_with_password
+        => GetDelegateForFunctionPtr<gss_acquire_cred_with_password_func>(nameof(gss_acquire_cred_with_password));
+
+    public unsafe delegate int gss_create_empty_oid_set_func(
         out int min_stat,
         out Helpers.gss_OID_set_desc* target_set);
 
-    [DllImport(LIB_GSSAPI)]
-    public static extern int gss_delete_sec_context(
+    public gss_create_empty_oid_set_func gss_create_empty_oid_set
+        => GetDelegateForFunctionPtr<gss_create_empty_oid_set_func>(nameof(gss_create_empty_oid_set));
+
+    public delegate int gss_delete_sec_context_func(
         out int min_stat,
         ref IntPtr context,
         IntPtr output_token);
 
-    [DllImport(LIB_GSSAPI)]
-    public static extern int gss_display_status(
+    public gss_delete_sec_context_func gss_delete_sec_context
+        => GetDelegateForFunctionPtr<gss_delete_sec_context_func>(nameof(gss_delete_sec_context));
+
+    public delegate int gss_display_status_func(
         out int min_status,
         int status_value,
         int status_type,
@@ -257,18 +250,22 @@ internal static class GSSAPI
         ref int message_context,
         ref Helpers.gss_buffer_desc status_string);
 
-    [DllImport(LIB_GSSAPI)]
-    public static extern int gss_import_name(
+    public gss_display_status_func gss_display_status
+        => GetDelegateForFunctionPtr<gss_display_status_func>(nameof(gss_display_status));
+
+    public delegate int gss_import_name_func(
         out int min_stat,
         ref Helpers.gss_buffer_desc input_buffer,
         SafeHandle name_type,
-        out SafeGssapiName output_name);
+        out IntPtr output_name);
 
-    [DllImport(LIB_GSSAPI)]
-    public static unsafe extern int gss_init_sec_context(
+    public gss_import_name_func gss_import_name
+        => GetDelegateForFunctionPtr<gss_import_name_func>(nameof(gss_import_name));
+
+    public unsafe delegate int gss_init_sec_context_func(
         out int minor_status,
-        SafeGssapiCred cred_handle,
-        ref SafeGssapiSecContext context_handle,
+        SafeGssapiCred? cred_handle,
+        ref IntPtr context_handle,
         SafeHandle target_name,
         SafeHandle mech_type,
         GssapiContextFlags req_flags,
@@ -280,28 +277,38 @@ internal static class GSSAPI
         out GssapiContextFlags ret_flags,
         out int time_rec);
 
-    [DllImport(LIB_GSSAPI)]
-    public static extern int gss_release_buffer(
+    public gss_init_sec_context_func gss_init_sec_context
+        => GetDelegateForFunctionPtr<gss_init_sec_context_func>(nameof(gss_init_sec_context));
+
+    public delegate int gss_release_buffer_func(
         out int min_stat,
         ref Helpers.gss_buffer_desc buffer);
 
-    [DllImport(LIB_GSSAPI)]
-    public static extern int gss_release_cred(
+    public gss_release_buffer_func gss_release_buffer
+        => GetDelegateForFunctionPtr<gss_release_buffer_func>(nameof(gss_release_buffer));
+
+    public delegate int gss_release_cred_func(
         out int min_stat,
         ref IntPtr creds);
 
-    [DllImport(LIB_GSSAPI)]
-    public static extern int gss_release_name(
+    public gss_release_cred_func gss_release_cred
+        => GetDelegateForFunctionPtr<gss_release_cred_func>(nameof(gss_release_cred));
+
+    public delegate int gss_release_name_func(
         out int min_stat,
         ref IntPtr name);
 
-    [DllImport(LIB_GSSAPI)]
-    public static unsafe extern int gss_release_oid_set(
+    public gss_release_name_func gss_release_name
+        => GetDelegateForFunctionPtr<gss_release_name_func>(nameof(gss_release_name));
+
+    public unsafe delegate int gss_release_oid_set_func(
         out int min_stat,
         ref Helpers.gss_OID_set_desc* target_set);
 
-    [DllImport(LIB_GSSAPI)]
-    public static extern int gss_unwrap(
+    public gss_release_oid_set_func gss_release_oid_set
+        => GetDelegateForFunctionPtr<gss_release_oid_set_func>(nameof(gss_release_oid_set));
+
+    public delegate int gss_unwrap_func(
         out int minor_status,
         SafeGssapiSecContext context_handle,
         ref Helpers.gss_buffer_desc input_message,
@@ -309,8 +316,10 @@ internal static class GSSAPI
         out int conf_state,
         out int qop_state);
 
-    [DllImport(LIB_GSSAPI)]
-    public static extern int gss_wrap(
+    public gss_unwrap_func gss_unwrap
+        => GetDelegateForFunctionPtr<gss_unwrap_func>(nameof(gss_unwrap));
+
+    public delegate int gss_wrap_func(
         out int minor_status,
         SafeGssapiSecContext context_handle,
         int conf_req,
@@ -318,6 +327,9 @@ internal static class GSSAPI
         ref Helpers.gss_buffer_desc input_message,
         out int conf_state,
         ref Helpers.gss_buffer_desc output_message);
+
+    public gss_wrap_func gss_wrap
+        => GetDelegateForFunctionPtr<gss_wrap_func>(nameof(gss_wrap));
 
     public delegate int gss_unwrap_iov_func(
         out int minor_status,
@@ -327,8 +339,8 @@ internal static class GSSAPI
         SafeHandle iov,
         int iov_count);
 
-    public static Lazy<gss_unwrap_iov_func> gss_unwrap_iov => new(()
-        => LoadIOVFunc<gss_unwrap_iov_func>("gss_unwrap_iov"));
+    public virtual gss_unwrap_iov_func gss_unwrap_iov
+        => GetDelegateForFunctionPtr<gss_unwrap_iov_func>(nameof(gss_unwrap_iov));
 
     public delegate int gss_wrap_iov_func(
         out int minor_status,
@@ -339,50 +351,141 @@ internal static class GSSAPI
         SafeHandle iov,
         int iov_count);
 
-    public static Lazy<gss_wrap_iov_func> gss_wrap_iov => new(()
-        => LoadIOVFunc<gss_wrap_iov_func>("gss_wrap_iov"));
+    public virtual gss_wrap_iov_func gss_wrap_iov
+        => GetDelegateForFunctionPtr<gss_wrap_iov_func>(nameof(gss_wrap_iov));
 
     public delegate int gss_release_iov_buffer_func(
         out int minor_status,
         SafeHandle iov,
         int iov_count);
 
-    public static Lazy<gss_release_iov_buffer_func> gss_release_iov_buffer => new(()
-        => LoadIOVFunc<gss_release_iov_buffer_func>("gss_release_iov_buffer"));
+    public virtual gss_release_iov_buffer_func gss_release_iov_buffer
+        => GetDelegateForFunctionPtr<gss_release_iov_buffer_func>(nameof(gss_release_iov_buffer));
+
+    public virtual bool IsStructPackTwo => false;
+
+    public virtual bool IsHeimdal
+    {
+        get
+        {
+            if (_isHeimdal == null)
+            {
+                _isHeimdal = NativeLibrary.TryGetExport(_module, "krb5_xfree", out var _);
+            }
+
+            return (bool)_isHeimdal;
+        }
+    }
+
+    protected T GetDelegateForFunctionPtr<T>(string name)
+    {
+        if (!_moduleExports.TryGetValue(name, out var funcPtr))
+        {
+            funcPtr = NativeLibrary.GetExport(_module, name);
+            _moduleExports[name] = funcPtr;
+        }
+        return Marshal.GetDelegateForFunctionPointer<T>(funcPtr);
+    }
+
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            NativeLibrary.Free(_module);
+            _module = IntPtr.Zero;
+        }
+    }
+    ~GssapiProvider() => Dispose(false);
+}
+
+internal class GSSFrameworkProvider : GssapiProvider
+{
+    public GSSFrameworkProvider(IntPtr module) : base(module)
+    { }
+
+    // These 3 functions are not publicly exported but can still be accessed using these symbols
+    public override gss_unwrap_iov_func gss_unwrap_iov
+            => GetDelegateForFunctionPtr<gss_unwrap_iov_func>($"__ApplePrivate_{nameof(gss_unwrap_iov)}");
+
+    public override gss_wrap_iov_func gss_wrap_iov
+            => GetDelegateForFunctionPtr<gss_wrap_iov_func>($"__ApplePrivate_{nameof(gss_wrap_iov)}");
+
+    public override gss_release_iov_buffer_func gss_release_iov_buffer
+            => GetDelegateForFunctionPtr<gss_release_iov_buffer_func>($"__ApplePrivate_{nameof(gss_release_iov_buffer)}");
+
+    // macOS on x86_64 need to use a specially packed structure when using GSS.Framework.
+    public override bool IsStructPackTwo
+        => RuntimeInformation.ProcessArchitecture == Architecture.X86 ||
+            RuntimeInformation.ProcessArchitecture == Architecture.X64;
+}
+
+internal static class Gssapi
+{
+    // Name Types
+    public static readonly byte[] GSS_C_NT_HOSTBASED_SERVICE = new byte[] {
+        0x2A, 0x86, 0x48, 0x86, 0xF7, 0x12, 0x01, 0x02, 0x01, 0x04
+    }; // 1.2.840.113554.1.2.1.4
+
+    public static readonly byte[] GSS_C_NT_USER_NAME = new byte[] {
+        0x2A, 0x86, 0x48, 0x86, 0xF7, 0x12, 0x01, 0x02, 0x01, 0x01
+    }; // 1.2.840.113554.1.2.1.1
+
+    // Mechanism OIDs
+    public static readonly byte[] KERBEROS = new byte[] {
+        0x2A, 0x86, 0x48, 0x86, 0xF7, 0x12, 0x01, 0x02, 0x02
+    }; // 1.2.840.113554.1.2.2
+
+    public static readonly byte[] NTLM = new byte[] {
+        0x2B, 0x06, 0x01, 0x04, 0x01, 0x82, 0x37, 0x02, 0x02, 0x0A
+    }; // 1.3.6.1.4.1.311.2.2.10
+
+    public static readonly byte[] SPNEGO = new byte[] {
+        0x2B, 0x06, 0x01, 0x05, 0x05, 0x02
+    }; // 1.3.6.1.5.5.2
 
     /// <summary>Acquire GSSAPI credential.</summary>
+    /// <param name="provider">The GSSAPI provider to use.</param>
     /// <param name="name">The principal to get the cred for, if null the default principal is used.</param>
     /// <param name="ttl">The lifetime of the credential retrieved.</param>
     /// <param name="desiredMechs">A list of mechanisms the credential should work for.</param>
     /// <param name="usage">The usage type of the credential.</param>
     /// <returns>A handle to the retrieved GSSAPI credential.</returns>
     /// <exception cref="GSSAPIException">Failed to find the credential.</exception>
-    public static GssapiCredential AcquireCred(SafeGssapiName? name, UInt32 ttl, IList<byte[]>? desiredMechs,
-        GssapiCredUsage usage)
+    public static GssapiCredential AcquireCred(GssapiProvider provider, SafeGssapiName? name, UInt32 ttl,
+        IList<byte[]>? desiredMechs, GssapiCredUsage usage)
     {
         if (name == null)
-            name = new SafeGssapiName();
+            name = new SafeGssapiName(provider, IntPtr.Zero);
 
         unsafe
         {
-            Helpers.gss_OID_set_desc* oidSet = CreateOIDSet(desiredMechs);
+            Helpers.gss_OID_set_desc* oidSet = CreateOIDSet(provider, desiredMechs);
             try
             {
-                int majorStatus = gss_acquire_cred(out var minorStatus, name, ttl, oidSet, usage,
-                    out var outputCreds, out var actualMechs, out var actualTtls);
+                int majorStatus = provider.gss_acquire_cred(out var minorStatus, name, ttl, oidSet, usage,
+                    out var outputCredsPtr, out var actualMechsPtr, out var actualTtls);
                 if (majorStatus != 0)
-                    throw new GSSAPIException(majorStatus, minorStatus, "gss_acquire_cred");
+                    throw new GSSAPIException(provider, majorStatus, minorStatus, "gss_acquire_cred");
 
-                return new GssapiCredential(outputCreds, actualTtls, actualMechs);
+                SafeGssapiCred outputCreds = new(provider, outputCredsPtr);
+                SafeGssapiOidSet actualMechs = new(provider, actualMechsPtr);
+                return new GssapiCredential(provider, outputCreds, actualTtls, actualMechs);
             }
             finally
             {
-                gss_release_oid_set(out var _, ref oidSet);
+                provider.gss_release_oid_set(out var _, ref oidSet);
             }
         }
     }
 
     /// <summary>Get a new GSSAPI credential with the password specified.</summary>
+    /// <param name="provider">The GSSAPI provider to use.</param>
     /// <param name="name">The principal to get the cred for, if null the default principal is used.</param>
     /// <param name="password">The password used to generate the new credential.</param>
     /// <param name="ttl">The lifetime of the credential retrieved.</param>
@@ -390,13 +493,13 @@ internal static class GSSAPI
     /// <param name="usage">The usage type of the credential.</param>
     /// <returns>A handle to the retrieved GSSAPI credential.</returns>
     /// <exception cref="GSSAPIException">Failed to get a new credential with the creds specified.</exception>
-    public static GssapiCredential AcquireCredWithPassword(SafeHandle name, string password, UInt32 ttl,
-        IList<byte[]> desiredMechs, GssapiCredUsage usage)
+    public static GssapiCredential AcquireCredWithPassword(GssapiProvider provider, SafeHandle name, string password,
+        UInt32 ttl, IList<byte[]> desiredMechs, GssapiCredUsage usage)
     {
         byte[] passBytes = Encoding.UTF8.GetBytes(password);
         unsafe
         {
-            Helpers.gss_OID_set_desc* oidSet = CreateOIDSet(desiredMechs);
+            Helpers.gss_OID_set_desc* oidSet = CreateOIDSet(provider, desiredMechs);
             try
             {
                 fixed (byte* passPtr = passBytes)
@@ -407,27 +510,31 @@ internal static class GSSAPI
                         value = (IntPtr)passPtr,
                     };
 
-                    int majorStatus = gss_acquire_cred_with_password(out var minorStatus, name, ref passBuffer,
-                        ttl, oidSet, usage, out var outputCreds, out var actualMechs, out var actualTtls);
+                    int majorStatus = provider.gss_acquire_cred_with_password(out var minorStatus, name,
+                        ref passBuffer, ttl, oidSet, usage, out var outputCredsPtr, out var actualMechsPtr,
+                        out var actualTtls);
                     if (majorStatus != 0)
-                        throw new GSSAPIException(majorStatus, minorStatus, "gss_acquire_cred_with_password");
+                        throw new GSSAPIException(provider, majorStatus, minorStatus, "gss_acquire_cred_with_password");
 
-                    return new GssapiCredential(outputCreds, actualTtls, actualMechs);
+                    SafeGssapiCred outputCreds = new(provider, outputCredsPtr);
+                    SafeGssapiOidSet actualMechs = new(provider, actualMechsPtr);
+                    return new GssapiCredential(provider, outputCreds, actualTtls, actualMechs);
                 }
             }
             finally
             {
-                gss_release_oid_set(out var _, ref oidSet);
+                provider.gss_release_oid_set(out var _, ref oidSet);
             }
         }
     }
 
     /// <summary>Get the GSSAPI error message for the error code.</summary>
+    /// <param name="provider">The GSSAPI provider to use.</param>
     /// <param name="errorCode">The error code to get the status for.</param>
     /// <param name="isMajorCode">The error code is a major error code and not minor.</param>
     /// <param name="mech">Optional mech the error code is associated with.</param>
     /// <returns>The error message for the code specified.</returns>
-    public static string DisplayStatus(int errorCode, bool isMajorCode, byte[]? mech)
+    public static string DisplayStatus(GssapiProvider provider, int errorCode, bool isMajorCode, byte[]? mech)
     {
         Helpers.gss_buffer_desc msgBuffer = new();
         int statusType = isMajorCode ? 1 : 2; // GSS_C_GSS_CODE : GSS_C_MECH_CODE
@@ -437,7 +544,7 @@ internal static class GSSAPI
         {
             fixed (byte* mechPtr = mech)
             {
-                SafeHandle mechBuffer = CreateOIDBuffer(mechPtr, mech?.Length ?? 0);
+                SafeHandle mechBuffer = CreateOIDBuffer(provider, mechPtr, mech?.Length ?? 0);
 
                 List<string> lines = new();
                 while (true)
@@ -445,7 +552,7 @@ internal static class GSSAPI
                     int contextValue = messageContext;
                     messageContext++;
 
-                    int majorStatus = gss_display_status(out var _, errorCode, statusType, mechBuffer,
+                    int majorStatus = provider.gss_display_status(out var _, errorCode, statusType, mechBuffer,
                         ref contextValue, ref msgBuffer);
 
                     // Cannot raise exception as it will result in a recursive operation.
@@ -466,11 +573,12 @@ internal static class GSSAPI
     }
 
     /// <summary>Create a GSSAPI name object.</summary>
+    /// <param name="provider">The GSSAPI provider to use.</param>
     /// <param name="name">The name to create the name object for.</param>
     /// <param nameType="The type of name to create."></param>
     /// <returns>The GSSAPI name buffer handle.</returns>
     /// <exception cref="GSSAPIException">Failed to create name object.</exception>
-    public static SafeGssapiName ImportName(string name, ReadOnlySpan<byte> nameType)
+    public static SafeGssapiName ImportName(GssapiProvider provider, string name, ReadOnlySpan<byte> nameType)
     {
         byte[] nameBytes = Encoding.UTF8.GetBytes(name);
 
@@ -484,18 +592,19 @@ internal static class GSSAPI
                     value = (IntPtr)namePtr,
                 };
 
-                using SafeHandle nameTypeBuffer = CreateOIDBuffer(nameTypePtr, nameType.Length);
-                int majorStatus = gss_import_name(out var minorStatus, ref nameBuffer, nameTypeBuffer,
-                    out var outputName);
+                using SafeHandle nameTypeBuffer = CreateOIDBuffer(provider, nameTypePtr, nameType.Length);
+                int majorStatus = provider.gss_import_name(out var minorStatus, ref nameBuffer, nameTypeBuffer,
+                    out var outputNamePtr);
                 if (majorStatus != 0)
-                    throw new GSSAPIException(majorStatus, minorStatus, "gss_import_name");
+                    throw new GSSAPIException(provider, majorStatus, minorStatus, "gss_import_name");
 
-                return outputName;
+                return new(provider, outputNamePtr);
             }
         }
     }
 
     /// <summary>Initiates a security context or processes a new token on an existing context.</summary>
+    /// <param name="provider">The GSSAPI provider to use.</param>
     /// <param name="cred">
     /// The credential handle to be used with the context. Set to null to use <c>GSS_C_NO_CREDENTIAL</c>.
     /// </param>
@@ -511,12 +620,12 @@ internal static class GSSAPI
     /// <param name="inputToken">Optional token received from the acceptor or null for <c>GSS_C_NO_BUFFER</c>.</param>
     /// <returns>A handle to the retrieved GSSAPI security context.</returns>
     /// <exception cref="GSSAPIException">Failed to initiate/step the security context.</exception>
-    public static GssapiSecContext InitSecContext(SafeGssapiCred? cred, SafeGssapiSecContext? context,
-        SafeGssapiName targetName, byte[]? mechType, GssapiContextFlags reqFlags, int ttl,
-        ChannelBindings? chanBindings, byte[]? inputToken)
+    public static GssapiSecContext InitSecContext(GssapiProvider provider, SafeGssapiCred? cred,
+        SafeGssapiSecContext? context, SafeGssapiName targetName, byte[]? mechType, GssapiContextFlags reqFlags,
+        int ttl, ChannelBindings? chanBindings, Span<byte> inputToken)
     {
-        cred ??= new SafeGssapiCred();
-        context ??= new SafeGssapiSecContext();
+        cred ??= new SafeGssapiCred(provider, IntPtr.Zero);
+        context ??= new SafeGssapiSecContext(provider, IntPtr.Zero);
         Helpers.gss_buffer_desc outputTokenBuffer = new();
         IntPtr actualMechBuffer = IntPtr.Zero;
 
@@ -525,18 +634,18 @@ internal static class GSSAPI
         bool continueNeeded;
         unsafe
         {
-            fixed (byte* mechTypePtr = mechType,
-                initiatorAddr = chanBindings?.InitiatorAddr,
-                acceptorAddr = chanBindings?.AcceptorAddr,
-                appData = chanBindings?.ApplicationData,
-                inputTokenPtr = inputToken)
+            fixed (byte* mechTypePtr = mechType)
+            fixed (byte* initiatorAddr = chanBindings?.InitiatorAddr)
+            fixed (byte* acceptorAddr = chanBindings?.AcceptorAddr)
+            fixed (byte* appData = chanBindings?.ApplicationData)
+            fixed (byte* inputTokenPtr = inputToken)
             {
-                SafeHandle mechBuffer = CreateOIDBuffer(mechTypePtr, mechType?.Length ?? 0);
-                SafeHandle chanBindingBuffer = CreateChanBindingBuffer(chanBindings, initiatorAddr, acceptorAddr,
-                    appData);
+                SafeHandle mechBuffer = CreateOIDBuffer(provider, mechTypePtr, mechType?.Length ?? 0);
+                SafeHandle chanBindingBuffer = CreateChanBindingBuffer(provider, chanBindings, initiatorAddr,
+                    acceptorAddr, appData);
 
                 Helpers.gss_buffer_desc* inputStruct = null;
-                if (inputToken != null)
+                if (inputToken.Length > 0)
                 {
                     Helpers.gss_buffer_desc inputBuffer = new()
                     {
@@ -546,12 +655,15 @@ internal static class GSSAPI
                     inputStruct = &inputBuffer;
                 }
 
-                int majorStatus = gss_init_sec_context(out var minorStatus, cred, ref context, targetName, mechBuffer,
-                    reqFlags, ttl, chanBindingBuffer, inputStruct, ref actualMechBuffer, ref outputTokenBuffer,
-                    out actualFlags, out actualTTL);
+                IntPtr contextPtr = context.DangerousGetHandle();
+                int majorStatus = provider.gss_init_sec_context(out var minorStatus, cred, ref contextPtr, targetName,
+                    mechBuffer, reqFlags, ttl, chanBindingBuffer, inputStruct, ref actualMechBuffer,
+                    ref outputTokenBuffer, out actualFlags, out actualTTL);
 
                 if (majorStatus != 0 && majorStatus != 1)
-                    throw new GSSAPIException(majorStatus, minorStatus, "gss_init_sec_context");
+                    throw new GSSAPIException(provider, majorStatus, minorStatus, "gss_init_sec_context");
+
+                context.SetContextHandle(contextPtr);
 
                 continueNeeded = majorStatus == 1;
             }
@@ -568,7 +680,7 @@ internal static class GSSAPI
             {
                 unsafe
                 {
-                    if (IsIntelMacOS())
+                    if (provider.IsStructPackTwo)
                     {
                         var actualMech = (Helpers.gss_OID_desc_macos*)actualMechBuffer.ToPointer();
                         actualMechType = new byte[actualMech->length];
@@ -583,15 +695,11 @@ internal static class GSSAPI
                 }
             }
 
-            byte[] outputToken;
+            byte[]? outputToken = null;
             if ((int)outputTokenBuffer.length > 0)
             {
                 outputToken = new byte[(int)outputTokenBuffer.length];
                 Marshal.Copy(outputTokenBuffer.value, outputToken, 0, outputToken.Length);
-            }
-            else
-            {
-                outputToken = Array.Empty<byte>();
             }
 
             return new GssapiSecContext(context, actualMechType, outputToken, actualFlags, actualTTL,
@@ -599,11 +707,12 @@ internal static class GSSAPI
         }
         finally
         {
-            gss_release_buffer(out var minStatus2, ref outputTokenBuffer);
+            provider.gss_release_buffer(out var minStatus2, ref outputTokenBuffer);
         }
     }
 
     /// <summary>Unwraps a wrapped message from the peer.</summary>
+    /// <param name="provider">The GSSAPI provider to use.</param>
     /// <param name="context">The context handle that was used to wrap the message.</param>
     /// <param name="inputMessage">The wrapped message to unwrap.</param>
     /// <returns>
@@ -613,7 +722,8 @@ internal static class GSSAPI
     ///   The QOP applied to the input message.
     /// </returns>
     /// <exception cref="GSSAPIException">Failed to initiate/step the security context.</exception>
-    public static (byte[], bool, int) Unwrap(SafeGssapiSecContext context, ReadOnlySpan<byte> inputMessage)
+    public static (byte[], bool, int) Unwrap(GssapiProvider provider, SafeGssapiSecContext context,
+        ReadOnlySpan<byte> inputMessage)
     {
         Helpers.gss_buffer_desc outputBuffer = new();
         int confState;
@@ -628,10 +738,10 @@ internal static class GSSAPI
                     length = (IntPtr)inputMessage.Length,
                     value = (IntPtr)p,
                 };
-                int majorStatus = gss_unwrap(out var minorStatus, context, ref inputBuffer, ref outputBuffer,
+                int majorStatus = provider.gss_unwrap(out var minorStatus, context, ref inputBuffer, ref outputBuffer,
                     out confState, out qopState);
                 if (majorStatus != 0)
-                    throw new GSSAPIException(majorStatus, minorStatus, "gss_unwrap");
+                    throw new GSSAPIException(provider, majorStatus, minorStatus, "gss_unwrap");
             }
         }
 
@@ -644,30 +754,32 @@ internal static class GSSAPI
         }
         finally
         {
-            gss_release_buffer(out var _, ref outputBuffer);
+            provider.gss_release_buffer(out var _, ref outputBuffer);
         }
     }
 
     /// <summary>Unwraps an IOV buffer from the peer.</summary>
     /// <remarks>The IOV unwrapping will mutate the input buffer data in place.</remarks>
+    /// <param name="provider">The GSSAPI provider to use.</param>
     /// <param name="context">The context handle that was used to wrap the message.</param>
     /// <param name="buffer">The IOV buffers to unwrap.</param>
     /// <returns>The IOV result containing the unmanaged memory handle</returns>
     /// <exception cref="GSSAPIException">Failed to initiate/step the security context.</exception>
-    public static IOVResult UnwrapIOV(SafeGssapiSecContext context, Span<IOVBuffer> buffer)
+    public static IOVResult UnwrapIOV(GssapiProvider provider, SafeGssapiSecContext context, Span<IOVBuffer> buffer)
     {
-        SafeHandle iovBuffers = CreateIOVSet(buffer);
-        int majorStatus = gss_unwrap_iov.Value(out var minorStatus, context, out var confState, out var _, iovBuffers,
-            buffer.Length);
+        SafeHandle iovBuffers = CreateIOVSet(provider, buffer);
+        int majorStatus = provider.gss_unwrap_iov(out var minorStatus, context, out var confState, out var _,
+            iovBuffers, buffer.Length);
 
         if (majorStatus != 0)
-            throw new GSSAPIException(majorStatus, minorStatus, "gss_wrap_iov");
+            throw new GSSAPIException(provider, majorStatus, minorStatus, "gss_wrap_iov");
 
-        ProcessIOVResult(buffer, iovBuffers);
-        return new IOVResult(iovBuffers, confState);
+        ProcessIOVResult(provider, buffer, iovBuffers);
+        return new IOVResult(provider, iovBuffers, confState);
     }
 
     /// <summary>Wraps (signs or encrypts) a message to send to the peer.</summary>
+    /// <param name="provider">The GSSAPI provider to use.</param>
     /// <param name="context">The context handle that is used to wrap the message.</param>
     /// <param name="confReq">Whether to encrypt the message or just sign it.</param>
     /// <param name="qopReq">The QOP requested for the message.</param>
@@ -678,7 +790,7 @@ internal static class GSSAPI
     ///   Whether the input message was encrypted (true) or just signed (false).
     /// </returns>
     /// <exception cref="GSSAPIException">Failed to initiate/step the security context.</exception>
-    public static (byte[], bool) Wrap(SafeGssapiSecContext context, bool confReq, int qopReq,
+    public static (byte[], bool) Wrap(GssapiProvider provider, SafeGssapiSecContext context, bool confReq, int qopReq,
         ReadOnlySpan<byte> inputMessage)
     {
         Helpers.gss_buffer_desc outputBuffer = new();
@@ -693,10 +805,10 @@ internal static class GSSAPI
                     length = (IntPtr)inputMessage.Length,
                     value = (IntPtr)p,
                 };
-                int majorStatus = gss_wrap(out var minorStatus, context, confReq ? 1 : 0, qopReq, ref inputBuffer,
-                    out confState, ref outputBuffer);
+                int majorStatus = provider.gss_wrap(out var minorStatus, context, confReq ? 1 : 0, qopReq,
+                    ref inputBuffer, out confState, ref outputBuffer);
                 if (majorStatus != 0)
-                    throw new GSSAPIException(majorStatus, minorStatus, "gss_unwrap");
+                    throw new GSSAPIException(provider, majorStatus, minorStatus, "gss_unwrap");
             }
         }
 
@@ -709,38 +821,40 @@ internal static class GSSAPI
         }
         finally
         {
-            gss_release_buffer(out var _, ref outputBuffer);
+            provider.gss_release_buffer(out var _, ref outputBuffer);
         }
     }
 
     /// <summary>Wraps an IOV buffer to send to the peer.</summary>
     /// <remarks>The IOV wrapping will mutate the input buffer data in place.</remarks>
+    /// <param name="provider">The GSSAPI provider to use.</param>
     /// <param name="context">The context handle that was used to wrap the message.</param>
     /// <param name="confReq">Whether to encrypt the message or just sign it.</param>
     /// <param name="qopReq">The QOP requested for the message.</param>
     /// <param name="buffer">The IOV buffers to unwrap.</param>
     /// <returns>The IOV result containing the unmanaged memory handle</returns>
     /// <exception cref="GSSAPIException">Failed to initiate/step the security context.</exception>
-    public static IOVResult WrapIOV(SafeGssapiSecContext context, bool confReq, int qopReq, Span<IOVBuffer> buffer)
+    public static IOVResult WrapIOV(GssapiProvider provider, SafeGssapiSecContext context, bool confReq, int qopReq,
+        Span<IOVBuffer> buffer)
     {
-        SafeHandle iovBuffers = CreateIOVSet(buffer);
-        int majorStatus = gss_wrap_iov.Value(out var minorStatus, context, confReq ? 1 : 0, qopReq,
+        SafeHandle iovBuffers = CreateIOVSet(provider, buffer);
+        int majorStatus = provider.gss_wrap_iov(out var minorStatus, context, confReq ? 1 : 0, qopReq,
             out var confState, iovBuffers, buffer.Length);
 
         if (majorStatus != 0)
-            throw new GSSAPIException(majorStatus, minorStatus, "gss_wrap_iov");
+            throw new GSSAPIException(provider, majorStatus, minorStatus, "gss_wrap_iov");
 
-        ProcessIOVResult(buffer, iovBuffers);
-        return new IOVResult(iovBuffers, confState);
+        ProcessIOVResult(provider, buffer, iovBuffers);
+        return new IOVResult(provider, iovBuffers, confState);
     }
 
-    private static unsafe SafeHandle CreateChanBindingBuffer(ChannelBindings? bindings, byte* initiatorAddr,
-        byte* acceptorAddr, byte* applicationData)
+    private static unsafe SafeHandle CreateChanBindingBuffer(GssapiProvider provider, ChannelBindings? bindings,
+        byte* initiatorAddr, byte* acceptorAddr, byte* applicationData)
     {
         if (bindings == null)
             return new SafeMemoryBuffer();
 
-        if (IsIntelMacOS())
+        if (provider.IsStructPackTwo)
         {
             // Need the pack 2 structure to properly set this up.
             SafeMemoryBuffer buffer = new(Marshal.SizeOf<Helpers.gss_channel_bindings_struct_macos>());
@@ -775,12 +889,12 @@ internal static class GSSAPI
         }
     }
 
-    private static unsafe SafeHandle CreateOIDBuffer(byte* oid, int length)
+    private static unsafe SafeHandle CreateOIDBuffer(GssapiProvider provider, byte* oid, int length)
     {
         if (oid == null)
             return new SafeMemoryBuffer();
 
-        if (IsIntelMacOS())
+        if (provider.IsStructPackTwo)
         {
             // Need the pack 2 structure to properly set this up.
             SafeMemoryBuffer buffer = new(Marshal.SizeOf<Helpers.gss_OID_desc_macos>());
@@ -801,11 +915,11 @@ internal static class GSSAPI
         }
     }
 
-    private static SafeHandle CreateIOVSet(Span<IOVBuffer> buffers)
+    private static SafeHandle CreateIOVSet(GssapiProvider provider, Span<IOVBuffer> buffers)
     {
         unsafe
         {
-            if (IsIntelMacOS())
+            if (provider.IsStructPackTwo)
             {
                 SafeMemoryBuffer buffer = new(Marshal.SizeOf<Helpers.gss_iov_buffer_desc_macos>() * buffers.Length);
                 Span<Helpers.gss_iov_buffer_desc_macos> iovBuffers = new(buffer.DangerousGetHandle().ToPointer(),
@@ -838,11 +952,11 @@ internal static class GSSAPI
         }
     }
 
-    private static void ProcessIOVResult(Span<IOVBuffer> buffers, SafeHandle raw)
+    private static void ProcessIOVResult(GssapiProvider provider, Span<IOVBuffer> buffers, SafeHandle raw)
     {
         unsafe
         {
-            if (IsIntelMacOS())
+            if (provider.IsStructPackTwo)
             {
                 Span<Helpers.gss_iov_buffer_desc_macos> iovSet = new(raw.DangerousGetHandle().ToPointer(),
                     buffers.Length);
@@ -871,14 +985,14 @@ internal static class GSSAPI
         }
     }
 
-    private static unsafe Helpers.gss_OID_set_desc* CreateOIDSet(IList<byte[]>? oids)
+    private static unsafe Helpers.gss_OID_set_desc* CreateOIDSet(GssapiProvider provider, IList<byte[]>? oids)
     {
         if (oids == null)
             return null;
 
-        int majorStatus = gss_create_empty_oid_set(out var minorStatus, out var setBuffer);
+        int majorStatus = provider.gss_create_empty_oid_set(out var minorStatus, out var setBuffer);
         if (majorStatus != 0)
-            throw new GSSAPIException(majorStatus, minorStatus, "gss_create_empty_oid_set");
+            throw new GSSAPIException(provider, majorStatus, minorStatus, "gss_create_empty_oid_set");
 
         try
         {
@@ -886,41 +1000,20 @@ internal static class GSSAPI
             {
                 fixed (byte* oidPtr = oid)
                 {
-                    SafeHandle oidBuffer = CreateOIDBuffer(oidPtr, oid.Length);
-                    majorStatus = gss_add_oid_set_member(out minorStatus, oidBuffer, ref setBuffer);
+                    SafeHandle oidBuffer = CreateOIDBuffer(provider, oidPtr, oid.Length);
+                    majorStatus = provider.gss_add_oid_set_member(out minorStatus, oidBuffer, ref setBuffer);
                     if (majorStatus != 0)
-                        throw new GSSAPIException(majorStatus, minorStatus, "gss_add_oid_set_member");
+                        throw new GSSAPIException(provider, majorStatus, minorStatus, "gss_add_oid_set_member");
                 }
             }
         }
         catch
         {
-            gss_release_oid_set(out var _, ref setBuffer);
+            provider.gss_release_oid_set(out var _, ref setBuffer);
             throw;
         }
 
         return setBuffer;
-    }
-
-    internal static bool IsIntelMacOS()
-    {
-        // macOS on x86_64 need to use a specially packed structure when using GSS.Framework.
-        return GlobalState.GssapiProvider == GssapiProvider.GSSFramework && (
-            RuntimeInformation.ProcessArchitecture == Architecture.X86 ||
-            RuntimeInformation.ProcessArchitecture == Architecture.X64
-        );
-    }
-
-    private static T LoadIOVFunc<T>(string name)
-    {
-        ArgumentNullException.ThrowIfNull(GlobalState.GssapiLib);
-
-        // macOS GSS.Framework puts the IOV functions behind a "private" symbol. This dynamically loads that if using
-        // that framework rather than MIT or pure Heimdal.
-        name = GlobalState.GssapiProvider == GssapiProvider.GSSFramework ? $"__ApplePrivate_{name}" : name;
-
-        IntPtr funcPtr = NativeLibrary.GetExport(GlobalState.GssapiLib.Handle, name);
-        return Marshal.GetDelegateForFunctionPointer<T>(funcPtr);
     }
 }
 
@@ -938,18 +1031,19 @@ public class GSSAPIException : AuthenticationException
         base(message, innerException)
     { }
 
-    public GSSAPIException(int majorStatus, int minorStatus, string method)
-        : base(GetExceptionMessage(majorStatus, minorStatus, method))
+    internal GSSAPIException(GssapiProvider provider, int majorStatus, int minorStatus, string method)
+        : base(GetExceptionMessage(provider, majorStatus, minorStatus, method))
     {
         MajorStatus = majorStatus;
         MinorStatus = minorStatus;
     }
 
-    private static string GetExceptionMessage(int majorStatus, int minorStatus, string? method)
+    private static string GetExceptionMessage(GssapiProvider provider, int majorStatus, int minorStatus,
+        string? method)
     {
         method = String.IsNullOrWhiteSpace(method) ? "GSSAPI Call" : method;
-        string majString = GSSAPI.DisplayStatus(majorStatus, true, null);
-        string minString = GSSAPI.DisplayStatus(minorStatus, false, null);
+        string majString = Gssapi.DisplayStatus(provider, majorStatus, true, null);
+        string minString = Gssapi.DisplayStatus(provider, minorStatus, false, null);
 
         return String.Format("{0} failed (Major Status {1} - {2}) (Minor Status {3} - {4})",
             method, majorStatus, majString, minorStatus, minString);
@@ -1001,31 +1095,46 @@ internal enum IOVBufferFlags
 
 internal class SafeGssapiCred : SafeHandle
 {
-    internal SafeGssapiCred() : base(IntPtr.Zero, true) { }
+    private readonly GssapiProvider _provider;
+
+    internal SafeGssapiCred(GssapiProvider provider, IntPtr handle) : base(handle, true)
+    {
+        _provider = provider;
+    }
 
     public override bool IsInvalid => handle == IntPtr.Zero;
 
     protected override bool ReleaseHandle()
     {
-        return GSSAPI.gss_release_cred(out var _, ref handle) == 0;
+        return _provider.gss_release_cred(out var _, ref handle) == 0;
     }
 }
 
 internal class SafeGssapiName : SafeHandle
 {
-    internal SafeGssapiName() : base(IntPtr.Zero, true) { }
+    private readonly GssapiProvider _provider;
+
+    internal SafeGssapiName(GssapiProvider provider, IntPtr handle) : base(handle, true)
+    {
+        _provider = provider;
+    }
 
     public override bool IsInvalid => handle == IntPtr.Zero;
 
     protected override bool ReleaseHandle()
     {
-        return GSSAPI.gss_release_name(out var _, ref handle) == 0;
+        return _provider.gss_release_name(out var _, ref handle) == 0;
     }
 }
 
 internal class SafeGssapiOidSet : SafeHandle
 {
-    internal SafeGssapiOidSet() : base(IntPtr.Zero, true) { }
+    private readonly GssapiProvider _provider;
+
+    internal SafeGssapiOidSet(GssapiProvider provider, IntPtr handle) : base(handle, true)
+    {
+        _provider = provider;
+    }
 
     public override bool IsInvalid => handle == IntPtr.Zero;
 
@@ -1035,20 +1144,27 @@ internal class SafeGssapiOidSet : SafeHandle
         {
             Helpers.gss_OID_set_desc* oidSet = (Helpers.gss_OID_set_desc*)handle;
 
-            return GSSAPI.gss_release_oid_set(out var _, ref oidSet) == 0;
+            return _provider.gss_release_oid_set(out var _, ref oidSet) == 0;
         }
     }
 }
 
 internal class SafeGssapiSecContext : SafeHandle
 {
-    internal SafeGssapiSecContext() : base(IntPtr.Zero, true) { }
+    private readonly GssapiProvider _provider;
+
+    internal SafeGssapiSecContext(GssapiProvider provider, IntPtr handle) : base(handle, true)
+    {
+        _provider = provider;
+    }
 
     public override bool IsInvalid => handle == IntPtr.Zero;
 
+    internal void SetContextHandle(IntPtr credHandle) => SetHandle(credHandle);
+
     protected override bool ReleaseHandle()
     {
-        return GSSAPI.gss_delete_sec_context(out var _, ref handle, IntPtr.Zero) == 0;
+        return _provider.gss_delete_sec_context(out var _, ref handle, IntPtr.Zero) == 0;
     }
 }
 
