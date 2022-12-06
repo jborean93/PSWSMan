@@ -160,7 +160,7 @@ $credBinding = @{
 New-Item @credBinding
 
 # Enable Certificate authentication on the WSMan service
-Set-Item -Path WSMan:\localhost\Service\Auth\Basic -Value True
+Set-Item -Path WSMan:\localhost\Service\Auth\Certificate -Value True
 ```
 
 If the local account's password expires, the credential and the certificate needs to be remapped.
