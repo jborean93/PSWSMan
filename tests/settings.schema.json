@@ -232,7 +232,7 @@
                 "ca_file": {
                     "type": "string",
                     "title": "CA Certificate File",
-                    "description": "The path to the CA certificate file to load during the test"
+                    "description": "The path to the CA certificate pem and key to load during the test"
                 },
                 "client_certificate": {
                     "type": "object",
@@ -240,15 +240,21 @@
                     "description": "The client cert authentication settings",
                     "examples": [
                         {
-                            "path": "~/test/client_auth.pfx",
+                            "cert": "~/test/client_auth.pem",
+                            "key": "~/test/client_auth.key",
                             "password": "password"
                         }
                     ],
                     "required": [
-                        "path"
+                        "cert",
+                        "key"
                     ],
                     "properties": {
-                        "path": {
+                        "cert": {
+                            "type": "string",
+                            "title": "Client Certificate PFX Path"
+                        },
+                        "key": {
                             "type": "string",
                             "title": "Client Certificate PFX Path"
                         },

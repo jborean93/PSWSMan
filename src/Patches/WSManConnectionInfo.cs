@@ -1,34 +1,79 @@
-using HarmonyLib;
+using MonoMod.RuntimeDetour;
+using System;
 using System.Management.Automation;
 using System.Management.Automation.Remoting;
 using System.Management.Automation.Runspaces;
+using System.Reflection;
 
 namespace PSWSMan.Patches;
 
-[HarmonyPatch(typeof(WSManConnectionInfo))]
-internal static class Pwsh_WSManConnectionInfo
+internal static class PSWSMan_WSManConnectionInfo
 {
-    [HarmonyPatch(nameof(WSManConnectionInfo.SetSessionOptions))]
-    static void Postfix(WSManConnectionInfo __instance, PSSessionOption options)
+    private static MethodInfo? _copyMeth;
+    private static MethodInfo? _setSessionOptionsMeth;
+
+    private static WSManConnectionInfo CopyPatch(
+        Func<WSManConnectionInfo, WSManConnectionInfo> orig,
+        WSManConnectionInfo self
+    )
     {
         /*
-            Ensures the extra PSWSMan session options that might be present on the connection object are also tranfered
-            to the WSManConnectionInfo instance
+            PowerShell makes copies of this instance so this ensures the ETS
+            member holding the extra session options are also copied across to
+            the new copy.
+
+            https://github.com/PowerShell/PowerShell/blob/3f3d79d4758704c8dad5ca7c12690ba62fd03a3b/src/System.Management.Automation/engine/remoting/common/RunspaceConnectionInfo.cs#L1071
         */
-        CopyPSProperty(options, __instance, PSWSManSessionOption.PSWSMAN_SESSION_OPTION_PROP);
+
+        WSManConnectionInfo result = orig(self);
+        CopyPSProperty(self, result, PSWSManSessionOption.PSWSMAN_SESSION_OPTION_PROP);
+
+        return result;
     }
 
-    [HarmonyPatch(nameof(WSManConnectionInfo.Copy))]
-    static void Postfix(WSManConnectionInfo __instance, ref WSManConnectionInfo __result)
+    private static void SetSessionOptionsPatch(
+        Action<WSManConnectionInfo, PSSessionOption> orig,
+        WSManConnectionInfo self,
+        PSSessionOption options
+    )
     {
         /*
-            PowerShell makes copies of this instance so this ensures the ETS member holding the extra session options
-            are also copied across to the new copy.
+            Ensures the extra PSWSMan session options that might be present on
+            the connection object are also transferred to the
+            WSManConnectionInfo instance.
+
+            https://github.com/PowerShell/PowerShell/blob/3f3d79d4758704c8dad5ca7c12690ba62fd03a3b/src/System.Management.Automation/engine/remoting/common/RunspaceConnectionInfo.cs#L1021
         */
-        CopyPSProperty(__instance, __result, PSWSManSessionOption.PSWSMAN_SESSION_OPTION_PROP);
+        orig(self, options);
+        CopyPSProperty(options, self, PSWSManSessionOption.PSWSMAN_SESSION_OPTION_PROP);
     }
 
-    static void CopyPSProperty(object src, object dst, string name)
+    public static Hook[] GenerateHooks()
+    {
+        return new[]
+        {
+            new Hook(
+                _copyMeth ??= MonoModPatcher.GetMethod(
+                    typeof(WSManConnectionInfo),
+                    nameof(WSManConnectionInfo.Copy),
+                    Array.Empty<Type>(),
+                    BindingFlags.Instance | BindingFlags.Public
+                ),
+                CopyPatch
+            ),
+            new Hook(
+                _setSessionOptionsMeth ??= MonoModPatcher.GetMethod(
+                    typeof(WSManConnectionInfo),
+                    nameof(WSManConnectionInfo.SetSessionOptions),
+                    new[] { typeof(PSSessionOption) },
+                    BindingFlags.Instance | BindingFlags.Public
+                ),
+                SetSessionOptionsPatch
+            )
+        };
+    }
+
+    private static void CopyPSProperty(object src, object dst, string name)
     {
         PSPropertyInfo? property = PSObject.AsPSObject(src).Properties[name];
         if (property is not null)

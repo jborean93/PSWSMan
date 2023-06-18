@@ -135,6 +135,28 @@ Connects to the endpoint with TLS and provides a client certificate to use for a
 This certificate will only work for local accounts on the target server and must be set up in a specific manner.
 The `-UseSSL` option must be set on the cmdlet that is creating the session, i.e. `New-PSSession`, `Invoke-Command`, `Enter-PSSession`, etc.
 
+### Example 7: Connect using client certificate authentication with separate key and cert files
+```powershell
+PS C:\> $certPath = Resolve-Path ~/cert.pem
+PS C:\> $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($certPath)
+PS C:\> $keyContent = Get-Content -Path ~/cert.key -Raw
+# Example for RSA keys
+PS C:\> $key = [System.Security.Cryptography.RSA]::Create()
+PS C:\> $key.ImportFromEncryptedPem($keyContent, "KeyPassword")
+PS C:\> $cert = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::CopyWithPrivateKey($cert, $key)
+# Example for ECDSA keys
+PS C:\> $key = [System.Security.Cryptography.ECDsa]::Create()
+PS C:\> $key.ImportFromEncryptedPem($keyContent, "KeyPassword")
+PS C:\> $cert = [System.Security.Cryptography.X509Certificates.ECDsaCertificateExtensions]::CopyWithPrivateKey($cert, $key)
+PS C:\> $pso = New-PSWSManSessionOption -ClientCertificate $cert
+PS C:\> Invoke-Command -ComputerName host.domain.com -UseSSL -SessionOption $pso { 'hi' }
+```
+
+Connects to the endpoint with TLS and provides a client certificate from a separate certificate and key file.
+It is common for Linux environments to use separate files for a certificate and key, this shows how to create the `X509Certificate2` object that can be used with `New-PSWSManSessionOption`.
+It is also possible to use `openssl` to combine the two files into 1 PFX/PKCS12 which can be used with `Get-PfxCertificate`.
+Use `ImportFromPem($keyContent)` if the key is not encrypted with a password.
+
 ## PARAMETERS
 
 ### -ApplicationArguments

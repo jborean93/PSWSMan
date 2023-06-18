@@ -38,7 +38,7 @@ task AssertSMA {
 
 task BuildDocs {
     $helpParams = @{
-        Path       = [IO.Path]::Combine($PSScriptRoot, 'docs', 'en-US')
+        Path = [IO.Path]::Combine($PSScriptRoot, 'docs', 'en-US')
         OutputPath = [IO.Path]::Combine($ReleasePath, 'en-US')
     }
     New-ExternalHelp @helpParams | Out-Null
@@ -70,10 +70,10 @@ task BuildManaged {
 
 task CopyToRelease {
     $copyParams = @{
-        Path        = [IO.Path]::Combine($PowerShellPath, '*')
+        Path = [IO.Path]::Combine($PowerShellPath, '*')
         Destination = $ReleasePath
-        Recurse     = $true
-        Force       = $true
+        Recurse = $true
+        Force = $true
     }
     Copy-Item @copyParams
 
@@ -90,28 +90,30 @@ task CopyToRelease {
     }
 }
 
+
 task Sign {
-    $certPath = $env:PSMODULE_SIGNING_CERT
-    $certPassword = $env:PSMODULE_SIGNING_CERT_PASSWORD
-    if (-not $certPath -or -not $certPassword) {
+    $vaultName = $env:AZURE_KEYVAULT_NAME
+    $vaultCert = $env:AZURE_KEYVAULT_CERT
+    if (-not $vaultName -or -not $vaultCert) {
         return
     }
 
-    [byte[]]$certBytes = [System.Convert]::FromBase64String($env:PSMODULE_SIGNING_CERT)
-    $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($certBytes, $certPassword)
+    Import-Module -Name OpenAuthenticode -ErrorAction Stop
+
+    $key = Get-OpenAuthenticodeAzKey -Vault $vaultName -Certificate $vaultCert
     $signParams = @{
-        Certificate     = $cert
-        TimestampServer = 'http://timestamp.digicert.com'
-        HashAlgorithm   = 'SHA256'
+        Key = $key
+        TimeStampServer = 'http://timestamp.digicert.com'
     }
 
     Get-ChildItem -LiteralPath $ReleasePath -Recurse -ErrorAction SilentlyContinue |
-        Where-Object Extension -In ".ps1", ".psm1", ".psd1", ".ps1xml", ".dll" |
+        Where-Object {
+            $_.Extension -in ".ps1", ".psm1", ".psd1", ".ps1xml" -or (
+                $_.Extension -eq ".dll" -and $_.BaseName -like "$ModuleName*"
+            )
+        } |
         ForEach-Object -Process {
-            $result = Set-AuthenticodeSignature -LiteralPath $_.FullName @signParams
-            if ($result.Status -ne "Valid") {
-                throw "Failed to sign $($_.FullName) - Status: $($result.Status) Message: $($result.StatusMessage)"
-            }
+            Set-OpenAuthenticodeSignature -LiteralPath $_.FullName @signParams
         }
 }
 
@@ -122,9 +124,9 @@ task Package {
     }
 
     $repoParams = @{
-        Name               = 'LocalRepo'
-        SourceLocation     = $BuildPath
-        PublishLocation    = $BuildPath
+        Name = 'LocalRepo'
+        SourceLocation = $BuildPath
+        PublishLocation = $BuildPath
         InstallationPolicy = 'Trusted'
     }
     if (Get-PSRepository -Name $repoParams.Name -ErrorAction SilentlyContinue) {
@@ -142,9 +144,9 @@ task Package {
 
 task Analyze {
     $pssaSplat = @{
-        Path        = $ReleasePath
-        Settings    = [IO.Path]::Combine($PSScriptRoot, 'ScriptAnalyzerSettings.psd1')
-        Recurse     = $true
+        Path = $ReleasePath
+        Settings = [IO.Path]::Combine($PSScriptRoot, 'ScriptAnalyzerSettings.psd1')
+        Recurse = $true
         ErrorAction = 'SilentlyContinue'
     }
     $results = Invoke-ScriptAnalyzer @pssaSplat
