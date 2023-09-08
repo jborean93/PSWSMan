@@ -302,8 +302,8 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
 
     It "Connects over CredSSP with handshake failure" {
         $tlsOption = [System.Net.Security.SslClientAuthenticationOptions]@{
-            EnabledSslProtocols                 = 'Ssl3'
-            TargetHost                          = $sessionParams.ComputerName
+            EnabledSslProtocols = 'Ssl3'
+            TargetHost = $sessionParams.ComputerName
             RemoteCertificateValidationCallback = New-PSWSManCertValidationCallback { $true }
         }
 
@@ -509,7 +509,7 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         }
         else {
             $tlsOption = [System.Net.Security.SslClientAuthenticationOptions]@{
-                TargetHost                          = $sessionParams.ComputerName
+                TargetHost = $sessionParams.ComputerName
                 RemoteCertificateValidationCallback = New-PSWSManCertValidationCallback { $true }
             }
             $psoParams.TlsOption = $tlsOption
@@ -608,15 +608,18 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         $s.State | Should -Be 'Closed'
     }
 
-    It "Connects over HTTPS with cert auth and explicit TLS options" {
+    It "Connects over HTTPS with cert auth and explicit TLS options" -Skip:(
+        -not $PSWSManSettings.GetScenarioServer('https_trusted') -or
+        -not $PSWSManSettings.ClientCertificate
+    ) {
         $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('https_trusted')
         $sessionParams.Remove('Credential')
         $sessionParams.UseSSL = $true
 
         $tlsOption = [System.Net.Security.SslClientAuthenticationOptions]@{
-            TargetHost                          = $sessionParams.ComputerName
+            TargetHost = $sessionParams.ComputerName
             RemoteCertificateValidationCallback = New-PSWSManCertValidationCallback { $true }
-            ClientCertificates                  = [System.Security.Cryptography.X509Certificates.X509CertificateCollection]::new(
+            ClientCertificates = [System.Security.Cryptography.X509Certificates.X509CertificateCollection]::new(
                 @($PSWSManSettings.ClientCertificate))
         }
 
@@ -644,8 +647,8 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
 
     It "Connects over HTTPS with handshake failure" -Skip:(-not $PSWSManSettings.GetScenarioServer('https_trusted')) {
         $tlsOption = [System.Net.Security.SslClientAuthenticationOptions]@{
-            EnabledSslProtocols                 = 'Ssl3'
-            TargetHost                          = $sessionParams.ComputerName
+            EnabledSslProtocols = 'Ssl3'
+            TargetHost = $sessionParams.ComputerName
             RemoteCertificateValidationCallback = New-PSWSManCertValidationCallback { $true }
         }
 
@@ -794,10 +797,10 @@ Describe "PSWSMan Kerberos tests" -Skip:(-not $PSWSManSettings.GetScenarioServer
 Describe "PSWSMan Exchange Online tests" -Skip:(-not $PSWSManSettings.EXOConfiguration) {
     BeforeAll {
         $exoParams = @{
-            Organization  = $PSWSManSettings.EXOConfiguration.Organization
-            AppId         = $PSWSManSettings.EXOConfiguration.AppId
+            Organization = $PSWSManSettings.EXOConfiguration.Organization
+            AppId = $PSWSManSettings.EXOConfiguration.AppId
             UseRPSSession = $true
-            ShowBanner    = $false
+            ShowBanner = $false
         }
     }
 
@@ -856,7 +859,7 @@ Describe "PSWSMan PSRemoting tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
 
     It "Responds to user events" {
         $eventParams = @{
-            EventName        = "PSEventReceived"
+            EventName = "PSEventReceived"
             SourceIdentifier = "PSWSMan.UserEvent"
         }
 

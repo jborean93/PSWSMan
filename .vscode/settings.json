@@ -19,6 +19,7 @@
     ],
     "dotnet-test-explorer.testProjectPath": "tests/units/*.csproj",
     "editor.rulers": [
+        80,
         120,
     ],
     //-------- PowerShell configuration --------

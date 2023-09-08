@@ -75,9 +75,9 @@ if (-not $global:PSWSManSettings) {
             }
 
             $servers[$server.Key] = [PSWSManServer]@{
-                HostName   = $server.Value.hostname
+                HostName = $server.Value.hostname
                 Credential = $credentials[$credentialName]
-                Port       = $server.Value.port
+                Port = $server.Value.port
             }
         }
 
@@ -105,18 +105,27 @@ if (-not $global:PSWSManSettings) {
             }
 
             if ($settings.data.client_certificate) {
-                if (-not (Test-Path -LiteralPath $settings.data.client_certificate.path)) {
-                    throw "client_certificate.path cannot be found"
+                if (-not (Test-Path -LiteralPath $settings.data.client_certificate.cert)) {
+                    throw "client_certificate.cert cannot be found"
+                }
+                if (-not (Test-Path -LiteralPath $settings.data.client_certificate.key)) {
+                    throw "client_certificate.key cannot be found"
                 }
 
-                $pfxParams = @{
-                    FilePath            = $settings.data.client_certificate.path
-                    NoPromptForPassword = $true
-                }
+                $certPath = Resolve-Path -Path $settings.data.client_certificate.cert
+                $publicCert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($certPath)
+
+                $keyContent = Get-Content -Path $settings.data.client_certificate.key -Raw
+                $key = [System.Security.Cryptography.RSA]::Create()
                 if ($settings.data.client_certificate.password) {
-                    $pfxParams.Password = (ConvertTo-SecureString -AsPlainText -Force -String $settings.data.client_certificate.password)
+                    $key.ImportFromEncryptedPem($keyContent, $settings.data.client_certificate.password)
                 }
-                $clientCert = Get-PfxCertificate @pfxParams
+                else {
+                    $key.ImportFromPem($keyContent)
+                }
+
+                $clientCert = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::CopyWithPrivateKey(
+                    $publicCert, $key)
             }
 
             if ($settings.data.jea_configuration) {
@@ -125,7 +134,7 @@ if (-not $global:PSWSManSettings) {
                 }
 
                 $jeaConfiguration = [JEAConfiguration]@{
-                    Name             = $settings.data.jea_configuration.name
+                    Name = $settings.data.jea_configuration.name
                     ExpectedUserName = $settings.data.jea_configuration.username
                 }
             }
@@ -152,7 +161,7 @@ if (-not $global:PSWSManSettings) {
                 $exoCertificate = $null
                 if ($certPath = $settings.data.exchange_online.certificate_path) {
                     $pfxParams = @{
-                        FilePath    = $certPath
+                        FilePath = $certPath
                         ErrorAction = 'Stop'
                     }
                     if ($certPass = $settings.data.exchange_online.certificate_password) {
@@ -163,18 +172,18 @@ if (-not $global:PSWSManSettings) {
 
                 $exoConfiguration = [EXOConfiguration]@{
                     Organization = $settings.data.exchange_online.organization
-                    AppId        = $settings.data.exchange_online.app_id
-                    Certificate  = $exoCertificate
+                    AppId = $settings.data.exchange_online.app_id
+                    Certificate = $exoCertificate
                 }
             }
         }
 
         $global:PSWSManSettings = [PSWSManSettings]@{
-            Servers           = $servers
-            Scenarios         = $scenarios
-            CACert            = $caCert
-            JEAConfiguration  = $jeaConfiguration
-            EXOConfiguration  = $exoConfiguration
+            Servers = $servers
+            Scenarios = $scenarios
+            CACert = $caCert
+            JEAConfiguration = $jeaConfiguration
+            EXOConfiguration = $exoConfiguration
             ClientCertificate = $clientCert
         }
     }
@@ -196,7 +205,7 @@ Function global:Get-PSSessionSplat {
 
     $params = @{
         ComputerName = $Server.HostName
-        Credential   = $Server.Credential
+        Credential = $Server.Credential
     }
     if ($Server.Port) {
         $params.Port = $Server.Port

@@ -1,12 +1,10 @@
-using HarmonyLib;
+using PSWSMan;
 using System.Management.Automation;
 
 internal static class PSWSManStatus
 {
-    public const string HarmonyId = "PSWSMan";
-
     public static bool Enabled { get; set; } = false;
-    public static Harmony HarmonyLib { get; } = new(HarmonyId);
+    public static MonoModPatcher Patcher { get; set; } = new();
 }
 
 [Cmdlet(
@@ -19,13 +17,15 @@ public sealed class EnablePSWSMan : PSCmdlet
 
     protected override void EndProcessing()
     {
-        const string confirmMessage = "If you continue, hooks will be injected into the PowerShell to force it to use PSWSMan as the WSMan client transport. This operation is global to the process and is not reversible.";
+        const string confirmMessage =
+            "If you continue, hooks will be injected into the PowerShell to force it to use PSWSMan as the WSMan " +
+            "client transport. This operation is global to the process and is not reversible.";
 
         if (!PSWSManStatus.Enabled)
         {
             if (Force || ShouldContinue(confirmMessage, "Confirm"))
             {
-                PSWSManStatus.HarmonyLib.PatchAll();
+                PSWSManStatus.Patcher.PatchAll();
                 PSWSManStatus.Enabled = true;
             }
         }
