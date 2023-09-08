@@ -58,7 +58,7 @@ end {
             throw "Failed to extract pwsh tar for $RequiredVersion"
         }
 
-        chmod +x $targetFolder/$fileName
+        chmod +x $targetFolder/"pwsh$nativeExt"
         if ($LASTEXITCODE) {
             throw "Failed to set pwsh as executable at $targetFolder/$fileName"
         }
