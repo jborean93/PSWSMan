@@ -1,7 +1,7 @@
 using System;
 using System.Management.Automation;
 
-namespace PSWSMan.Commands;
+namespace PSWSMan.Module.Commands;
 
 [Cmdlet(
     VerbsCommon.Get, "PSWSManAuthProvider"

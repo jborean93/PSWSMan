@@ -5,7 +5,7 @@ using System.Management.Automation.Remoting;
 using System.Management.Automation.Runspaces;
 using System.Reflection;
 
-namespace PSWSMan.Patches;
+namespace PSWSMan.Module.Patches;
 
 internal static class PSWSMan_WSManConnectionInfo
 {

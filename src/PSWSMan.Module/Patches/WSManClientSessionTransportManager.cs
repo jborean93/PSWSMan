@@ -6,7 +6,7 @@ using System.Management.Automation.Remoting.Client;
 using System.Management.Automation.Runspaces;
 using System.Reflection;
 
-namespace PSWSMan.Patches;
+namespace PSWSMan.Module.Patches;
 
 internal static class PSWSMan_WSManClientSessionTransportManager
 {

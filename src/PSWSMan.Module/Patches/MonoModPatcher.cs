@@ -1,10 +1,10 @@
 using MonoMod.RuntimeDetour;
-using PSWSMan.Patches;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 
-namespace PSWSMan;
+namespace PSWSMan.Module.Patches;
 
 internal sealed class MonoModPatcher : IDisposable
 {
@@ -83,8 +83,7 @@ internal sealed class MonoModPatcher : IDisposable
 
     private static string GetArgumentDef(Type[] args)
     {
-        // FIXME: Implement this
-        return "";
+        return string.Join(", ", args.Select(a => a.Name));
     }
 
     public void Dispose() => Dispose(true);

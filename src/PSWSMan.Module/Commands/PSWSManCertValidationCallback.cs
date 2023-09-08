@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.Management.Automation;
 using System.Management.Automation.Host;
@@ -6,6 +5,8 @@ using System.Management.Automation.Runspaces;
 using System.Net.Security;
 using System.Collections.ObjectModel;
 using System.Security.Cryptography.X509Certificates;
+
+namespace PSWSMan.Module.Commands;
 
 [Cmdlet(
     VerbsCommon.New, "PSWSManCertValidationCallback"

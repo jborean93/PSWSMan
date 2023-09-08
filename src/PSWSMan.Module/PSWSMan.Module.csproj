@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net6.0</TargetFrameworks>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+    <!--A conflict with IgnoredAccessChecksToGenerator and MonoMod fires this-->
+    <NoWarn>CS0436</NoWarn>
+    <InternalsAssemblyNames>System.Management.Automation</InternalsAssemblyNames>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Devolutions.Sspi" Version="2023.6.29" />
+    <PackageReference Include="MonoMod.RuntimeDetour" Version="25.0.2" />
+    <PackageReference Include="IgnoresAccessChecksToGenerator" Version="0.6.0" PrivateAssets="All" />
+    <ProjectReference Include="../PSWSMan/PSWSMan.csproj" />
+    <Reference Include="../../output/lib/System.Management.Automation/7.2.0/System.Management.Automation.dll" Private="false" />
+  </ItemGroup>
+</Project>

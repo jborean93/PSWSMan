@@ -49,17 +49,13 @@ This is a list of known issues with the various authentication methods and provi
 
   + No supported on Linux with PowerShell 7.2.x (dotnet 6) on a TLS 1.3 connection
 
-+ Kerberos
-
-  + Currently broken with the `Devolutions` authentication provider, requires a new release of the [DevolutionsSspi nuget package](https://www.nuget.org/packages/Devolutions.Sspi)
-
 + CredSSP
 
   + Currently not supported with the `Devolutions` authentication provider - https://github.com/Devolutions/sspi-rs/issues/84
 
 # BASIC AUTH
 Basic authentication is sending the username nad password as a base64 encoded value in the HTTP headers.
-This is the simplest authentication option available but also the weakeast.
+This is the simplest authentication option available but also the weakest.
 It only works for local accounts and should only be used over a HTTPS connection.
 When specifying a credential for Basic authentication only the username should be used.
 Do not specify the hostname portion of the username, e.g. use `username` and not `HOST\username`.
@@ -191,7 +187,7 @@ NTLM authentication should only be used with WSMan when the connection is being 
 The reason for this is that HTTPS offers both server authentication through certificates, and strong message encryption through TLS.
 Without server authentication, the client cannot know for sure the server it is talking to is who it thinks it is.
 Without TLS message encryption, the data sent by NTLM is encrypted with a weak RC4 key.
-The NTLM token send in the HTTP headers is also suceptible to cracking if a weak password was used.
+The NTLM token send in the HTTP headers is also susceptible to cracking if a weak password was used.
 Ultimately NTLM should be avoided unless HTTPS is being used.
 
 Availability of NTLM depends on the OS and authentication provider used.
@@ -220,7 +216,7 @@ See `#CREDENTIAL DELEGATION` for more details.
 Part of the Kerberos authentication process is to lookup the target server using an service principal name (SPN).
 The SPN is constructed using the `-ComputerName` value that is being connected to form the SPN `host/$ComputerName`.
 To change the service portion `host` to something else use `New-PSWSManSessionOption -SPNService host`.
-To override the hostname portion to something else use `New-PSWSManSessionOpiton -SPNHostName other`.
+To override the hostname portion to something else use `New-PSWSManSessionOption -SPNHostName other`.
 For example `New-PSWSManSessionOption -SPNService http -SPNHostName test` will use the SPN `http/test`.
 
 Availability of Kerberos depends on the OS and authentication provider used.
@@ -232,7 +228,7 @@ Both macOS and Linux GSSAPI can be configured through an `/etc/krb5.conf` file.
 It can also use DNS SRV records to lookup domain realms.
 
 The `Devolutions` authentication provider also supports Kerberos authentication out of the box.
-It only support explicit credentials but as it requires no system packages it provides a consitent experience across all platforms.
+It only support explicit credentials but as it requires no system packages it provides a consistent experience across all platforms.
 DevolutionsSspi can retrieve domain configuration through many means, like the `/etc/krb5.config`.
 To specify the `Devolutions` authentication provider to be used pass in the session options `New-PSWSManSessionOption -AuthProvider Devolutions`.
 Alternatively, the `Devolutions` authentication package can be set globally as the default with `Set-PSWSManAuthProvider -AuthProvider Devolutions`.
@@ -256,7 +252,7 @@ CredSSP creates a temporary TLS context that wraps the authentication exchange a
 This is unrelated to the actual HTTP transport, i.e. CredSSP works just fine over a HTTP connection.
 The following options can be specified with `New-PSWSManSessionOption` to control the CredSSP authentication behaviour
 
-+ `CredSSPAuthMethod` - By default CredSSP will use `Negotiate` but this can be set to `Kerberos` or `NTLM` to retrict CredSSP from only using one or the other
++ `CredSSPAuthMethod` - By default CredSSP will use `Negotiate` but this can be set to `Kerberos` or `NTLM` to restrict CredSSP from only using one or the other
 
 + `CredSSPTlsOption` - Controls the TLS wrapper of the CredSSP session
 
@@ -264,7 +260,7 @@ As well as this the `-SPNService` and `-SPNHostName` will be used on the inner N
 The TLS option can be used to finely control the TLS context that CredSSP sets up.
 For example the default TLS context for CredSSP will not validate the CredSSP certificate as it's typically an ephemeral self-signed certificate.
 By specifying a custom TLS option for CredSSP it can be setup so the remote certificate is verified or that only specific TLS protocols or cipher suites are used.
-Be careful not to restrict the TLS protocols available to just TLS 1.3, Windows does not support TLS 1.3 used for CredSSP as of yet.
+Be careful not to restrict the TLS protocols available to just TLS 1.3, Windows does not support CredSSP with TLS 1.3 as of yet (the WSMan connection can still be TLS 1.3 though).
 
 CredSSP is not enabled by default on the remote server as the unconstrained delegation can be dangerous if the remote host is not trusted.
 To enable CredSSP on the WSMan server run the following:
@@ -335,7 +331,7 @@ It also means that any behaviour on one platform is the same on any other.
 By default Devolutions SSPI is only used if the builtin GSSAPI library is not installed on Linux but it can be set as the default authentication provider process wide or on a specific session.
 The code `Set-PSWSManAuthProvider -AuthProvider Devolutions` can be used to default the process wide default to use Devolutions SSPI.
 Otherwise `New-PSWSManSessionOption -AuthProvider Devolutions` can be used on a specific session setup to use Devolutions for that connection.
-The `New-PSWSManSessionOption -AuthProvider ...` takes precendence over the global process wide setting.
+The `New-PSWSManSessionOption -AuthProvider ...` takes precedence over the global process wide setting.
 
 Support for Devolutions is limited and while things should work it is an experimental feature and mileage may vary.
 Currently `CredSSP` will not work with Devolutions due to it missing the feature https://github.com/Devolutions/sspi-rs/issues/84.

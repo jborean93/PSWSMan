@@ -1,5 +1,5 @@
 ---
-external help file: PSWSMan.dll-Help.xml
+external help file: PSWSMan.Module.dll-Help.xml
 Module Name: PSWSMan
 online version: https://www.github.com/jborean93/PSWSMan/blob/main/docs/en-US/New-PSWSManCertValidationCallback.md
 schema: 2.0.0

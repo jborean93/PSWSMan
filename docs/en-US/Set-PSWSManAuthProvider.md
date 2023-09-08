@@ -1,5 +1,5 @@
 ---
-external help file: PSWSMan.dll-Help.xml
+external help file: PSWSMan.Module.dll-Help.xml
 Module Name: PSWSMan
 online version: https://www.github.com/jborean93/PSWSMan/blob/main/docs/en-US/Set-PSWSManAuthProvider.md
 schema: 2.0.0
@@ -48,7 +48,7 @@ Sets the default authentication provider to the use the bundles DevolutionsSspi 
 ## PARAMETERS
 
 ### -AuthProvider
-The authentication provider to set asthe PSWSMan default.
+The authentication provider to set as the PSWSMan default.
 This must be either `System` or `Devolutions`.
 Using `Default` will result in an error.
 
