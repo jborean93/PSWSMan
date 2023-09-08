@@ -1,5 +1,5 @@
 ---
-external help file: PSWSMan.dll-Help.xml
+external help file: PSWSMan.Module.dll-Help.xml
 Module Name: PSWSMan
 online version: https://www.github.com/jborean93/PSWSMan/blob/main/docs/en-US/New-PSWSManSessionOption.md
 schema: 2.0.0
@@ -43,7 +43,7 @@ It is designed to extend the existing [New-PSSession](https://learn.microsoft.co
 
 Without parameters, `New-PSWSManSessionOption` generates an object that contains the default value for all of the options.
 Just like with `New-PSSessionOption`, the session options from this cmdlet can be used with the `$PSSessionOption` preference variable.
-The value of this variable estabilish new default values for the session options.
+The value of this variable establish new default values for the session options.
 They are used when a new PSSession is made without any explicit session options specified by `-SessionOption`.
 For more information about the `$PSSessionOption` preference variable, see [about_Preference_Variables-$PSSessionOption])(https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_preference_variables?view=powershell-7.3#pssessionoption).
 
@@ -202,12 +202,13 @@ Using `System` will use the system provided authentication provider.
 On Windows this is `SSPI`, on Linux this is `GSSAPI`, and on macOS this is `GSS.Framework`.
 
 Using `Devolutions` will use the [sspi-rs](https://github.com/Devolutions/sspi-rs) provider from Devolutions which is a standalone Kerberos and NTLM implementation written in Rust.
-The `Devolutions` package is bundled with PSWSMan but is not tested as thourougly as the `System` implementations.
+The `Devolutions` package is bundled with PSWSMan but is not tested as thoroughly as the `System` implementations.
 
 ```yaml
 Type: AuthenticationProvider
 Parameter Sets: (All)
 Aliases:
+Accepted values: Default, System, Devolutions
 
 Required: False
 Position: Named
@@ -367,7 +368,7 @@ Accept wildcard characters: False
 ```
 
 ### -MaximumRedirection
-Determines how many times PowerShell redirects a connection to an altrnate Uniform Resource Identifier (URI) before the connection fails.
+Determines how many times PowerShell redirects a connection to an alternate Uniform Resource Identifier (URI) before the connection fails.
 The default value is `5`, a value of `0` prevents all redirection.
 
 This option is used in the session only when the `-AllowRedirection` parameter is used in the command that creates the session.

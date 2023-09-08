@@ -4,22 +4,7 @@ using System.IO;
 using System.Management.Automation;
 using System.Runtime.InteropServices;
 
-namespace PSWSMan;
-
-internal static class GlobalState
-{
-    /// <summary>The loaded DevolutionsSspi library.</summary>
-    internal static SspiProvider DevolutionsSspi = default!;
-
-    /// <summary>The loaded SSPI library on Windows.</summary>
-    internal static SspiProvider? WinSspi = null;
-
-    /// <summary>The loaded GSSAPI library on Linux.</summary>
-    internal static GssapiProvider? Gssapi = null;
-
-    /// <summary>The default authentication provider set for the process.</summary>
-    internal static AuthenticationProvider DefaultProvider = AuthenticationProvider.System;
-}
+namespace PSWSMan.Module;
 
 public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemblyCleanup
 {

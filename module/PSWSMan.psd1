@@ -11,37 +11,37 @@
 @{
 
     # Script module or binary module file associated with this manifest.
-    RootModule             = 'bin/net6.0/PSWSMan.dll'
+    RootModule = 'PSWSMan.psm1'
 
     # Version number of this module.
-    ModuleVersion          = '0.1.0'
+    ModuleVersion = '3.0.0'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
 
     # ID used to uniquely identify this module
-    GUID                   = '92ec96bf-3ff4-41b2-8694-cd3ee636d3fd'
+    GUID = '92ec96bf-3ff4-41b2-8694-cd3ee636d3fd'
 
     # Author of this module
-    Author                 = 'Jordan Borean'
+    Author = 'Jordan Borean'
 
     # Company or vendor of this module
-    CompanyName            = 'Community'
+    CompanyName = 'Community'
 
     # Copyright statement for this module
-    Copyright              = '(c) 2022 Jordan Borean. All rights reserved.'
+    Copyright = '(c) 2022 Jordan Borean. All rights reserved.'
 
     # Description of the functionality provided by this module
-    Description            = 'Cross platform module that implements the WSMan connection plugin for remoting.`nSee https://github.com/jborean93/PSWSMan for more info'
+    Description = 'Cross platform module that implements the WSMan connection plugin for remoting.`nSee https://github.com/jborean93/PSWSMan for more info'
 
     # Minimum version of the PowerShell engine required by this module
-    PowerShellVersion      = '7.2'
+    PowerShellVersion = '7.2'
 
     # Minimum version of Microsoft .NET Framework required by this module. This prerequisite is valid for the PowerShell Desktop edition only.
     DotNetFrameworkVersion = '4.7.2'
 
     # Minimum version of the common language runtime (CLR) required by this module. This prerequisite is valid for the PowerShell Desktop edition only.
-    ClrVersion             = '4.0'
+    ClrVersion = '4.0'
 
     # Processor architecture (None, X86, Amd64) required by this module
     # ProcessorArchitecture = ''
@@ -62,13 +62,13 @@
     # FormatsToProcess       = @()
 
     # Modules to import as nested modules of the module specified in RootModule/ModuleToProcess
-    NestedModules          = @()
+    NestedModules = @()
 
     # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-    FunctionsToExport      = @()
+    FunctionsToExport = @()
 
     # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
-    CmdletsToExport        = @(
+    CmdletsToExport = @(
         'Enable-PSWSMan'
         'Get-PSWSManAuthProvider'
         'New-PSWSManCertValidationCallback'
@@ -77,20 +77,20 @@
     )
 
     # Variables to export from this module
-    VariablesToExport      = @()
+    VariablesToExport = @()
 
     # Aliases to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no aliases to export.
-    AliasesToExport        = @()
+    AliasesToExport = @()
 
     # Private data to pass to the module specified in RootModule/ModuleToProcess. This may also contain a PSData hashtable with additional module metadata used by PowerShell.
-    PrivateData            = @{
+    PrivateData = @{
 
         PSData = @{
 
-            Prerelease   = 'preview1'
+            # Prerelease = 'preview1'
 
             # Tags applied to this module. These help with module discovery in online galleries.
-            Tags         = @(
+            Tags = @(
                 'PSEdition_Core'
                 'Linux'
                 'MacOS'
@@ -99,10 +99,10 @@
             )
 
             # A URL to the license for this module.
-            LicenseUri   = 'https://github.com/jborean93/PSWSMan/blob/main/LICENSE'
+            LicenseUri = 'https://github.com/jborean93/PSWSMan/blob/main/LICENSE'
 
             # A URL to the main website for this project.
-            ProjectUri   = 'https://github.com/jborean93/PSWSMan'
+            ProjectUri = 'https://github.com/jborean93/PSWSMan'
 
             # A URL to an icon representing this module.
             # IconUri = ''

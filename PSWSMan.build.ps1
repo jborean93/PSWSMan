@@ -13,7 +13,7 @@ $Manifest = Test-ModuleManifest -Path $manifestItem.FullName -ErrorAction Ignore
 $Version = $Manifest.Version
 $BuildPath = [IO.Path]::Combine($PSScriptRoot, 'output')
 $PowerShellPath = [IO.Path]::Combine($PSScriptRoot, 'module')
-$CSharpPath = [IO.Path]::Combine($PSScriptRoot, 'src')
+$CSharpPath = [IO.Path]::Combine($PSScriptRoot, 'src', "$ModuleName.Module")
 $ReleasePath = [IO.Path]::Combine($BuildPath, $ModuleName, $Version)
 $IsUnix = $PSEdition -eq 'Core' -and -not $IsWindows
 $UseNativeArguments = $PSVersionTable.PSVersion.Major -gt 7 -or ($PSVersionTable.PSVersion.Major -eq 7 -and $PSVersionTable.PSVersion.Minor -gt 2)
@@ -90,15 +90,12 @@ task CopyToRelease {
     }
 }
 
-
 task Sign {
     $vaultName = $env:AZURE_KEYVAULT_NAME
     $vaultCert = $env:AZURE_KEYVAULT_CERT
     if (-not $vaultName -or -not $vaultCert) {
         return
     }
-
-    Import-Module -Name OpenAuthenticode -ErrorAction Stop
 
     $key = Get-OpenAuthenticodeAzKey -Vault $vaultName -Certificate $vaultCert
     $signParams = @{

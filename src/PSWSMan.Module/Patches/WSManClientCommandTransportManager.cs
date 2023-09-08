@@ -5,7 +5,7 @@ using System.Management.Automation.Remoting;
 using System.Management.Automation.Remoting.Client;
 using System.Reflection;
 
-namespace PSWSMan.Patches;
+namespace PSWSMan.Module.Patches;
 
 internal static class PSWSMan_WSManClientCommandTransportManager
 {
@@ -405,7 +405,6 @@ internal static class PSWSMan_WSManClientCommandTransportManager
                     "SendData",
                     new[] { typeof(byte[]), typeof(DataPriorityType) },
                     BindingFlags.Instance | BindingFlags.NonPublic
-
                 ),
                 SendDataPatch
             ),

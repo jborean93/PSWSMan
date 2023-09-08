@@ -11,11 +11,6 @@ See [about_PSWSMan](docs/en-US/about_PSWSMan.md) for more details.
 
 Documentation for this module and details on the cmdlets included can be found [here](docs/en-US/PSWSMan.md).
 This is currently an unreleased project and is meant to replace [my omi fork](https://github.com/jborean93/omi) as the way PowerShell uses WSMan as a client.
-The following things still need to be done before this could replace the `PSWSMan` PSGallery package:
-
-+ Check what would be involved to get working on macOS ARM - MonoMod is currently incompatible
-+ Add more documentation and automation around the tests
-  + Create script/playbook that builds the various Windows/Linux/PowerShell permutations and `test.settings.json` files for easier integration testing
 
 ## Requirements
 
@@ -37,6 +32,9 @@ Install-Module -Name PSWSMan -Scope CurrentUser
 # Install for all users
 Install-Module -Name PSWSMan -Scope AllUsers
 ```
+
+Once installed, run `Enable-PSWSMan -Force` to enable the hooks needed for PowerShell to use this module.
+Once enabled the builtin cmdlets will use this module for any WSMan transport operations.
 
 ## Contributing
 

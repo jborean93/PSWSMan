@@ -5,7 +5,7 @@ using System.Management.Automation.Remoting;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 
-namespace PSWSMan.Commands;
+namespace PSWSMan.Module.Commands;
 
 [Cmdlet(
     VerbsCommon.New, "PSWSManSessionOption",
