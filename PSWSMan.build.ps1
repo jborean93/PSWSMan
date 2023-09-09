@@ -77,16 +77,22 @@ task CopyToRelease {
     }
     Copy-Item @copyParams
 
+    $first = $true
     foreach ($framework in $TargetFrameworks) {
         $buildFolder = [IO.Path]::Combine($CSharpPath, 'bin', $Configuration, $framework, 'publish')
         $binFolder = [IO.Path]::Combine($ReleasePath, 'bin', $framework)
         if (-not (Test-Path -LiteralPath $binFolder)) {
             New-Item -Path $binFolder -ItemType Directory | Out-Null
         }
-        Copy-Item ([IO.Path]::Combine($buildFolder, "*")) -Destination $binFolder -Recurse
-        Remove-Item ([IO.Path]::Combine($binFolder, 'runtimes', 'android*')) -Recurse -Force
-        Remove-Item ([IO.Path]::Combine($binFolder, 'runtimes', 'ios*')) -Recurse -Force
-        Remove-Item ([IO.Path]::Combine($binFolder, 'runtimes', 'osx-universal')) -Recurse -Force
+        Copy-Item ([IO.Path]::Combine($buildFolder, "*")) -Destination $binFolder -Recurse -Exclude runtimes
+        if ($first) {
+            $first = $false
+            $runtimesDest = [IO.Path]::Combine($ReleasePath, 'bin')
+            Copy-Item ([IO.Path]::Combine($buildFolder, "runtimes")) -Destination $runtimesDest -Recurse
+            Remove-Item ([IO.Path]::Combine($runtimesDest, 'runtimes', 'android*')) -Recurse -Force
+            Remove-Item ([IO.Path]::Combine($runtimesDest, 'runtimes', 'ios*')) -Recurse -Force
+            Remove-Item ([IO.Path]::Combine($runtimesDest, 'runtimes', 'osx-universal')) -Recurse -Force
+        }
     }
 }
 

@@ -223,14 +223,22 @@ internal class TlsSecurityContext : IDisposable
         Task handshakeTask = Task.Run(() =>
         {
             // This class is only used for CredSSP which does not support TLS resume.
-            var resetTlsResumeSetting = TlsSessionResumeSetting.DisableTlsSessionResume(_ssl);
+            TlsSessionResumeSetting.ResetTlsResumeDelegate? resetTlsResumeSetting = null;
+#if NET8_0_OR_GREATER
+            _sslOptions.AllowTlsResume = false;
+#else
+            resetTlsResumeSetting = TlsSessionResumeSetting.DisableTlsSessionResume(_ssl);
+#endif
             try
             {
                 _ssl.AuthenticateAsClient(_sslOptions);
             }
             finally
             {
-                resetTlsResumeSetting();
+                if (resetTlsResumeSetting != null)
+                {
+                    resetTlsResumeSetting();
+                }
                 handshakeDone.Cancel();
             }
         });

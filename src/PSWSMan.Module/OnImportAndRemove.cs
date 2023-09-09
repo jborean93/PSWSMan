@@ -61,6 +61,7 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
 
         string devolutionsPaths = Path.Combine(
             Path.GetDirectoryName(typeof(OnModuleImportAndRemove).Assembly.Location) ?? "",
+            "..",
             "runtimes",
             $"{osName}-{RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant()}",
             "native",
