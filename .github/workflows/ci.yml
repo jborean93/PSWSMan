@@ -27,6 +27,13 @@ jobs:
     - name: Check out repository
       uses: actions/checkout@v3
 
+    # Needed until dotnet 8 is made final
+    - name: Setup dotnet SDK
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: '8.0.x'
+        dotnet-quality: 'preview'
+
     - name: OIDC Login to Azure
       if: ${{ env.BUILD_CONFIGURATION == 'Release' }}
       uses: azure/login@v1
@@ -72,6 +79,13 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+
+    # Needed until dotnet 8 is made final
+    - name: Setup dotnet SDK
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: '8.0.x'
+        dotnet-quality: 'preview'
 
     - name: Restore Built PowerShell Module
       uses: actions/download-artifact@v3

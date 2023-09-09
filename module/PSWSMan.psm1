@@ -6,7 +6,13 @@
 # that ALC.
 
 $moduleName = [System.IO.Path]::GetFileNameWithoutExtension($PSCommandPath)
-Add-Type -Path ([System.IO.Path]::Combine($PSScriptRoot, 'bin', 'net6.0', "$moduleName.dll"))
+$runtimeVersion = if ($PSVersionTable.PSVersion -gt [Version]'7.4') {
+    'net8.0'
+}
+else {
+    'net6.0'
+}
+Add-Type -Path ([System.IO.Path]::Combine($PSScriptRoot, 'bin', $runtimeVersion, "$moduleName.dll"))
 
 $mainModule = [PSWSMan.LoadContext]::Initialize()
 Import-Module -Assembly $mainModule
