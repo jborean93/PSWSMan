@@ -73,6 +73,7 @@
         'Get-PSWSManAuthProvider'
         'New-PSWSManCertValidationCallback'
         'New-PSWSManSessionOption'
+        'Register-WinRSForge'
         'Set-PSWSManAuthProvider'
     )
 
