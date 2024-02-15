@@ -2,7 +2,7 @@
 
 ## v3.0.0 - TBD
 
-This is a major change in the `PSWSMan` module away from shipping the `libomi` and `libpsrpclient` C library with custom changes to a pure dotnet WSMan client.
+This is a major change in the `PSWSMan` module away from shipping the `libmi` and `libpsrpclient` C library with custom changes to a pure dotnet WSMan client.
 It is designed to hook the PowerShell WSMan libraries with its own mechanisms to avoid needing the C library altogether.
 This opens up the possibility of introducing more features in the WSMan client that wasn't possible before like CredSSP authentication, better TLS validation, better error messages, etc.
 

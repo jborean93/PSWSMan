@@ -100,7 +100,7 @@ if (-not $global:PSWSManSettings) {
         $exoConfiguration = $null
         $clientCert = $null
         if ($settings.data) {
-            if (Test-Path -LiteralPath $settings.data.ca_file) {
+            if ($settings.data.ca_file -and (Test-Path -LiteralPath $settings.data.ca_file)) {
                 $caCert = Get-PfxCertificate -FilePath $settings.data.ca_file
             }
 

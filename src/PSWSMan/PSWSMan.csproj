@@ -2,13 +2,18 @@
 
   <PropertyGroup>
     <TargetFrameworks>net6.0;net8.0</TargetFrameworks>
-    <AssemblyName>PSWSMan</AssemblyName>
-    <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+    <!--A conflict with IgnoredAccessChecksToGenerator and MonoMod fires this-->
+    <NoWarn>CS0436</NoWarn>
+    <InternalsAssemblyNames>System.Management.Automation</InternalsAssemblyNames>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="System.Formats.Asn1" Version="6.0.0" PrivateAssets="all" />
-    <InternalsVisibleTo Include="$(AssemblyName).Module" />
+    <PackageReference Include="Devolutions.Sspi" Version="2023.12.20" />
+    <PackageReference Include="MonoMod.RuntimeDetour" Version="25.1.0" />
+    <PackageReference Include="IgnoresAccessChecksToGenerator" Version="0.6.0" PrivateAssets="All" />
+    <ProjectReference Include="../PSWSMan.Shared/PSWSMan.Shared.csproj" />
+    <Reference Include="../../output/System.Management.Automation/$(TargetFramework)/System.Management.Automation.dll" Private="false" />
   </ItemGroup>
 </Project>

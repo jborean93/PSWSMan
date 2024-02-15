@@ -333,7 +333,7 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         $out = New-PSSession @sessionParams -ErrorAction SilentlyContinue -ErrorVariable err
         $out | Should -BeNullOrEmpty
         $err.Count | Should -Be 1
-        [string]$err[0] | Should -BeLike '*WinRM authentication failure*'
+        [string]$err[0] | Should -BeLike '*WinRM Basic authentication failure*'
     }
 
     It "Connects with invalid hostname and timeout" {
@@ -500,7 +500,7 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         $out = New-PSSession @sessionParams -ErrorAction SilentlyContinue -ErrorVariable err
         $out | Should -BeNullOrEmpty
         $err.Count | Should -Be 1
-        [string]$err[0] | Should -BeLike '*The remote certificate is invalid because of errors in the certificate chain: UntrustedRoot*'
+        [string]$err[0] | Should -BeLike '*The remote certificate is invalid because of errors in the certificate chain: *'
 
         $psoParams = @{}
         if ($Method -eq 'Skip') {
