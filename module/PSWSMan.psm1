@@ -34,3 +34,17 @@ if ($innerMod) {
         $addExportedCmdlet.Invoke($ExecutionContext.SessionState.Module, @(, $cmd))
     }
 }
+
+Function Register-WinRSForge {
+    [CmdletBinding()]
+    param ()
+
+    if (-not (Get-Module -Name RemoteForge -ErrorAction SilentlyContinue)) {
+        Import-Module -Name RemoteForge -ErrorAction Stop
+    }
+
+    $forgeDll = [System.IO.Path]::Combine($PSScriptRoot, 'bin', 'net7.0', 'WinRSForge.dll')
+    Add-Type -LiteralPath $forgeDll
+
+    Register-RemoteForge -Assembly ([WinRSForge.WinRSForge].Assembly)
+}

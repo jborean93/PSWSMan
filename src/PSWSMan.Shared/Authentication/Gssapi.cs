@@ -7,14 +7,12 @@ namespace PSWSMan.Shared.Authentication;
 
 public sealed class GssapiCredential : WSManCredential
 {
-    private readonly NegotiateMethod _authMethod;
     private readonly GssapiProvider _provider;
     private readonly byte[] _mech;
     private SafeGssapiCred? _credential;
 
     internal GssapiCredential(GssapiProvider provider, string? username, string? password, NegotiateMethod method)
     {
-        _authMethod = method;
         _provider = provider;
         _mech = method switch
         {

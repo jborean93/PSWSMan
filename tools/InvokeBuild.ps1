@@ -57,6 +57,14 @@ task BuildManaged {
             Remove-Item -LiteralPath $runtimesDir -Recurse -Force
         }
     }
+
+    Write-Host "Compiling WinRSForge" -ForegroundColor Cyan
+    $outputDir = [Path]::Combine($Manifest.ReleasePath, "bin", 'net7.0')
+    $forgeCSProj = [Path]::Combine((Split-Path $Manifest.DotnetPath -Parent), 'WinRSForge', 'WinRSForge.csproj')
+    dotnet @arguments --framework net7.0 --output $outputDir $forgeCSProj
+    if ($LASTEXITCODE) {
+        throw "Failed to compile WinRSForge code"
+    }
 }
 
 task BuildModule {

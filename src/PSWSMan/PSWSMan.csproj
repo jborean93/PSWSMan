@@ -16,8 +16,4 @@
     <ProjectReference Include="../PSWSMan.Shared/PSWSMan.Shared.csproj" />
     <Reference Include="../../output/System.Management.Automation/$(TargetFramework)/System.Management.Automation.dll" Private="false" />
   </ItemGroup>
-
-  <ItemGroup Condition=" '$(TargetFramework)' != 'net6.0' ">
-    <ProjectReference Include="../../../RemoteForge/src/RemoteForge/RemoteForge.csproj" />
-  </ItemGroup>
 </Project>

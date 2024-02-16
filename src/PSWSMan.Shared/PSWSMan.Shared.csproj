@@ -9,5 +9,6 @@
   <ItemGroup>
     <PackageReference Include="System.Formats.Asn1" Version="6.0.0" PrivateAssets="all" />
     <InternalsVisibleTo Include="PSWSMan" />
+    <InternalsVisibleTo Include="WinRSForge" />
   </ItemGroup>
 </Project>
