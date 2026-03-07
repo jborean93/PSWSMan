@@ -162,8 +162,9 @@ internal static class PSWSMan_WSManClientCommandTransportManager
                     session.RunspacePoolId, pwshInstanceId, e);
 
                 TransportErrorOccuredEventArgs err = new(new PSRemotingTransportException(e.Message, e),
-                    TransportMethodEnum.RunShellCommandEx);
-                self.ProcessWSManTransportError(err);
+                    TransportMethodEnum.CloseShellOperationEx);
+                self.RaiseErrorHandler(err);
+                return;
             }
 
             self.RaiseCloseCompleted();

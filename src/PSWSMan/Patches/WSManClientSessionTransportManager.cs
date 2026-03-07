@@ -224,8 +224,9 @@ internal static class PSWSMan_WSManClientSessionTransportManager
                     WSManSessionHandleField.SetValue(self, IntPtr.Zero);
 
                     TransportErrorOccuredEventArgs err = new(new PSRemotingTransportException(e.Message, e),
-                        TransportMethodEnum.RunShellCommandEx);
-                    self.ProcessWSManTransportError(err);
+                        TransportMethodEnum.CloseShellOperationEx);
+                    self.RaiseErrorHandler(err);
+                    return;
                 }
             }
 
