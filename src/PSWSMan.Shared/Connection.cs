@@ -445,6 +445,7 @@ public class WSManConnection : IDisposable
         };
 
         HttpClient client = new(httpHandler, true);
+        client.Timeout = Timeout.InfiniteTimeSpan;
         client.DefaultRequestHeaders.Add("User-Agent", "PSWSMan Client");
         client.DefaultRequestHeaders.Add("Accept-Encoding", "identity");
         return client;
