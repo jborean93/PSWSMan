@@ -305,10 +305,14 @@ internal class WSManPSRPShim : IDisposable
         UriBuilder uriBuilder = new(option.ConnectionUri);
         uriBuilder.Scheme = "http";
 
-        TimeSpan? connectTimeout = null;
+        TimeSpan connectTimeout;
         if (option.OpenTimeout != 0)
         {
             connectTimeout = new(((long)option.OpenTimeout) * TimeSpan.TicksPerMillisecond);
+        }
+        else
+        {
+            connectTimeout = TimeSpan.FromSeconds(10);
         }
 
         WSManConnection connection = new(uriBuilder.Uri, option.Credential, option.NegotiateOptions ?? new(),
