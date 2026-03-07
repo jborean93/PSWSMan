@@ -35,14 +35,20 @@ public class WSManConnection : IDisposable
 {
     private const string CONTENT_TYPE = "application/soap+xml";
 
+    // Linux TCP_USER_TIMEOUT socket option — max time (ms) for sent data to remain
+    // unacknowledged before the connection is forcibly closed.
+    private const SocketOptionName TcpUserTimeout = (SocketOptionName)18;
+
     private readonly Uri _connectionUri;
-    private readonly IWSManEncryptionContext? _encryptor;
     private readonly NegotiateOptions _negoOptions;
     private readonly TimeSpan _connectTimeout;
+    private readonly WSManCredential _credential;
+    private readonly bool _encrypt;
 
+    private IWSManEncryptionContext? _encryptor;
     private HttpClient? _http;
 
-    internal AuthenticationContext AuthContext { get; }
+    internal AuthenticationContext AuthContext { get; private set; }
 
     internal SslClientAuthenticationOptions? SslOptions { get; }
 
@@ -60,8 +66,10 @@ public class WSManConnection : IDisposable
         SslClientAuthenticationOptions? sslOptions, bool encrypt, TimeSpan? connectTimeout)
     {
         _connectionUri = connectionUri;
+        _credential = credential;
         _connectTimeout = connectTimeout ?? Timeout.InfiniteTimeSpan;
         _negoOptions = negoOptions;
+        _encrypt = encrypt;
         AuthContext = credential.CreateAuthContext();
         SslOptions = sslOptions;
 
@@ -81,40 +89,65 @@ public class WSManConnection : IDisposable
     /// <param name="message">The HTTP payload to send.</param>
     /// <param name="cancelToken">The cancellation token for the request.</param>
     /// <returns>The response for this request.</returns>
-    public async Task<string> SendMessage(string message, CancellationToken cancelToken)
+    public Task<string> SendMessage(string message, CancellationToken cancelToken)
+    {
+        return SendMessageInternal(message, cancelToken, allowReconnect: true);
+    }
+
+    private async Task<string> SendMessageInternal(string message, CancellationToken cancelToken,
+        bool allowReconnect)
     {
         HttpRequestMessage request;
 
         HttpContent? content = null;
         HttpResponseMessage? response = null;
 
-        if (_http == null)
+        try
         {
-            _http = GetWSManHttpClient(_connectTimeout);
-
-            content = PrepareContent(message);
-            response = await Authenticate(_http, content, cancelToken);
-
-            // If doing HTTP encryption, the response isn't the final response
-            // as the request need to be resent with encryption.
-            if (_encryptor is not null && response.StatusCode == HttpStatusCode.OK)
+            if (_http == null)
             {
-                content = null;
-                response = null;
+                _http = GetWSManHttpClient(_connectTimeout);
+
+                content = PrepareContent(message);
+                response = await Authenticate(_http, content, cancelToken);
+
+                // If doing HTTP encryption, the response isn't the final response
+                // as the request need to be resent with encryption.
+                if (_encryptor is not null && response.StatusCode == HttpStatusCode.OK)
+                {
+                    content = null;
+                    response = null;
+                }
+            }
+
+            if (response is null)
+            {
+                content ??= PrepareContent(message);
+                request = new(HttpMethod.Post, _connectionUri);
+                request.Content = content;
+                AddAuthenticationHeaders(request, null);
+
+                response = await _http.SendAsync(request, cancelToken).ConfigureAwait(false);
             }
         }
-
-        if (response is null)
+        catch (HttpRequestException) when (allowReconnect && AuthContext.Complete)
         {
-            content ??= PrepareContent(message);
-            request = new(HttpMethod.Post, _connectionUri);
-            request.Content = content;
-            AddAuthenticationHeaders(request, null);
-
-            response = await _http.SendAsync(request, cancelToken).ConfigureAwait(false);
+            // Connection died (e.g. after laptop sleep or network change).
+            // Reset and re-authenticate on a fresh connection.
+            ResetConnection();
+            return await SendMessageInternal(message, cancelToken, allowReconnect: false);
         }
 
         string responseContent = await ProcessResponse(response).ConfigureAwait(false);
+        if (response.StatusCode == HttpStatusCode.Unauthorized && allowReconnect && AuthContext.Complete)
+        {
+            // Server closed the idle TCP connection and a new unauthenticated
+            // connection was created. Reset and re-authenticate.
+            response.Dispose();
+            ResetConnection();
+            return await SendMessageInternal(message, cancelToken, allowReconnect: false);
+        }
+
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
             throw new AuthenticationException($"WinRM {AuthContext.HttpAuthLabel} authentication failure");
@@ -124,6 +157,20 @@ public class WSManConnection : IDisposable
             response.EnsureSuccessStatusCode();
         }
         return responseContent;
+    }
+
+    private void ResetConnection()
+    {
+        _http?.Dispose();
+        _http = null;
+        AuthContext?.Dispose();
+        AuthContext = _credential.CreateAuthContext();
+        ChannelBindings = null;
+
+        if (_encrypt)
+        {
+            _encryptor = (IWSManEncryptionContext)AuthContext;
+        }
     }
 
     internal bool AddAuthenticationHeaders(HttpRequestMessage request, HttpResponseMessage? response)
@@ -426,6 +473,7 @@ public class WSManConnection : IDisposable
         // the Negotiate authentication contain can contain the TLS channel binding data.
         SocketsHttpHandler httpHandler = new();
         httpHandler.ConnectTimeout = connectTimeout;
+        httpHandler.PooledConnectionIdleTimeout = Timeout.InfiniteTimeSpan;
         httpHandler.ConnectCallback = async (context, cancelToken) =>
         {
             Socket socket = new(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
@@ -454,6 +502,25 @@ public class WSManConnection : IDisposable
         CancellationToken cancelToken)
     {
         await socket.ConnectAsync(endpoint, cancelToken).ConfigureAwait(false);
+
+        // Enable TCP keepalives so the OS detects dead connections (e.g. after laptop sleep).
+        // Keepalive probes idle connections; TCP_USER_TIMEOUT limits how long sent data can
+        // remain unacknowledged (so user commands fail fast on dead connections instead of
+        // waiting for the default ~13 minute TCP retransmit timeout).
+        // TCP_USER_TIMEOUT doesn't affect long-polling Receive requests because the server
+        // ACKs those at the TCP level immediately — it only holds the HTTP response.
+        socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+        socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, 15);
+        socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveInterval, 5);
+        socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveRetryCount, 3);
+        try
+        {
+            socket.SetSocketOption(SocketOptionLevel.Tcp, TcpUserTimeout, 15000);
+        }
+        catch (SocketException)
+        {
+            // Not supported on this platform — fall back to keepalive-only detection.
+        }
 
         Stream stream = new NetworkStream(socket, ownsSocket: true);
         if (request is WSManInitialRequest wsmanRequest)
