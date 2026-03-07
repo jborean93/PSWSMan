@@ -77,7 +77,7 @@ internal class WSManPSRPShim : IDisposable
                     bool found = false;
                     foreach (StoreLocation location in new[] { StoreLocation.CurrentUser, StoreLocation.LocalMachine })
                     {
-                        using X509Store store = new(StoreName.My, StoreLocation.CurrentUser, OpenFlags.ReadOnly);
+                        using X509Store store = new(StoreName.My, location, OpenFlags.ReadOnly);
                         foreach (X509Certificate2 cert in store.Certificates)
                         {
                             if (string.Equals(cert.Thumbprint, connInfo.CertificateThumbprint,
