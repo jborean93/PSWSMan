@@ -207,6 +207,9 @@ internal static class PSWSMan_WSManClientSessionTransportManager
             {
                 WSManPSRPShim session = WSManCompatState.SessionInfo[wsManSessionHandle];
 
+                // Cancel any pending operations (e.g. CreateShellAsync blocked on SSL handshake)
+                session.Cancel();
+
                 tracer.WriteLine(
                     "PSWSMan: WSManClientSessionTransportManager.CloseAsync - Sending Shell Delete for {0}",
                     session.RunspacePoolId);
@@ -281,9 +284,41 @@ internal static class PSWSMan_WSManClientSessionTransportManager
             tracer.WriteLine(
                 "PSWSMan: WSManClientSessionTransportManager.CreateAsync - Sending Shell Create for {0}",
                 session.RunspacePoolId);
+
+            // Hook Console.CancelKeyPress to cancel the connection attempt.
+            // PowerShell's Ctrl+C handler does call CloseAsync on a separate
+            // thread, but CloseAsync can't interrupt the blocked HTTP request
+            // because there's no CancellationToken wired through the call chain.
+            // This hook calls session.Cancel() directly, which cancels the CTS
+            // that propagates through PostRequest → SendAsync → ConnectAsync.
+            ConsoleCancelEventHandler cancelHandler = (sender, args) =>
+            {
+                tracer.WriteLine(
+                    "PSWSMan: WSManClientSessionTransportManager.CreateAsync - Ctrl+C received, cancelling for {0}",
+                    session.RunspacePoolId);
+                session.Cancel();
+                args.Cancel = true;
+            };
+            Console.CancelKeyPress += cancelHandler;
             try
             {
                 session.CreateShellAsync(additionalData ?? Array.Empty<byte>()).GetAwaiter().GetResult();
+            }
+            catch (OperationCanceledException)
+            {
+                tracer.WriteLine(
+                    "PSWSMan: WSManClientSessionTransportManager.CreateAsync - Shell Create cancelled for {0}",
+                    session.RunspacePoolId);
+
+                session.Dispose();
+                WSManCompatState.SessionInfo.Remove(wsManSessionHandle);
+                WSManSessionHandleField.SetValue(self, IntPtr.Zero);
+
+                TransportErrorOccuredEventArgs err = new(
+                    new PSRemotingTransportException("The connection attempt was cancelled."),
+                    TransportMethodEnum.CreateShellEx);
+                self.ProcessWSManTransportError(err);
+                return;
             }
             catch (Exception e)
             {
@@ -291,6 +326,7 @@ internal static class PSWSMan_WSManClientSessionTransportManager
                     "PSWSMan: WSManClientSessionTransportManager.CreateAsync - Shell Create failed for {0}\n{1}",
                     session.RunspacePoolId, e);
 
+                session.Dispose();
                 WSManCompatState.SessionInfo.Remove(wsManSessionHandle);
                 WSManSessionHandleField.SetValue(self, IntPtr.Zero);
 
@@ -298,6 +334,10 @@ internal static class PSWSMan_WSManClientSessionTransportManager
                     TransportMethodEnum.CreateShellEx);
                 self.ProcessWSManTransportError(err);
                 return;
+            }
+            finally
+            {
+                Console.CancelKeyPress -= cancelHandler;
             }
 
             // Satifies some Debug.Assert statements in pwsh

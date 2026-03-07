@@ -9,6 +9,7 @@ using System.Management.Automation.Remoting.Client;
 using System.Net.Security;
 using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 
@@ -22,6 +23,8 @@ internal class WSManPSRPShim : IDisposable
     private readonly Guid _runspacePoolId;
     private readonly bool _noMachineProfile;
     private readonly string _shellUri;
+    private readonly CancellationTokenSource _cts = new();
+    private bool _disposed;
 
     private List<Task> _receiveThreads = new();
 
@@ -174,7 +177,7 @@ internal class WSManPSRPShim : IDisposable
             extra: extraContent,
             options: shellOptions);
 
-        WSManCreateResponse resp = await _session.PostRequest<WSManCreateResponse>(payload);
+        WSManCreateResponse resp = await _session.PostRequest<WSManCreateResponse>(payload, _cts.Token);
         _winrs.ProcessCreateResponse(resp);
     }
 
@@ -189,31 +192,31 @@ internal class WSManPSRPShim : IDisposable
         string psrpPayload = Convert.ToBase64String(psrpFragment);
 
         string payload = _winrs.Command("", new[] { psrpPayload }, commandId: commandId);
-        await _session.PostRequest<WSManCommandResponse>(payload);
+        await _session.PostRequest<WSManCommandResponse>(payload, _cts.Token);
     }
 
     public async Task CloseCommandAsync(Guid commandId)
     {
         string payload = _winrs.Signal(SignalCode.Terminate, commandId: commandId);
-        await _session.PostRequest<WSManSignalResponse>(payload);
+        await _session.PostRequest<WSManSignalResponse>(payload, _cts.Token);
     }
 
     public async Task<WSManReceiveResponse> Receive(string stream, Guid? commandId = null)
     {
         string payload = _winrs.Receive(stream, commandId: commandId);
-        return await _session.PostRequest<WSManReceiveResponse>(payload);
+        return await _session.PostRequest<WSManReceiveResponse>(payload, _cts.Token);
     }
 
     public async Task SendAsync(string stream, byte[] data, Guid? commandId = null)
     {
         string payload = _winrs.Send(stream, data, commandId: commandId);
-        await _session.PostRequest<WSManSendResponse>(payload);
+        await _session.PostRequest<WSManSendResponse>(payload, _cts.Token);
     }
 
     public async Task StopCommandAsync(Guid commandId)
     {
         string payload = _winrs.Signal(SignalCode.PSCtrlC, commandId: commandId);
-        await _session.PostRequest<WSManSignalResponse>(payload);
+        await _session.PostRequest<WSManSignalResponse>(payload, _cts.Token);
     }
 
     public void StartReceiveTask(BaseClientTransportManager tm, PSTraceSource tracer, Guid? commandId = null)
@@ -403,8 +406,20 @@ internal class WSManPSRPShim : IDisposable
         return new SspiCredential(GlobalState.DevolutionsSspi, userName, password, negoMethod);
     }
 
+    public void Cancel()
+    {
+        _cts.Cancel();
+    }
+
     public void Dispose()
     {
+        if (_disposed)
+        {
+            return;
+        }
+        _disposed = true;
+        _cts.Cancel();
+        _cts.Dispose();
         _session?.Dispose();
         GC.SuppressFinalize(this);
     }
