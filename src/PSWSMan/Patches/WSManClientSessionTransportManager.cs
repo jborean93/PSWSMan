@@ -303,8 +303,11 @@ internal static class PSWSMan_WSManClientSessionTransportManager
             // Satifies some Debug.Assert statements in pwsh
             WSManShellOperationHandleField.SetValue(self, (nint)1);
 
-            // FUTURE: Add disconnect support
-            SupportsDisconnectProperty.SetValue(self, false);
+            // Disconnect is not implemented, but SupportsDisconnect must be true
+            // so that RemoteRunspace.GetCapabilities() returns SupportsDisconnect
+            // instead of Default. CommandCompletion.CompleteInput treats Default
+            // as "pre-PSv3 server" and skips tab completion entirely.
+            SupportsDisconnectProperty.SetValue(self, true);
 
             self.RaiseCreateCompleted(new CreateCompleteEventArgs(self.ConnectionInfo.Copy()));
 
