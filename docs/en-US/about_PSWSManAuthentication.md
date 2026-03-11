@@ -45,10 +45,6 @@ Exchange Online also offers Modern Auth (OAuth) but this just uses the Basic aut
 
 This is a list of known issues with the various authentication methods and providers on PSWSMan:
 
-+ Certificate
-
-  + No supported on Linux with PowerShell 7.2.x (dotnet 6) on a TLS 1.3 connection
-
 + CredSSP
 
   + Currently not supported with the `Devolutions` authentication provider - https://github.com/Devolutions/sspi-rs/issues/84

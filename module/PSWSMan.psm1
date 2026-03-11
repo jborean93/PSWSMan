@@ -5,7 +5,6 @@
 # an ALC for the moulde and any dependencies of that module to be loaded in
 # that ALC.
 
-$runtimeVersion = $PSVersionTable.PSVersion -ge [Version]'7.4' ? 'net8.0' : 'net6.0'
 $importModule = Get-Command -Name Import-Module -Module Microsoft.PowerShell.Core
 $moduleName = [System.IO.Path]::GetFileNameWithoutExtension($PSCommandPath)
 
@@ -13,7 +12,7 @@ $isReload = $true
 if (-not ('PSWSMan.Shared.LoadContext' -as [type])) {
     $isReload = $false
 
-    Add-Type -Path ([System.IO.Path]::Combine($PSScriptRoot, 'bin', $runtimeVersion, "$moduleName.Shared.dll"))
+    Add-Type -Path ([System.IO.Path]::Combine($PSScriptRoot, 'bin', 'net8.0', "$moduleName.Shared.dll"))
 }
 
 $mainModule = [PSWSMan.Shared.LoadContext]::Initialize()

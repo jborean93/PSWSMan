@@ -25,11 +25,6 @@ The following platforms are current not supported
 
 + Linux on musl based libc like Alpine
   + While this may work it is currently experimental
-+ Linux on aarch64
-  + The underlying MonoMod.RuntimeDetour library currently does not support aarch64
-+ macOS on aarch64/arm
-  + The underlying MonoMod.RuntimeDetour library currently does not support aarch64
-  + Running pwsh under Rosetta 2 should work though
 
 If you still need anything that was removed then it is recommended to pin your dependencies to `2.3.1` to avoid pulling in any new incompatible changes.
 
@@ -43,7 +38,7 @@ The following features have been introduced in this version
   + CredSSP is now an authentication option
   + NTLM on macOS now works
   + Optional support for the [Devolutions/sspi-rs](https://github.com/Devolutions/sspi-rs) auth provider
-  + Certificate auth works with TLS 1.3 (pwsh 7.3 or newer)
+  + Certificate auth works with TLS 1.3
 + Improved TLS support
   + Integrated into dotnet for a more consistent validation support
   + Support for TLS 1.3

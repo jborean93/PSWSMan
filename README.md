@@ -16,7 +16,7 @@ This is currently an unreleased project and is meant to replace [my omi fork](ht
 
 These cmdlets have the following requirements
 
-* PowerShell v7.2 or newer
+* PowerShell v7.4 or newer
 
 ## Installing
 

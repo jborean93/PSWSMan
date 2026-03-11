@@ -1,13 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net6.0;net8.0</TargetFrameworks>
+    <TargetFrameworks>net8.0</TargetFrameworks>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="System.Formats.Asn1" Version="6.0.0" PrivateAssets="all" />
+    <PackageReference Include="System.Formats.Asn1" Version="8.0.0" PrivateAssets="all" />
     <InternalsVisibleTo Include="PSWSMan" />
   </ItemGroup>
 </Project>

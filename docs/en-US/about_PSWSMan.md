@@ -13,9 +13,7 @@ It has been tested to work on the following platforms:
 
 + Windows
 
-+ macOS - Intel only
-
-Support for macOS ARM is limited by [this issue on MonoMod](https://github.com/MonoMod/MonoMod/issues/90).
++ macOS
 
 A list of the cmdlets in this module can be found at [PSWSMan](./PSWSMan.md).
 

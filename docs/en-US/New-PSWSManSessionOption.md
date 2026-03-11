@@ -45,7 +45,7 @@ Without parameters, `New-PSWSManSessionOption` generates an object that contains
 Just like with `New-PSSessionOption`, the session options from this cmdlet can be used with the `$PSSessionOption` preference variable.
 The value of this variable establish new default values for the session options.
 They are used when a new PSSession is made without any explicit session options specified by `-SessionOption`.
-For more information about the `$PSSessionOption` preference variable, see [about_Preference_Variables-$PSSessionOption])(https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_preference_variables?view=powershell-7.3#pssessionoption).
+For more information about the `$PSSessionOption` preference variable, see [about_Preference_Variables-$PSSessionOption](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_preference_variables?view=powershell-7.3#pssessionoption).
 
 There are a a few parameters on `New-PSSessionOption` with Windows that are omitted on this cmdlet either due to features not being available or different behaviour across the OS platforms.
 These cmdlets are:
