@@ -262,6 +262,18 @@ internal class WSManPSRPShim : IDisposable
                 {
                     tracer.WriteLine("PSWSMan Received Task Shutdown WSMan Fault Received CmdId: '{0}'\n{1}",
                         commandId, e);
+
+                    // For session-level receive tasks (no commandId), report the
+                    // error to PowerShell so it knows the session is dead. Without
+                    // this, Enter-PSSession stays in a broken state where subsequent
+                    // input hangs (e.g. after Restart-Computer).
+                    if (commandId is null && tm is WSManClientSessionTransportManager clientTM2)
+                    {
+                        TransportErrorOccuredEventArgs err = new(
+                            new PSRemotingTransportException(e.Message, e),
+                            TransportMethodEnum.ReceiveShellOutputEx);
+                        clientTM2.ProcessWSManTransportError(err);
+                    }
                     break;
                 }
                 catch (Exception e)
