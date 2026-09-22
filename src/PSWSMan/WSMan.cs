@@ -4,7 +4,7 @@ using System.Linq;
 using System.Xml;
 using System.Xml.Linq;
 
-namespace PSWSMan.Shared;
+namespace PSWSMan;
 
 public class WSManFault : Exception
 {

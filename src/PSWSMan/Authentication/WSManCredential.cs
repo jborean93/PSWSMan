@@ -1,6 +1,6 @@
 using System;
 
-namespace PSWSMan.Shared.Authentication;
+namespace PSWSMan.Authentication;
 
 /// <summary>
 /// A credential that can be used by WSMan to generate a new security context

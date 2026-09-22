@@ -7,7 +7,7 @@ using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace PSWSMan.Shared.Authentication;
+namespace PSWSMan.Authentication;
 
 /// <summary>Base class used for CredSSP ASN.1 Structures.</summary>
 public abstract class CredSSPStructure

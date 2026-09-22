@@ -8,7 +8,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PSWSMan.Shared.Authentication;
+namespace PSWSMan.Authentication;
 
 /// <summary>Used as an in memory BIO stream for SslStream.</summary>
 internal class TlsBIOStream : Stream

@@ -1,4 +1,4 @@
-using PSWSMan.Shared.Authentication.Native;
+using PSWSMan.Authentication.Native;
 using System;
 using System.IO;
 using System.Management.Automation;

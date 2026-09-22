@@ -1,4 +1,3 @@
-using PSWSMan.Shared;
 using System;
 using System.Globalization;
 using System.Management.Automation;

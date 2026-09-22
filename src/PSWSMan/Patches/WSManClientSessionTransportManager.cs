@@ -1,5 +1,4 @@
 using MonoMod.RuntimeDetour;
-using PSWSMan.Shared;
 using System;
 using System.Management.Automation;
 using System.Management.Automation.Remoting;

@@ -1,6 +1,6 @@
 using System;
 
-namespace PSWSMan.Shared.Authentication;
+namespace PSWSMan.Authentication;
 
 public abstract class AuthenticationContext : IDisposable
 {

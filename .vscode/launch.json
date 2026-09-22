@@ -5,40 +5,28 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "PowerShell launch",
+            "name": "PowerShell & .NET Debug Session",
+            "type": "PowerShell",
+            "request": "launch",
+            "cwd": "${cwd}",
+            "script": "${workspaceFolder}/tools/LaunchScript.ps1 -NoExit",
+            "attachDotnetDebugger": true,
+            "createTemporaryIntegratedConsole": true,
+        },
+        {
+            "name": ".NET Debug Session",
             "type": "coreclr",
             "request": "launch",
             "program": "pwsh",
             "args": [
                 "-NoExit",
                 "-NoProfile",
-                "-Command",
-                "Import-Module ./output/PSWSMan; Enable-PSWSMan -Force"
+                "-File",
+                "${workspaceFolder}/tools/LaunchScript.ps1"
             ],
             "cwd": "${workspaceFolder}",
             "stopAtEntry": false,
-            "console": "externalTerminal",
-        },
-        {
-            "name": "PowerShell Launch Current File",
-            "type": "PowerShell",
-            "request": "launch",
-            "script": "${file}",
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "name": ".NET FullCLR Attach",
-            "type": "clr",
-            "request": "attach",
-            "processId": "${command:pickProcess}",
-            "justMyCode": true,
-        },
-        {
-            "name": ".NET CoreCLR Attach",
-            "type": "coreclr",
-            "request": "attach",
-            "processId": "${command:pickProcess}",
-            "justMyCode": true,
+            "console": "integratedTerminal",
         },
     ],
 }

@@ -1,9 +1,9 @@
-using PSWSMan.Shared.Authentication.Native;
+using PSWSMan.Authentication.Native;
 using System;
 using System.Buffers;
 using System.Runtime.InteropServices;
 
-namespace PSWSMan.Shared.Authentication;
+namespace PSWSMan.Authentication;
 
 public sealed class SspiCredential : WSManCredential
 {
