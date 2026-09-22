@@ -2,12 +2,9 @@
 
   <PropertyGroup>
     <TargetFrameworks>net8.0</TargetFrameworks>
-    <Nullable>enable</Nullable>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="System.Formats.Asn1" Version="8.0.0" PrivateAssets="all" />
     <InternalsVisibleTo Include="PSWSMan" />
   </ItemGroup>
 </Project>

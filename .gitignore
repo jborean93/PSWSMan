@@ -363,7 +363,6 @@ FodyWeavers.xsd
 
 ### Custom entries ###
 output/
-tools/Modules
 test.settings.json
 tests/integration/exchange.json
 tests/integration/exchange-cert.pfx

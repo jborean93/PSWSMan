@@ -1,5 +1,4 @@
-using PSWSMan.Shared;
-using PSWSMan.Shared.Authentication;
+using PSWSMan.Authentication;
 using System;
 using System.Collections.Generic;
 using System.Management.Automation;
@@ -239,7 +238,7 @@ internal class WSManPSRPShim : IDisposable
                         }
                     }
 
-                    if (response.State == Shared.CommandState.Done)
+                    if (response.State == CommandState.Done)
                     {
                         tracer.WriteLine("PSWSMan Receive Task Complete. CmdId: '{0}'", commandId);
                         break;

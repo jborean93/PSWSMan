@@ -4,7 +4,7 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Security.Authentication;
 
-namespace PSWSMan.Shared.Authentication.Native;
+namespace PSWSMan.Authentication.Native;
 
 internal static partial class Helpers
 {

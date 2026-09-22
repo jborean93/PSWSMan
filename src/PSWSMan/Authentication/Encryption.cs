@@ -1,6 +1,6 @@
 using System;
 
-namespace PSWSMan.Shared.Authentication;
+namespace PSWSMan.Authentication;
 
 /// <summary>
 /// Used by authentication contexts that support WSMan encryption.

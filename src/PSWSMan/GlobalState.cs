@@ -1,5 +1,4 @@
-using PSWSMan.Shared;
-using PSWSMan.Shared.Authentication.Native;
+using PSWSMan.Authentication.Native;
 
 namespace PSWSMan;
 

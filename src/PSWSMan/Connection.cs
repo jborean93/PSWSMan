@@ -1,4 +1,4 @@
-using PSWSMan.Shared.Authentication;
+using PSWSMan.Authentication;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -17,7 +17,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PSWSMan.Shared;
+namespace PSWSMan;
 
 internal class WSManInitialRequest : HttpRequestMessage
 {

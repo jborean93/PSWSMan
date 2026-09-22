@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/PSWSMan.Loader/PSWSMan.Loader.csproj" />
+    <Project Path="src/PSWSMan/PSWSMan.csproj" />
+  </Folder>
+</Solution>

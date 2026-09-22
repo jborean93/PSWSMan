@@ -1,7 +1,7 @@
 using System;
 using System.Text;
 
-namespace PSWSMan.Shared.Authentication;
+namespace PSWSMan.Authentication;
 
 public sealed class BasicCredential : WSManCredential
 {

@@ -1,8 +1,8 @@
-using PSWSMan.Shared.Authentication.Native;
+using PSWSMan.Authentication.Native;
 using System;
 using System.Runtime.InteropServices;
 
-namespace PSWSMan.Shared.Authentication;
+namespace PSWSMan.Authentication;
 
 /// <summary>
 /// Options to request during the negotiate authentication stepping. The values
