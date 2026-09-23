@@ -8,8 +8,8 @@
     <!-- Testing -->
 
     <!-- Module Deps -->
-    <PackageVersion Include="Devolutions.Sspi" Version="2023.12.20" />
-    <PackageVersion Include="IgnoresAccessChecksToGenerator" Version="0.8.0" />
+    <PackageVersion Include="Devolutions.Sspi" Version="2026.8.19" />
+    <PackageVersion Include="IgnoresAccessChecksToGenerator" Version="1.0.0" />
     <PackageVersion Include="MonoMod.RuntimeDetour" Version="25.3.6" />
     <PackageVersion Include="System.Formats.Asn1" Version="8.0.0" />
     <PackageVersion Include="System.Management.Automation" Version="7.4.0" />
