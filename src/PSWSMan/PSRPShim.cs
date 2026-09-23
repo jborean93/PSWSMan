@@ -1,4 +1,5 @@
 using PSWSMan.Authentication;
+using PSWSMan.Lib;
 using System;
 using System.Collections.Generic;
 using System.Management.Automation;
@@ -10,6 +11,7 @@ using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
 using System.Xml.Linq;
+using WSManCommandState = PSWSMan.Lib.CommandState;
 
 namespace PSWSMan;
 
@@ -31,7 +33,7 @@ internal class WSManPSRPShim : IDisposable
     {
         _session = CreateSession(options);
         _options = options;
-        _winrs = client ?? new(_session.Client);
+        _winrs = client ?? new(_session.Client, shellId);
         _runspacePoolId = runspacePoolId;
         _noMachineProfile = noMachineProfile;
         _shellUri = shellId;
@@ -158,15 +160,14 @@ internal class WSManPSRPShim : IDisposable
         string psrpPayload = Convert.ToBase64String(psrpFragment);
         XElement extraContent = new(WSManNamespace.pwsh + "creationXml", psrpPayload);
         OptionSet shellOptions = new();
-        shellOptions.Add("protocolversion", "2.3");
+        shellOptions.Add("protocolversion", "2.3", new() { { "MustComply", "true" } });
 
         if (_noMachineProfile)
         {
-            shellOptions.Add("WINRS_NOPROFILE", "1", new() { { "mustComply", true } });
+            shellOptions.Add("WINRS_NOPROFILE", "1", new() { { "MustComply", "true" } });
         }
 
-        string payload = _winrs.Create(
-            _shellUri,
+        WSManRequest payload = _winrs.Create(
             inputStreams: "stdin pr",
             outputStreams: "stdout",
             shellId: _runspacePoolId,
@@ -179,7 +180,7 @@ internal class WSManPSRPShim : IDisposable
 
     public async Task CloseShellAsync()
     {
-        string payload = _winrs.Delete();
+        WSManRequest payload = _winrs.Delete();
         await _session.PostRequest<WSManDeleteResponse>(payload);
     }
 
@@ -187,31 +188,31 @@ internal class WSManPSRPShim : IDisposable
     {
         string psrpPayload = Convert.ToBase64String(psrpFragment);
 
-        string payload = _winrs.Command("", new[] { psrpPayload }, commandId: commandId);
+        WSManRequest payload = _winrs.Command("", new[] { psrpPayload }, commandId: commandId);
         await _session.PostRequest<WSManCommandResponse>(payload);
     }
 
     public async Task CloseCommandAsync(Guid commandId)
     {
-        string payload = _winrs.Signal(SignalCode.Terminate, commandId: commandId);
+        WSManRequest payload = _winrs.Signal(SignalCode.Terminate, commandId: commandId);
         await _session.PostRequest<WSManSignalResponse>(payload);
     }
 
     public async Task<WSManReceiveResponse> Receive(string stream, Guid? commandId = null)
     {
-        string payload = _winrs.Receive(stream, commandId: commandId);
+        WSManRequest payload = _winrs.Receive(stream, commandId: commandId);
         return await _session.PostRequest<WSManReceiveResponse>(payload);
     }
 
     public async Task SendAsync(string stream, byte[] data, Guid? commandId = null)
     {
-        string payload = _winrs.Send(stream, data, commandId: commandId);
+        WSManRequest payload = _winrs.Send(stream, data, commandId: commandId);
         await _session.PostRequest<WSManSendResponse>(payload);
     }
 
     public async Task StopCommandAsync(Guid commandId)
     {
-        string payload = _winrs.Signal(SignalCode.PSCtrlC, commandId: commandId);
+        WSManRequest payload = _winrs.Signal(SignalCode.PSCtrlC, commandId: commandId);
         await _session.PostRequest<WSManSignalResponse>(payload);
     }
 
@@ -238,7 +239,7 @@ internal class WSManPSRPShim : IDisposable
                         }
                     }
 
-                    if (response.State == CommandState.Done)
+                    if (response.State == WSManCommandState.Done)
                     {
                         tracer.WriteLine("PSWSMan Receive Task Complete. CmdId: '{0}'", commandId);
                         break;
@@ -300,7 +301,7 @@ internal class WSManPSRPShim : IDisposable
     internal void SetMaxEnvelopeSize(int size)
     {
         // Updates options as well so that new sessions use the new value
-        _session.Client.MaxEnvelopeSize = size;
+        _session.Client.UpdateMaxEnvelopeSize(size);
         _options.MaxEnvelopeSize = size;
     }
 
@@ -328,8 +329,8 @@ internal class WSManPSRPShim : IDisposable
 
         WSManConnection connection = new(uriBuilder.Uri, option.Credential, option.NegotiateOptions ?? new(),
             option.TlsOptions, encrypt, connectTimeout);
-        WSManClient client = new(option.ConnectionUri, option.MaxEnvelopeSize, option.OperationTimeout, option.Locale,
-            dataLocale: option.DataLocale);
+        WSManClient client = new(option.ConnectionUri, option.MaxEnvelopeSize,
+            TimeSpan.FromSeconds(option.OperationTimeout), option.Locale, dataLocale: option.DataLocale);
 
         return new(connection, client);
     }
