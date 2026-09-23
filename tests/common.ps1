@@ -85,14 +85,16 @@ if (-not $global:PSWSManSettings) {
             throw "No server under 'default' was set in the test configuration"
         }
 
-        foreach ($scenario in $settings.scenarios.GetEnumerator()) {
-            $scenarioName = $scenario.Key
-            $hostName = $scenario.Value
+        if ($settings.scenarios) {
+            foreach ($scenario in $settings.scenarios.GetEnumerator()) {
+                $scenarioName = $scenario.Key
+                $hostName = $scenario.Value
 
-            if (-not $servers.ContainsKey($hostName)) {
-                throw "Failed to find the test settings server '$hostName' in scenario '$scenarioName'"
+                if (-not $servers.ContainsKey($hostName)) {
+                    throw "Failed to find the test settings server '$hostName' in scenario '$scenarioName'"
+                }
+                $scenarios[$scenarioName] = $hostName
             }
-            $scenarios[$scenarioName] = $hostName
         }
 
         $caCert = $null

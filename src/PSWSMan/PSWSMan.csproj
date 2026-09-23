@@ -2,13 +2,15 @@
 
   <PropertyGroup>
     <TargetFrameworks>net8.0</TargetFrameworks>
-    <!--A conflict with IgnoredAccessChecksToGenerator and MonoMod fires this-->
-    <NoWarn>CS0436</NoWarn>
-    <InternalsAssemblyNames>System.Management.Automation</InternalsAssemblyNames>
+    <!--MonoMod.Utils already exposes IgnoresAccessChecksToAttribute publicly-->
+    <IgnoresAccessChecksToOmitAttributeDefinition>true</IgnoresAccessChecksToOmitAttributeDefinition>
   </PropertyGroup>
 
   <ItemGroup>
+    <IgnoresAccessChecksTo Include="System.Management.Automation" />
+  </ItemGroup>
 
+  <ItemGroup>
     <PackageReference Include="Devolutions.Sspi" />
     <PackageReference Include="MonoMod.RuntimeDetour" />
     <ProjectReference Include="../PSWSMan.Loader/PSWSMan.Loader.csproj" />
