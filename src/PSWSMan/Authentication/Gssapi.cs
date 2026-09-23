@@ -1,20 +1,26 @@
 using PSWSMan.Authentication.Native;
+using PSWSMan.Connection;
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography.X509Certificates;
 
 namespace PSWSMan.Authentication;
 
-public sealed class GssapiCredential : WSManCredential
+internal sealed class GssapiCredential : WSManCredential
 {
     private readonly NegotiateMethod _authMethod;
     private readonly GssapiProvider _provider;
     private readonly byte[] _mech;
+    private readonly NegotiateOptions _options;
     private SafeGssapiCred? _credential;
 
-    internal GssapiCredential(GssapiProvider provider, string? username, string? password, NegotiateMethod method)
+    internal GssapiCredential(GssapiProvider provider, string? username, string? password, NegotiateMethod method,
+        NegotiateOptions options)
     {
         _authMethod = method;
+        _options = options;
         _provider = provider;
         _mech = method switch
         {
@@ -49,9 +55,9 @@ public sealed class GssapiCredential : WSManCredential
         }
     }
 
-    protected internal override AuthenticationContext CreateAuthContext()
+    public override IWSManAuthenticationContext CreateAuthContext(X509Certificate2? serverCertificate)
     {
-        return new GssapiAuthContext(_provider, _credential, _mech);
+        return new GssapiAuthContext(_provider, _credential, _mech, _options, serverCertificate);
     }
 
     protected override void Dispose(bool disposing)
@@ -66,7 +72,7 @@ public sealed class GssapiCredential : WSManCredential
     }
 }
 
-public sealed class GssapiAuthContext : NegotiateAuthContext, IWSManEncryptionContext
+internal sealed class GssapiAuthContext : NegotiateAuthContext, IWSManEncryptionContext
 {
     private readonly GssapiProvider _provider;
     private readonly SafeGssapiCred? _credential;
@@ -77,6 +83,9 @@ public sealed class GssapiAuthContext : NegotiateAuthContext, IWSManEncryptionCo
     private SafeGssapiSecContext? _context;
     private byte[]? _negotiatedMech;
     private bool _complete;
+    private int? _wrapHeaderLength;
+
+    private bool IsNtlm => _negotiatedMech?.SequenceEqual(Gssapi.NTLM) == true;
 
     public override bool Complete => _complete;
 
@@ -92,7 +101,8 @@ public sealed class GssapiAuthContext : NegotiateAuthContext, IWSManEncryptionCo
         get => -1;
     }
 
-    internal GssapiAuthContext(GssapiProvider provider, SafeGssapiCred? credential, byte[] mech)
+    internal GssapiAuthContext(GssapiProvider provider, SafeGssapiCred? credential, byte[] mech,
+        NegotiateOptions options, X509Certificate2? serverCertificate) : base(options, serverCertificate)
     {
         _provider = provider;
         _credential = credential;
@@ -110,13 +120,13 @@ public sealed class GssapiAuthContext : NegotiateAuthContext, IWSManEncryptionCo
         _mech = mech;
     }
 
-    protected internal override byte[]? Step(Span<byte> inToken, NegotiateOptions options, ChannelBindings? bindings)
+    public override byte[]? Step(Span<byte> inToken)
     {
-        GssapiContextFlags flags = (GssapiContextFlags)options.Flags;
-        string target = $"{options.SPNService ?? "host"}@{options.SPNHostName ?? "unknown"}";
+        GssapiContextFlags flags = (GssapiContextFlags)Options.Flags;
+        string target = $"{Options.SPNService ?? "host"}@{Options.SPNHostName ?? "unknown"}";
         using SafeGssapiName targetSpn = Gssapi.ImportName(_provider, target, Gssapi.GSS_C_NT_HOSTBASED_SERVICE);
 
-        var res = Gssapi.InitSecContext(_provider, _credential, _context, targetSpn, _mech, flags, 0, bindings,
+        var res = Gssapi.InitSecContext(_provider, _credential, _context, targetSpn, _mech, flags, 0, Bindings,
             inToken);
         _context = res.Context;
 
@@ -171,62 +181,94 @@ public sealed class GssapiAuthContext : NegotiateAuthContext, IWSManEncryptionCo
         return unwrappedData;
     }
 
-    public byte[] WrapWinRM(Span<byte> data, out int headerLength, out int paddingLength)
+    public byte[] WrapWinRM(ReadOnlySpan<byte> data, out int paddingLength)
     {
         if (_context == null)
             throw new InvalidOperationException("Cannot wrap without a completed context");
 
-        if (_negotiatedMech?.SequenceEqual(Gssapi.NTLM) == true)
+        if (IsNtlm)
         {
-            // NTLM doesn't support gss_wrap_iov but luckily the header is always 16 bytes and there is no padding so
-            // gss_wrap can be used instead. Because gss_wrap doesn't wrap in place we still need to copy the wrapped
-            // data to the input span.
-            headerLength = 16;
+            // NTLM doesn't support the IOV functions, gss_wrap returns the 16 byte header followed by the data.
+            byte[] wrapped = Wrap(data.ToArray());
+            byte[] ntlmBlock = new byte[4 + wrapped.Length];
+            BinaryPrimitives.WriteInt32LittleEndian(ntlmBlock, 16);
+            wrapped.CopyTo(ntlmBlock, 4);
+
             paddingLength = 0;
-
-            return Wrap(data);
+            return ntlmBlock;
         }
-        else
+
+        // The header length is constant for a context so it is queried once, letting the block be laid out and the
+        // data encrypted in place inside it. Padding is only added by the legacy RC4 and DES etypes, AES uses
+        // ciphertext stealing. The padding bytes are not sent, only their count is reported.
+        int headerLength = GetHeaderLength(data.Length);
+        byte[] block = new byte[4 + headerLength + data.Length];
+        BinaryPrimitives.WriteInt32LittleEndian(block, headerLength);
+        data.CopyTo(block.AsSpan(4 + headerLength));
+
+        unsafe
         {
-            unsafe
+            fixed (byte* dataPtr = block)
             {
-                fixed (byte* dataPtr = data)
+                Span<IOVBuffer> iov = stackalloc IOVBuffer[3];
+                iov[0].Flags = IOVBufferFlags.GSS_IOV_BUFFER_FLAG_ALLOCATE;
+                iov[0].Type = IOVBufferType.GSS_IOV_BUFFER_TYPE_HEADER;
+                iov[0].Data = IntPtr.Zero;
+                iov[0].Length = 0;
+
+                iov[1].Flags = IOVBufferFlags.NONE;
+                iov[1].Type = IOVBufferType.GSS_IOV_BUFFER_TYPE_DATA;
+                iov[1].Data = (IntPtr)(dataPtr + 4 + headerLength);
+                iov[1].Length = data.Length;
+
+                iov[2].Flags = IOVBufferFlags.GSS_IOV_BUFFER_FLAG_ALLOCATE;
+                iov[2].Type = IOVBufferType.GSS_IOV_BUFFER_TYPE_PADDING;
+                iov[2].Data = IntPtr.Zero;
+                iov[2].Length = 0;
+
+                using IOVResult res = Gssapi.WrapIOV(_provider, _context, true, 0, iov);
+
+                if (iov[0].Length != headerLength)
                 {
-                    Span<IOVBuffer> iov = stackalloc IOVBuffer[3];
-                    iov[0].Flags = IOVBufferFlags.GSS_IOV_BUFFER_FLAG_ALLOCATE;
-                    iov[0].Type = IOVBufferType.GSS_IOV_BUFFER_TYPE_HEADER;
-                    iov[0].Data = IntPtr.Zero;
-                    iov[0].Length = 0;
-
-                    iov[1].Flags = IOVBufferFlags.NONE;
-                    iov[1].Type = IOVBufferType.GSS_IOV_BUFFER_TYPE_DATA;
-                    iov[1].Data = (IntPtr)dataPtr;
-                    iov[1].Length = data.Length;
-
-                    iov[2].Flags = IOVBufferFlags.GSS_IOV_BUFFER_FLAG_ALLOCATE;
-                    iov[2].Type = IOVBufferType.GSS_IOV_BUFFER_TYPE_PADDING;
-                    iov[2].Data = IntPtr.Zero;
-                    iov[2].Length = 0;
-
-                    using IOVResult res = Gssapi.WrapIOV(_provider, _context, true, 0, iov);
-
-                    headerLength = iov[0].Length;
-                    paddingLength = iov[2].Length;
-
-                    byte[] encData = new byte[headerLength + iov[1].Length];
-                    new Span<byte>(iov[0].Data.ToPointer(), iov[0].Length).CopyTo(encData);
-                    new Span<byte>(iov[1].Data.ToPointer(), iov[1].Length).CopyTo(encData.AsSpan(headerLength));
-
-                    return encData;
+                    throw new InvalidOperationException(
+                        $"GSSAPI produced a {iov[0].Length} byte header but gss_wrap_iov_length reported {headerLength}");
                 }
+                new Span<byte>(iov[0].Data.ToPointer(), iov[0].Length).CopyTo(block.AsSpan(4));
+
+                paddingLength = iov[2].Length;
+                return block;
             }
         }
     }
 
-    public Span<byte> UnwrapWinRM(Span<byte> data, Span<byte> header, Span<byte> encData)
+    private int GetHeaderLength(int dataLength)
+    {
+        if (_wrapHeaderLength is int cached)
+        {
+            return cached;
+        }
+
+        Span<IOVBuffer> iov = stackalloc IOVBuffer[3];
+        iov[0].Type = IOVBufferType.GSS_IOV_BUFFER_TYPE_HEADER;
+        iov[1].Type = IOVBufferType.GSS_IOV_BUFFER_TYPE_DATA;
+        iov[1].Length = dataLength;
+        iov[2].Type = IOVBufferType.GSS_IOV_BUFFER_TYPE_PADDING;
+        Gssapi.WrapIOVLength(_provider, _context!, true, 0, iov);
+
+        _wrapHeaderLength = iov[0].Length;
+        return iov[0].Length;
+    }
+
+    public Span<byte> UnwrapWinRM(Span<byte> block)
     {
         if (_context == null)
             throw new InvalidOperationException("Cannot unwrap without a completed context");
+
+        // The length prefix is the header length for GSSAPI.
+        int headerLength = BinaryPrimitives.ReadInt32LittleEndian(block);
+        Span<byte> wrapped = block[4..];
+        Span<byte> header = wrapped[..headerLength];
+        Span<byte> encData = wrapped[headerLength..];
 
         /*
             Using Unwrap is required for NTLM as it does not support IOV buffers and by chance it also works for
@@ -239,12 +281,12 @@ public sealed class GssapiAuthContext : NegotiateAuthContext, IWSManEncryptionCo
             https://github.com/heimdal/heimdal/issues/739
         */
 
-        if (_negotiatedMech?.SequenceEqual(Gssapi.NTLM) == true || _provider.IsHeimdal)
+        if (IsNtlm || _provider.IsHeimdal)
         {
             // As gss_unwrap doesn't decrypt in place, the output array needs to be copied back into the input span.
-            byte[] unwrappedData = Unwrap(data);
+            byte[] unwrappedData = Unwrap(wrapped);
 
-            Span<byte> decData = data.Slice(header.Length, unwrappedData.Length);
+            Span<byte> decData = encData[..unwrappedData.Length];
             unwrappedData.CopyTo(decData);
 
             return decData;

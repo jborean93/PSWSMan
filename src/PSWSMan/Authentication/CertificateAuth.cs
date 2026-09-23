@@ -1,27 +1,34 @@
+using PSWSMan.Connection;
 using System;
+using System.Security.Cryptography.X509Certificates;
 
 namespace PSWSMan.Authentication;
 
-public sealed class CertificateCredential : WSManCredential
+internal sealed class CertificateCredential : WSManCredential
 {
     public CertificateCredential()
     { }
 
-    protected internal override AuthenticationContext CreateAuthContext()
+    public override IWSManAuthenticationContext CreateAuthContext(X509Certificate2? serverCertificate)
         => new CertificateAuthContext();
 }
 
-public sealed class CertificateAuthContext : AuthenticationContext
+internal sealed class CertificateAuthContext : IWSManAuthenticationContext
 {
-    public override bool Complete => false;
+    public bool Complete => false;  // Always include the authentication header in the request
 
-    public override string HttpAuthLabel => "http://schemas.dmtf.org/wbem/wsman/1/wsman/secprofile/https/mutual";
+    public string HttpAuthLabel => "http://schemas.dmtf.org/wbem/wsman/1/wsman/secprofile/https/mutual";
+
+    public string? AuthenticationStage => null;
 
     internal CertificateAuthContext()
     { }
 
     // Certificate auth is provided in the SslClientAuthenticationOptions.
     // This just ensures the correct header is set.
-    protected internal override byte[]? Step(Span<byte> inToken, NegotiateOptions options, ChannelBindings? bindings)
-        => Array.Empty<byte>();
+    public byte[]? Step(Span<byte> inToken)
+        => [];
+
+    public void Dispose()
+    { }
 }

@@ -31,9 +31,6 @@ task BuildManaged {
     $first = $true
     $csproj = (Get-Item -Path "$($Manifest.DotnetPath)/*.csproj").FullName
     foreach ($framework in $Manifest.TargetFrameworks) {
-        Write-Host "Downloading S.M.A for $framework" -ForegroundColor Cyan
-        Assert-SMA -TargetFramework $framework
-
         Write-Host "Compiling for $framework" -ForegroundColor Cyan
         $outputDir = [Path]::Combine($Manifest.ReleasePath, "bin", $framework)
         New-Item -Path $outputDir -ItemType Directory -Force | Out-Null

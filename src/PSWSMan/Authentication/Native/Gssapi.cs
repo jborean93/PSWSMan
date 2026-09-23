@@ -354,6 +354,18 @@ internal class GssapiProvider : IDisposable
     public virtual gss_wrap_iov_func gss_wrap_iov
         => GetDelegateForFunctionPtr<gss_wrap_iov_func>(nameof(gss_wrap_iov));
 
+    public delegate int gss_wrap_iov_length_func(
+        out int minor_status,
+        SafeGssapiSecContext context_handle,
+        int conf_eq,
+        int qop_req,
+        out int conf_state,
+        SafeHandle iov,
+        int iov_count);
+
+    public virtual gss_wrap_iov_length_func gss_wrap_iov_length
+        => GetDelegateForFunctionPtr<gss_wrap_iov_length_func>(nameof(gss_wrap_iov_length));
+
     public delegate int gss_release_iov_buffer_func(
         out int minor_status,
         SafeHandle iov,
@@ -415,6 +427,9 @@ internal class GSSFrameworkProvider : GssapiProvider
 
     public override gss_wrap_iov_func gss_wrap_iov
             => GetDelegateForFunctionPtr<gss_wrap_iov_func>($"__ApplePrivate_{nameof(gss_wrap_iov)}");
+
+    public override gss_wrap_iov_length_func gss_wrap_iov_length
+            => GetDelegateForFunctionPtr<gss_wrap_iov_length_func>($"__ApplePrivate_{nameof(gss_wrap_iov_length)}");
 
     public override gss_release_iov_buffer_func gss_release_iov_buffer
             => GetDelegateForFunctionPtr<gss_release_iov_buffer_func>($"__ApplePrivate_{nameof(gss_release_iov_buffer)}");
@@ -834,6 +849,23 @@ internal static class Gssapi
     /// <param name="buffer">The IOV buffers to unwrap.</param>
     /// <returns>The IOV result containing the unmanaged memory handle</returns>
     /// <exception cref="GSSAPIException">Failed to initiate/step the security context.</exception>
+    /// <summary>Fills in the header, padding and trailer lengths that <c>WrapIOV</c> would produce.</summary>
+    /// <remarks>
+    /// Only the lengths of the buffers are used, no data is read or allocated so nothing needs to be released.
+    /// </remarks>
+    public static void WrapIOVLength(GssapiProvider provider, SafeGssapiSecContext context, bool confReq,
+        int qopReq, Span<IOVBuffer> buffer)
+    {
+        using SafeHandle iovBuffers = CreateIOVSet(provider, buffer);
+        int majorStatus = provider.gss_wrap_iov_length(out var minorStatus, context, confReq ? 1 : 0, qopReq,
+            out var _, iovBuffers, buffer.Length);
+
+        if (majorStatus != 0)
+            throw new GSSAPIException(provider, majorStatus, minorStatus, "gss_wrap_iov_length");
+
+        ProcessIOVResult(provider, buffer, iovBuffers);
+    }
+
     public static IOVResult WrapIOV(GssapiProvider provider, SafeGssapiSecContext context, bool confReq, int qopReq,
         Span<IOVBuffer> buffer)
     {
@@ -1017,7 +1049,7 @@ internal static class Gssapi
     }
 }
 
-public class GSSAPIException : AuthenticationException
+internal class GSSAPIException : AuthenticationException
 {
     public int MajorStatus { get; } = -1;
 

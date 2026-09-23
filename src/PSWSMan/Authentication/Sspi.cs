@@ -1,20 +1,26 @@
 using PSWSMan.Authentication.Native;
+using PSWSMan.Connection;
 using System;
 using System.Buffers;
+using System.Buffers.Binary;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography.X509Certificates;
 
 namespace PSWSMan.Authentication;
 
-public sealed class SspiCredential : WSManCredential
+internal sealed class SspiCredential : WSManCredential
 {
     private readonly NegotiateMethod _authMethod;
     private readonly SspiProvider _provider;
     private SafeSspiCredentialHandle _credential;
 
+    private readonly NegotiateOptions _options;
     private bool _isDisposed = false;
 
-    internal SspiCredential(SspiProvider provider, string? username, string? password, NegotiateMethod method)
+    internal SspiCredential(SspiProvider provider, string? username, string? password, NegotiateMethod method,
+        NegotiateOptions options)
     {
+        _options = options;
         _authMethod = method;
         _provider = provider;
 
@@ -41,9 +47,9 @@ public sealed class SspiCredential : WSManCredential
             identity).Creds;
     }
 
-    protected internal override AuthenticationContext CreateAuthContext()
+    public override IWSManAuthenticationContext CreateAuthContext(X509Certificate2? serverCertificate)
     {
-        return new SspiAuthContext(_provider, _credential, _authMethod);
+        return new SspiAuthContext(_provider, _credential, _authMethod, _options, serverCertificate);
     }
 
     protected override void Dispose(bool disposing)
@@ -61,7 +67,7 @@ public sealed class SspiCredential : WSManCredential
     }
 }
 
-public sealed class SspiAuthContext : NegotiateAuthContext, IWSManEncryptionContext
+internal sealed class SspiAuthContext : NegotiateAuthContext, IWSManEncryptionContext
 {
     private readonly SspiProvider _provider;
     private readonly SafeSspiCredentialHandle _credential;
@@ -89,7 +95,8 @@ public sealed class SspiAuthContext : NegotiateAuthContext, IWSManEncryptionCont
         get => -1;
     }
 
-    internal SspiAuthContext(SspiProvider provider, SafeSspiCredentialHandle credential, NegotiateMethod method)
+    internal SspiAuthContext(SspiProvider provider, SafeSspiCredentialHandle credential, NegotiateMethod method,
+        NegotiateOptions options, X509Certificate2? serverCertificate) : base(options, serverCertificate)
     {
         _provider = provider;
         _credential = credential;
@@ -106,37 +113,37 @@ public sealed class SspiAuthContext : NegotiateAuthContext, IWSManEncryptionCont
         }
     }
 
-    protected internal override byte[]? Step(Span<byte> inToken, NegotiateOptions options, ChannelBindings? bindings)
+    public override byte[]? Step(Span<byte> inToken)
     {
-        string targetSpn = $"{options.SPNService ?? "host"}/{options.SPNHostName ?? "unknown"}";
+        string targetSpn = $"{Options.SPNService ?? "host"}/{Options.SPNHostName ?? "unknown"}";
 
         InitiatorContextRequestFlags flags = (InitiatorContextRequestFlags)0;
-        if (options.Flags.HasFlag(NegotiateRequestFlags.Delegate) ||
-            options.Flags.HasFlag(NegotiateRequestFlags.DelegatePolicy))
+        if (Options.Flags.HasFlag(NegotiateRequestFlags.Delegate) ||
+            Options.Flags.HasFlag(NegotiateRequestFlags.DelegatePolicy))
         {
             flags |= InitiatorContextRequestFlags.ISC_REQ_DELEGATE;
         }
-        if (options.Flags.HasFlag(NegotiateRequestFlags.MutualAuth))
+        if (Options.Flags.HasFlag(NegotiateRequestFlags.MutualAuth))
         {
             flags |= InitiatorContextRequestFlags.ISC_REQ_MUTUAL_AUTH;
         }
-        if (options.Flags.HasFlag(NegotiateRequestFlags.ReplayDetect))
+        if (Options.Flags.HasFlag(NegotiateRequestFlags.ReplayDetect))
         {
             flags |= InitiatorContextRequestFlags.ISC_REQ_REPLAY_DETECT;
         }
-        if (options.Flags.HasFlag(NegotiateRequestFlags.SequenceDetect))
+        if (Options.Flags.HasFlag(NegotiateRequestFlags.SequenceDetect))
         {
             flags |= InitiatorContextRequestFlags.ISC_REQ_SEQUENCE_DETECT;
         }
-        if (options.Flags.HasFlag(NegotiateRequestFlags.Confidentiality))
+        if (Options.Flags.HasFlag(NegotiateRequestFlags.Confidentiality))
         {
             flags |= InitiatorContextRequestFlags.ISC_REQ_CONFIDENTIALITY;
         }
-        if (options.Flags.HasFlag(NegotiateRequestFlags.Integrity))
+        if (Options.Flags.HasFlag(NegotiateRequestFlags.Integrity))
         {
             flags |= InitiatorContextRequestFlags.ISC_REQ_INTEGRITY;
         }
-        if (options.Flags.HasFlag(NegotiateRequestFlags.Identify))
+        if (Options.Flags.HasFlag(NegotiateRequestFlags.Identify))
         {
             flags |= InitiatorContextRequestFlags.ISC_REQ_IDENTIFY;
         }
@@ -145,7 +152,7 @@ public sealed class SspiAuthContext : NegotiateAuthContext, IWSManEncryptionCont
         if (inToken.Length > 0)
             bufferCount++;
 
-        byte[]? bindingData = ConvertChannelBindings(bindings);
+        byte[]? bindingData = ConvertChannelBindings(Bindings);
         if (bindingData != null)
             bufferCount++;
 
@@ -282,52 +289,57 @@ public sealed class SspiAuthContext : NegotiateAuthContext, IWSManEncryptionCont
         }
     }
 
-    public byte[] WrapWinRM(Span<byte> data, out int headerLength, out int paddingLength)
+    public byte[] WrapWinRM(ReadOnlySpan<byte> data, out int paddingLength)
     {
         if (_context == null)
             throw new InvalidOperationException("Cannot wrap without a completed context");
 
+        // cbSecurityTrailer is the upper bound of the signature, the block is laid out for it and the data
+        // encrypted in place inside it. EncryptMessage reports the actual size and the block shrinks if needed.
+        int reserved = (int)_trailerSize;
+        byte[] block = new byte[4 + reserved + data.Length];
+        data.CopyTo(block.AsSpan(4 + reserved));
+
+        int headerLength;
         unsafe
         {
-            ArrayPool<byte> shared = ArrayPool<byte>.Shared;
-            byte[] token = shared.Rent((int)_trailerSize);
-
-            try
+            fixed (byte* blockPtr = block)
             {
-                fixed (byte* tokenPtr = token, dataPtr = data)
-                {
-                    Span<Helpers.SecBuffer> buffers = stackalloc Helpers.SecBuffer[2];
-                    buffers[0].BufferType = (UInt32)SecBufferType.SECBUFFER_TOKEN;
-                    buffers[0].cbBuffer = _trailerSize;
-                    buffers[0].pvBuffer = tokenPtr;
+                Span<Helpers.SecBuffer> buffers = stackalloc Helpers.SecBuffer[2];
+                buffers[0].BufferType = (UInt32)SecBufferType.SECBUFFER_TOKEN;
+                buffers[0].cbBuffer = (UInt32)reserved;
+                buffers[0].pvBuffer = blockPtr + 4;
 
-                    buffers[1].BufferType = (UInt32)SecBufferType.SECBUFFER_DATA;
-                    buffers[1].cbBuffer = (UInt32)data.Length;
-                    buffers[1].pvBuffer = dataPtr;
+                buffers[1].BufferType = (UInt32)SecBufferType.SECBUFFER_DATA;
+                buffers[1].cbBuffer = (UInt32)data.Length;
+                buffers[1].pvBuffer = blockPtr + 4 + reserved;
 
-                    Sspi.EncryptMessage(_provider, _context, 0, buffers, NextSendSeqNo());
-
-                    headerLength = (int)buffers[0].cbBuffer;
-                    paddingLength = 0;
-
-                    byte[] encData = new byte[headerLength + (int)buffers[1].cbBuffer];
-                    new Span<byte>(buffers[0].pvBuffer, (int)buffers[0].cbBuffer).CopyTo(encData);
-                    new Span<byte>(buffers[1].pvBuffer, (int)buffers[1].cbBuffer).CopyTo(encData.AsSpan(headerLength));
-
-                    return encData;
-                }
-            }
-            finally
-            {
-                shared.Return(token);
+                Sspi.EncryptMessage(_provider, _context, 0, buffers, NextSendSeqNo());
+                headerLength = (int)buffers[0].cbBuffer;
             }
         }
+
+        if (headerLength < reserved)
+        {
+            block.AsSpan(4 + reserved, data.Length).CopyTo(block.AsSpan(4 + headerLength));
+            Array.Resize(ref block, 4 + headerLength + data.Length);
+        }
+        BinaryPrimitives.WriteInt32LittleEndian(block, headerLength);
+
+        paddingLength = 0;
+        return block;
     }
 
-    public Span<byte> UnwrapWinRM(Span<byte> data, Span<byte> header, Span<byte> encData)
+    public Span<byte> UnwrapWinRM(Span<byte> block)
     {
         if (_context == null)
-            throw new InvalidOperationException("Cannot wrap without a completed context");
+            throw new InvalidOperationException("Cannot unwrap without a completed context");
+
+        // The length prefix is the signature length for SSPI.
+        int headerLength = BinaryPrimitives.ReadInt32LittleEndian(block);
+        Span<byte> wrapped = block[4..];
+        Span<byte> header = wrapped[..headerLength];
+        Span<byte> encData = wrapped[headerLength..];
 
         unsafe
         {

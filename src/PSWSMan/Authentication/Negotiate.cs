@@ -1,6 +1,8 @@
-using PSWSMan.Authentication.Native;
+using PSWSMan.Connection;
 using System;
-using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
 
 namespace PSWSMan.Authentication;
 
@@ -10,7 +12,7 @@ namespace PSWSMan.Authentication;
 /// Windows.
 /// </summary>
 [Flags]
-public enum NegotiateRequestFlags
+internal enum NegotiateRequestFlags
 {
     None = 0x00000000,
     Delegate = 0x00000001,
@@ -31,7 +33,7 @@ public enum NegotiateRequestFlags
 /// <summary>
 /// Specifies the authentication method used by the Negotiate context.
 /// </summary>
-public enum NegotiateMethod
+internal enum NegotiateMethod
 {
     NTLM,
     Kerberos,
@@ -46,32 +48,94 @@ public enum NegotiateMethod
 /// WSMan will only set the ApplicationData byte value to the one expected by
 /// Windows. The other properties are just set for completeness.
 /// </remarks>
-public sealed class ChannelBindings
+internal sealed class ChannelBindings
 {
     public int InitiatorAddrType { get; set; }
     public byte[]? InitiatorAddr { get; set; }
     public int AcceptorAddrType { get; set; }
     public byte[]? AcceptorAddr { get; set; }
     public byte[]? ApplicationData { get; set; }
+
+    /// <summary>Builds the tls-server-end-point channel bindings for a TLS server certificate.</summary>
+    /// <remarks>
+    /// While .NET has its own function to retrieve this value it returns an opaque pointer with no publicly
+    /// documented structure. To avoid using any internal implementation details this just does the same work to
+    /// achieve the same result.
+    /// </remarks>
+    /// <param name="certificate">The server certificate of the TLS session.</param>
+    /// <returns>The channel bindings with the ApplicationData set to the hashed certificate.</returns>
+    public static ChannelBindings FromTlsServerCertificate(X509Certificate2 certificate)
+    {
+        byte[] certHash = certificate.SignatureAlgorithm.Value switch
+        {
+            "2.16.840.1.101.3.4.2.2" or // SHA384
+            "1.2.840.10045.4.3.3" or // SHA384ECDSA
+            "1.2.840.113549.1.1.12" // SHA384RSA
+                => SHA384.HashData(certificate.RawData),
+
+            "2.16.840.1.101.3.4.2.3" or // SHA512
+            "1.2.840.10045.4.3.4" or // SHA512ECDSA
+            "1.2.840.113549.1.1.13" // SHA512RSA
+                => SHA512.HashData(certificate.RawData),
+
+            // Older protocols default to SHA256, use this as a catch all in case of a weird algorithm.
+            _ => SHA256.HashData(certificate.RawData),
+        };
+
+        byte[] prefix = Encoding.UTF8.GetBytes("tls-server-end-point:");
+        byte[] applicationData = new byte[prefix.Length + certHash.Length];
+        prefix.CopyTo(applicationData, 0);
+        certHash.CopyTo(applicationData, prefix.Length);
+
+        return new ChannelBindings()
+        {
+            ApplicationData = applicationData,
+        };
+    }
 }
 
 /// <summary>
 /// Extra options specific to Negotiate authentication to set on the authentication context.
 /// </summary>
-public sealed class NegotiateOptions
+internal sealed class NegotiateOptions
 {
     public NegotiateRequestFlags Flags { get; set; } = NegotiateRequestFlags.Default;
     public string? SPNService { get; set; }
     public string? SPNHostName { get; set; }
 }
-
 /// <summary>
-/// Interface that extends an AuthenticationContext to provide features
-/// specific to the Negotiate protocol. This includes channel binding support
-/// and wrapping and unwrapping support.
+/// Base class for Negotiate protocol contexts (Kerberos, NTLM, SPNEGO). On top of
+/// <see cref="IWSManAuthenticationContext"/> it provides the wrap and unwrap
+/// operations CredSSP uses to protect its tokens.
 /// </summary>
-public abstract class NegotiateAuthContext : AuthenticationContext
+internal abstract class NegotiateAuthContext : IWSManAuthenticationContext
 {
+    /// <summary>The negotiate options the credential was created with.</summary>
+    protected NegotiateOptions Options { get; }
+
+    /// <summary>The channel bindings of the connection, null when not over TLS.</summary>
+    protected ChannelBindings? Bindings { get; }
+
+    /// <param name="options">The negotiate options the credential was created with.</param>
+    /// <param name="serverCertificate">The TLS server certificate to bind to, null when not over TLS.</param>
+    protected NegotiateAuthContext(NegotiateOptions options, X509Certificate2? serverCertificate)
+    {
+        Options = options;
+        Bindings = serverCertificate is null ? null : ChannelBindings.FromTlsServerCertificate(serverCertificate);
+    }
+
+    /// <inheritdoc />
+    public abstract bool Complete { get; }
+
+    /// <inheritdoc />
+    public abstract string HttpAuthLabel { get; }
+
+    /// <inheritdoc />
+    public virtual string? AuthenticationStage => null;
+
+    /// <inheritdoc />
+    public abstract byte[]? Step(Span<byte> inToken);
+
     /// <summary>Wraps the data as a single stream.</summary>
     /// <remarks>
     /// Some platforms may mutate the input data while others won't.
@@ -94,46 +158,12 @@ public abstract class NegotiateAuthContext : AuthenticationContext
     /// <returns>The unwrapped data.</returns>
     protected internal abstract byte[] Unwrap(Span<byte> data);
 
-    /// <summary>
-    /// Creates a credential that uses negotiate authentication for the current platform.
-    /// It will use SSPI on Windows and GSSAPI on Linux.
-    /// </summary>
-    /// <param name="username">The username to authenticate with.</param>
-    /// <param name="password">The password to authenticate with.</param>
-    /// <param name="method">The specific negotiate protocol to use.</param>
-    /// <returns>The Negotiate context for the platform.</returns>
-    public static WSManCredential CreateCredential(string? username, string? password, NegotiateMethod method)
+    public void Dispose()
     {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            SspiProvider provider = new(NativeLibrary.Load("Secur32.dll"));
-            return new SspiCredential(provider, username, password, method);
-        }
-        else
-        {
-            GssapiProvider provider = GetGssapiProvider();
-            return new GssapiCredential(provider, username, password, method);
-        }
+        Dispose(true);
+        GC.SuppressFinalize(this);
     }
 
-    internal static GssapiProvider GetGssapiProvider()
-    {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-        {
-            return new(NativeLibrary.Load("/System/Library/Frameworks/GSS.framework/GSS"));
-        }
-
-        foreach (string krb5Path in new[] {
-                "libgssapi_krb5.so.2", // MIT krb5
-                "libgssapi.so.3", "libgssapi.so", // Heimdal
-            })
-        {
-            if (NativeLibrary.TryLoad(krb5Path, out var krb5Handle))
-            {
-                return new(krb5Handle);
-            }
-        }
-
-        throw new PlatformNotSupportedException("Cannot find GSSAPI on current system platform.");
-    }
+    protected virtual void Dispose(bool disposing)
+    { }
 }

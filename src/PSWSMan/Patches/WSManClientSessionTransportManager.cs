@@ -5,6 +5,7 @@ using System.Management.Automation.Remoting;
 using System.Management.Automation.Remoting.Client;
 using System.Management.Automation.Runspaces;
 using System.Reflection;
+using System.Threading;
 
 namespace PSWSMan.Module.Patches;
 
@@ -160,8 +161,8 @@ internal static class PSWSMan_WSManClientSessionTransportManager
                 return;
             }
 
-            WSManPSRPShim session = WSManCompatState.SessionInfo[wsManSessionHandle];
-            if (serverProtocolVersion > new Version("2.1") && session.GetMaxEnvelopeSize() == WSManSessionOption.DefaultMaxEnvelopeSize)
+            WSManPSRPSession session = WSManSessionState.Get(wsManSessionHandle);
+            if (serverProtocolVersion > new Version("2.1") && session.MaxEnvelopeSize == WSManPSRPSession.DefaultMaxEnvelopeSize)
             {
                 tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.AdjustForProtocolVariations - Updating max fragmenent size to 500KiB for {0}",
                     session.RunspacePoolId);
@@ -204,14 +205,16 @@ internal static class PSWSMan_WSManClientSessionTransportManager
             nint wsManSessionHandle = (nint)WSManSessionHandleField.GetValue(self)!;
             if (wsManSessionHandle != IntPtr.Zero)
             {
-                WSManPSRPShim session = WSManCompatState.SessionInfo[wsManSessionHandle];
+                WSManPSRPSession session = WSManSessionState.Get(wsManSessionHandle);
 
                 tracer.WriteLine(
                     "PSWSMan: WSManClientSessionTransportManager.CloseAsync - Sending Shell Delete for {0}",
                     session.RunspacePoolId);
                 try
                 {
-                    session.CloseShellAsync().GetAwaiter().GetResult();
+                    // Also aborts a CreateAsync that is still blocked on another thread, e.g. Ctrl+C during
+                    // New-PSSession to an unreachable host.
+                    session.CloseShell();
                 }
                 catch (Exception e)
                 {
@@ -219,7 +222,7 @@ internal static class PSWSMan_WSManClientSessionTransportManager
                         "PSWSMan: WSManClientSessionTransportManager.CloseAsync - Delete failed for {0}\n{1}",
                         session.RunspacePoolId, e);
 
-                    WSManCompatState.SessionInfo.Remove(wsManSessionHandle);
+                    WSManSessionState.Remove(wsManSessionHandle)?.Dispose();
                     WSManSessionHandleField.SetValue(self, IntPtr.Zero);
 
                     TransportErrorOccuredEventArgs err = new(new PSRemotingTransportException(e.Message, e),
@@ -260,9 +263,11 @@ internal static class PSWSMan_WSManClientSessionTransportManager
     {
         /*
             This method sends the WSMan Create message. In Pwsh it returns
-            early and the native API invokes a callback function that
-            handles the response. As this library has finer control the
-            callback mess is avoided the response is also processed here.
+            early and the native API invokes a callback function on another
+            thread that handles the response. The same shape is kept here so
+            the caller is free to process a stop request while the connection
+            is being established. CloseAsync cancels an in-flight create
+            through the session's lifetime token.
 
             https://github.com/PowerShell/PowerShell/blob/3f3d79d4758704c8dad5ca7c12690ba62fd03a3b/src/System.Management.Automation/engine/remoting/fanin/WSManTransportManager.cs#L3024
         */
@@ -273,17 +278,41 @@ internal static class PSWSMan_WSManClientSessionTransportManager
             tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.CreateAsync - Called");
 
             nint wsManSessionHandle = (nint)WSManSessionHandleField.GetValue(self)!;
-            WSManPSRPShim session = WSManCompatState.SessionInfo[wsManSessionHandle];
+            WSManPSRPSession session = WSManSessionState.Get(wsManSessionHandle);
 
             PrioritySendDataCollection dataToBeSent = (PrioritySendDataCollection)DataToBeSentField.GetValue(self)!;
             byte[] additionalData = dataToBeSent.ReadOrRegisterCallback(null, out var _);
 
+            Thread createThread = new(() => CreateShell(self, session, wsManSessionHandle, additionalData, tracer))
+            {
+                IsBackground = true,
+                Name = $"PSWSMan Create Shell {session.RunspacePoolId}",
+            };
+            createThread.Start();
+        }
+        catch (Exception e)
+        {
+            tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.CreateAsync - Error\n{0}", e.ToString());
+            throw;
+        }
+    }
+
+    private static void CreateShell(
+        WSManClientSessionTransportManager self,
+        WSManPSRPSession session,
+        nint wsManSessionHandle,
+        byte[]? additionalData,
+        PSTraceSource tracer
+    )
+    {
+        try
+        {
             tracer.WriteLine(
                 "PSWSMan: WSManClientSessionTransportManager.CreateAsync - Sending Shell Create for {0}",
                 session.RunspacePoolId);
             try
             {
-                session.CreateShellAsync(additionalData ?? Array.Empty<byte>()).GetAwaiter().GetResult();
+                session.CreateShell(additionalData ?? Array.Empty<byte>());
             }
             catch (Exception e)
             {
@@ -291,7 +320,13 @@ internal static class PSWSMan_WSManClientSessionTransportManager
                     "PSWSMan: WSManClientSessionTransportManager.CreateAsync - Shell Create failed for {0}\n{1}",
                     session.RunspacePoolId, e);
 
-                WSManCompatState.SessionInfo.Remove(wsManSessionHandle);
+                if (session.IsClosed)
+                {
+                    // CloseAsync cancelled the create, it has already told PowerShell the session is closed.
+                    return;
+                }
+
+                WSManSessionState.Remove(wsManSessionHandle)?.Dispose();
                 WSManSessionHandleField.SetValue(self, IntPtr.Zero);
 
                 TransportErrorOccuredEventArgs err = new(new PSRemotingTransportException(e.Message, e),
@@ -311,15 +346,15 @@ internal static class PSWSMan_WSManClientSessionTransportManager
 
             self.RaiseCreateCompleted(new CreateCompleteEventArgs(self.ConnectionInfo.Copy()));
 
-            // Start the receive thread that continuously polls the receive output. The first message expected back
+            // Start the receive pump that continuously polls the receive output. The first message expected back
             // is the SessionCapability which will fire the AdjustForProtocolVariations and StartReceivingData methods
             // where the remaining Runspace creation messages (if any) are sent.
-            session.StartReceiveTask(self, tracer);
+            session.StartReceive(self);
         }
         catch (Exception e)
         {
+            // Nothing may escape this thread.
             tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.CreateAsync - Error\n{0}", e.ToString());
-            throw;
         }
     }
 
@@ -344,10 +379,7 @@ internal static class PSWSMan_WSManClientSessionTransportManager
             nint wsManSessionHandle = (nint)WSManSessionHandleField.GetValue(self)!;
             if (wsManSessionHandle != IntPtr.Zero)
             {
-                WSManPSRPShim session = WSManCompatState.SessionInfo[wsManSessionHandle];
-                session.Dispose();
-
-                WSManCompatState.SessionInfo.Remove(wsManSessionHandle);
+                WSManSessionState.Remove(wsManSessionHandle)?.Dispose();
                 WSManSessionHandleField.SetValue(self, IntPtr.Zero);
             }
         }
@@ -399,7 +431,7 @@ internal static class PSWSMan_WSManClientSessionTransportManager
             Guid runspacePoolId = self.RunspacePoolInstanceId;
 
             ConnectionInfoProperty.SetValue(self, connectionInfo);
-            self.Fragmentor.FragmentSize = WSManSessionOption.DefaultMaxEnvelopeSize;
+            self.Fragmentor.FragmentSize = WSManPSRPSession.DefaultMaxEnvelopeSize;
 
             // The connection URI needs to be rewritten if this flag is set so that it uses the default WSMan port
             // rather than 80/443.
@@ -413,18 +445,19 @@ internal static class PSWSMan_WSManClientSessionTransportManager
             }
 
             tracer.WriteLine(
-                "PSWSMan: WSManClientSessionTransportManager.Initialized - Creating PSRP Shim for {0} RPID {1}",
+                "PSWSMan: WSManClientSessionTransportManager.Initialized - Creating PSRP session for {0} RPID {1}",
                 connectionUri, runspacePoolId);
-            WSManPSRPShim session = WSManPSRPShim.Create(
+            WSManPSRPSession session = WSManPSRPSession.Create(
                 runspacePoolId,
                 connectionUri,
                 connectionInfo,
                 extraOptions,
-                WSManSessionOption.DefaultMaxEnvelopeSize
+                WSManPSRPSession.DefaultMaxEnvelopeSize,
+                tracer
             );
             lock (syncObject)
             {
-                nint nextSessionId = WSManCompatState.StoreSession(session);
+                nint nextSessionId = WSManSessionState.Store(session);
                 WSManSessionHandleField.SetValue(self, nextSessionId);
             }
         }
@@ -459,15 +492,14 @@ internal static class PSWSMan_WSManClientSessionTransportManager
                 return;
             }
 
-            WSManPSRPShim session = WSManCompatState.SessionInfo[wsManSessionHandle];
+            WSManPSRPSession session = WSManSessionState.Get(wsManSessionHandle);
 
             tracer.WriteLine(
                 "PSWSMan: WSManClientSessionTransportManager.SendData - Sending Shell Send for {0}",
                 session.RunspacePoolId);
             try
             {
-                session.SendAsync(priorityType == DataPriorityType.Default ? "stdin" : "pr",
-                    data).GetAwaiter().GetResult();
+                session.Send(priorityType == DataPriorityType.Default ? "stdin" : "pr", data);
             }
             catch (Exception e)
             {

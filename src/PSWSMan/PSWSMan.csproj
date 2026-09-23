@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <IgnoresAccessChecksTo Include="System.Management.Automation" />
+    <InternalsVisibleTo Include="PSWSMan.Connection.Tests" />
   </ItemGroup>
 
   <ItemGroup>
@@ -17,6 +18,12 @@
     <ProjectReference Include="../PSWSMan.Loader/PSWSMan.Loader.csproj" />
     <PackageReference Include="IgnoresAccessChecksToGenerator" PrivateAssets="All" />
     <PackageReference Include="System.Formats.Asn1" PrivateAssets="all" />
-    <Reference Include="../../output/System.Management.Automation/$(TargetFramework)/System.Management.Automation.dll" Private="false" />
+    <!--
+    The module patches internal S.M.A types so it must compile against the real implementation assembly rather than
+    the reference assembly in the package's ref/ folder. Every asset is excluded so none of the package or its
+    dependencies end up in the published module, the package is only restored to give us a path to compile against.
+    -->
+    <PackageReference Include="System.Management.Automation" ExcludeAssets="all" PrivateAssets="all" GeneratePathProperty="true" />
+    <Reference Include="$(PkgSystem_Management_Automation)/runtimes/win/lib/$(TargetFramework)/System.Management.Automation.dll" Private="false" />
   </ItemGroup>
 </Project>

@@ -22,9 +22,6 @@ internal class TlsBIOStream : Stream
     /// <summary>The buffer used to store incoming data.</summary>
     public byte[] IncomingBuffer => _incomingBuffer;
 
-    /// <summary>The buffer used to store outgoing data.</summary>
-    public byte[] OutgoingBuffer => _outgoingBuffer;
-
     public override bool CanRead => true;
 
     public override bool CanSeek => false;
@@ -145,6 +142,7 @@ internal class TlsSecurityContext : IDisposable
 {
     private readonly TlsBIOStream _bio;
     private readonly SslStream _ssl;
+    private bool? _isAeadSuite;
     private readonly SslClientAuthenticationOptions _sslOptions;
 
     /// <summary>Creates the TLS security context.</summary>
@@ -284,29 +282,27 @@ internal class TlsSecurityContext : IDisposable
 
     /// <summary>Encrypt data to send to the server.</summary>
     /// <param name="data">The data to encrypt.</param>
-    /// <returns>The data that was encrypted.</returns>
-    public Span<byte> Encrypt(ReadOnlySpan<byte> data)
+    /// <param name="trailerLength">
+    /// The number of bytes that follow the encrypted data in the record, which is what WinRM expects as the length
+    /// prefix of a CredSSP block. AEAD suites have a constant overhead so it is read straight off the record, TLS
+    /// 1.3 has no explicit nonce while the TLS 1.2 AEAD suites SChannel offers carry an 8 byte one after the 5 byte
+    /// record header. CBC and RC4 suites carry a MAC and length dependent padding instead.
+    /// </param>
+    /// <returns>The TLS record to send.</returns>
+    public Span<byte> Encrypt(ReadOnlySpan<byte> data, out int trailerLength)
     {
         _ssl.Write(data);
-        return _bio.ServerRead();
+        Span<byte> record = _bio.ServerRead();
+
+        trailerLength = IsAeadSuite
+            ? record.Length - data.Length - (_ssl.SslProtocol == SslProtocols.Tls13 ? 5 : 13)
+            : GetMacTrailerLength(data.Length);
+
+        return record;
     }
 
-    /// <summary>Get the size of the TLS trailer for the data being encrypted.</summary>
-    /// <param name="dataLength">The number of bytes that will be encrypted.</param>
-    /// <returns>The number of bytes of the trailer.</returns>
-    public int GetTlsTrailerLength(int dataLength)
+    private int GetMacTrailerLength(int dataLength)
     {
-        if (_ssl.SslProtocol == SslProtocols.Tls13)
-        {
-            // The 2 cipher suites MS supports (TLS_AES_*_GCM_SHA*) have a fixed length of 17.
-            return 17;
-        }
-        else if (_ssl.NegotiatedCipherSuite.ToString().Contains("_GCM_"))
-        {
-            // GCM has a fixed length of 16 bytes
-            return 16;
-        }
-
         int hashLength = _ssl.HashAlgorithm switch
         {
             HashAlgorithmType.Md5 => 16,
@@ -325,7 +321,30 @@ internal class TlsSecurityContext : IDisposable
             _ => 16 - (prepadLength % 8),
         };
 
-        return prepadLength + paddingLength - dataLength;
+        return hashLength + paddingLength;
+    }
+
+    private bool IsAeadSuite
+    {
+        get
+        {
+            if (_isAeadSuite is bool cached)
+            {
+                return cached;
+            }
+
+            bool isAead = _ssl.SslProtocol == SslProtocols.Tls13;
+            if (!isAead)
+            {
+                string suite = _ssl.NegotiatedCipherSuite.ToString();
+                isAead = suite.Contains("_GCM_", StringComparison.Ordinal) ||
+                    suite.Contains("_CCM", StringComparison.Ordinal) ||
+                    suite.Contains("_CHACHA20_", StringComparison.Ordinal);
+            }
+
+            _isAeadSuite = isAead;
+            return isAead;
+        }
     }
 
     public void Dispose()
