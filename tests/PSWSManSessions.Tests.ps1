@@ -319,7 +319,7 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
             'CredSSP authentication failure during the stage TlsHandshake'
         }
         else {
-            'WinRM authentication failure - server did not response to token during the stage TlsHandshake'
+            'TLS handshake failure: SSL Handshake failed'
         }
         [string]$err[0] | Should -BeLike "*$expected*"
     }
