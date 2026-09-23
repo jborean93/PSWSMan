@@ -21,7 +21,7 @@ client once `Enable-PSWSMan -Force` has been run.
 | `manifest.psd1` | Pinned versions of the PowerShell build/test modules (InvokeBuild, Pester, platyPS, PSResourceGet, OpenAuthenticode). |
 | `global.json` | Pins the .NET SDK (10.0.x) and selects `Microsoft.Testing.Platform` as the `dotnet test` runner. |
 | `PSWSMan.slnx` | Solution file listing the three `src/` projects. |
-| `src/PSWSMan/` | The PowerShell module assembly: cmdlets, S.M.A patches, authentication (GSSAPI, SSPI, CredSSP, Basic, certificate), TLS, PSRP session bridge (`WSManPSRPSession.cs`). References S.M.A directly. |
+| `src/PSWSMan/` | The PowerShell module assembly: cmdlets, S.M.A patches, authentication (GSSAPI, SSPI, CredSSP, Basic, certificate), TLS, PSRP session bridge (`WSManPSRPSession.cs`). Compiles against the S.M.A implementation assembly from the `System.Management.Automation` NuGet package. |
 | `src/PSWSMan/Connection/` | The synchronous HTTP transport (`PSWSMan.Connection` namespace): one authenticated socket per `WSManHttpConnection`, a `WSManConnectionPool` handing them out under exclusive leases, and `WinRSShell`/`WinRSReceivePump` driving a WinRS shell with dedicated receive threads. Nothing in this folder may reference S.M.A types so it can be loaded by a plain unit test project. |
 | `src/PSWSMan.Lib/` | Protocol-only library: WSMan/WinRS envelope building and response parsing. No PowerShell dependency, so it is unit testable with plain `dotnet test`. |
 | `src/PSWSMan.Loader/` | Tiny `AssemblyLoadContext` used by `module/PSWSMan.psm1` to isolate the module's dependencies from the host process. |
@@ -34,7 +34,7 @@ client once `Enable-PSWSMan -Force` has been run.
 | `tests/units/<Project>/` | .NET unit test projects (TUnit). Each directory is discovered and run automatically by the `Test` task. |
 | `tests/integration/` | Notes on standing up a WinRM lab for the server-backed tests. This area is due for a cleanup. |
 | `tools/` | Scripts used by `build.ps1`. `InvokeBuild.ps1` defines the tasks; `common.ps1` holds the `Manifest` class and helpers. |
-| `output/` | Git-ignored. Built module, nupkg, downloaded S.M.A reference assemblies, downloaded PowerShell versions, cached build modules, and test results all land here. Never commit or hand-edit it. |
+| `output/` | Git-ignored. Built module, nupkg, downloaded PowerShell versions, cached build modules, and test results all land here. Never commit or hand-edit it. |
 | `CHANGELOG.md` | Update under the top (unreleased) heading for any user-visible change. |
 
 ## Prerequisites
@@ -42,17 +42,17 @@ client once `Enable-PSWSMan -Force` has been run.
 - .NET SDK 10.0.x (see `global.json`; `rollForward` is `latestFeature`).
 - PowerShell 7.4 or newer to run the module. The build scripts themselves only need 7.2.
 - Network access on first run. The build script downloads the pinned
-  PowerShell modules into `output/Modules` via ModuleFast, and downloads the
-  matching S.M.A reference assembly from the PowerShell GitHub releases into
-  `output/System.Management.Automation/<tfm>/`. Both are cached afterwards.
+  PowerShell modules into `output/Modules` via ModuleFast, and `dotnet`
+  restores NuGet packages, including `System.Management.Automation`, into the
+  usual NuGet cache. Both are cached afterwards.
 - Global dotnet tools `dotnet-coverage` and `dotnet-reportgenerator-globaltool`
   are installed automatically by the `Test` task if missing.
 
 ## The one command to know
 
 The official way to build and test this project is `build.ps1`. It installs
-any missing dependencies, downloads reference assemblies, builds the module,
-runs the tests with coverage, and produces the same artifacts CI does.
+any missing dependencies, builds the module, runs the tests with coverage, and
+produces the same artifacts CI does.
 
 ```powershell
 pwsh -File ./build.ps1 -Configuration Debug|Release -Task Build|Test
@@ -81,11 +81,12 @@ The built module is at `output/PSWSMan/<version>/` and can be imported with
 
 Gotchas:
 
-- `src/PSWSMan/PSWSMan.csproj` references
-  `output/System.Management.Automation/<tfm>/System.Management.Automation.dll`
-  by path. A bare `dotnet build src/PSWSMan` or `dotnet build PSWSMan.slnx`
-  only works after `build.ps1` has run at least once on this machine.
-  `src/PSWSMan.Lib` and `src/PSWSMan.Loader` build standalone.
+- `src/PSWSMan/PSWSMan.csproj` compiles against the implementation assembly
+  under `runtimes/win/lib/<tfm>/` of the `System.Management.Automation` NuGet
+  package rather than the reference assembly in `ref/`, because the module
+  patches internal S.M.A types that the reference assembly omits. The package
+  reference excludes every asset so none of its dependencies reach the
+  published module. All projects build standalone with `dotnet build`.
 - Binary modules cannot be unloaded. After rebuilding, always start a fresh
   `pwsh` process before importing the module again.
 - Adding a NuGet dependency means adding a `PackageVersion` to
@@ -176,8 +177,7 @@ pwsh -File ./tools/CoverageReport.ps1 -Path ./output/TestResults/Coverage.cobert
   `<OutputType>Exe</OutputType>` and the shared `Directory.*.props` in
   `tests/units/`. Prefer referencing `PSWSMan.Lib`. `PSWSMan.Connection.Tests`
   references `PSWSMan` directly, which works only because the transport
-  classes never touch S.M.A; building it needs the reference assembly that
-  `build.ps1` downloads, so run `-Task Build` once first.
+  classes never touch S.M.A.
 - Unit tests are for standalone logic (framing, parsing, pool bookkeeping).
   Do not add tests that stand up fake HTTP servers; connection behaviour is
   verified manually against a real WinRM host. `Trace-Command -Name
