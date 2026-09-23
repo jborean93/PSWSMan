@@ -98,6 +98,24 @@ internal class TlsBIOStream : Stream
         return _outgoingBuffer.AsSpan(dataoffset, dataLength);
     }
 
+    /// <summary>Get data from the outgoing buffer without blocking.</summary>
+    /// <remarks>
+    /// Used to retrieve any data that was written by the SslStream client before it finished its operation.
+    /// </remarks>
+    /// <param name="data">The data from the outgoing buffer that should be sent to the server.</param>
+    /// <returns>Whether there was any data in the outgoing buffer.</returns>
+    public bool TryServerRead(out byte[] data)
+    {
+        if (_outgoing.TryTake(out (int, int) entry))
+        {
+            data = _outgoingBuffer.AsSpan(entry.Item1, entry.Item2).ToArray();
+            return true;
+        }
+
+        data = Array.Empty<byte>();
+        return false;
+    }
+
     /// <summary>Write data from the server into the incoming buffer.</summary>
     /// <remarks>
     /// This will place data into the incoming buffer to be processed by the SslStream client.
@@ -165,27 +183,62 @@ internal class TlsSecurityContext : IDisposable
             }
         });
 
-        Span<byte> token = _bio.ServerRead(handshakeDone.Token);
-        yield return token.ToArray();
-
         // Keep on exchanging the tokens until the handshake is complete
         while (true)
         {
-            ReadOnlySpan<byte> tlsPacket;
+            byte[] tlsPacket;
             try
             {
-                tlsPacket = _bio.ServerRead(handshakeDone.Token);
+                tlsPacket = _bio.ServerRead(handshakeDone.Token).ToArray();
             }
             catch (OperationCanceledException)
             {
                 break;
             }
 
-            yield return tlsPacket.ToArray();
+            // A fatal alert means the client has aborted the handshake, wait for it to finish so the local failure
+            // is surfaced rather than sending the alert to the server.
+            if (IsFatalAlert(tlsPacket))
+            {
+                CheckHandshakeResult(handshakeTask);
+            }
+
+            yield return tlsPacket;
         }
 
         // Check that no failures occurred when doing the TLS handshake before continuing.
-        handshakeTask.GetAwaiter().GetResult();
+        CheckHandshakeResult(handshakeTask);
+
+        // The handshake may have written its final record, e.g. the TLS 1.3 client Finished, just before it
+        // completed. BlockingCollection.Take will fail on a cancelled token even if there is data available so it
+        // needs to be retrieved here.
+        while (_bio.TryServerRead(out byte[] remaining))
+        {
+            yield return remaining;
+        }
+    }
+
+    private static void CheckHandshakeResult(Task handshakeTask)
+    {
+        try
+        {
+            handshakeTask.GetAwaiter().GetResult();
+        }
+        catch (AuthenticationException e)
+        {
+            // SslStream's message just points to the inner exception, include the actual failure reason.
+            throw new AuthenticationException($"TLS handshake failure: {e.InnerException?.Message ?? e.Message}", e);
+        }
+    }
+
+    private static bool IsFatalAlert(byte[] record)
+    {
+        // TLS record header
+        //   ContentType (1 byte)
+        //   Version (2 bytes)
+        //   Length (2 bytes)
+        // We check for the Alert ContentType (21) and the fatal Alert Level (2).
+        return record.Length >= 7 && record[0] == 21 && record[5] == 2;
     }
 
     /// <summary>Get the peer X.509 certificate sent by the server during the handshake process.</summary
