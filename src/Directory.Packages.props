@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <!-- Testing -->
+    <PackageVersion Include="TUnit" Version="1.69.0" />
 
     <!-- Module Deps -->
     <PackageVersion Include="Devolutions.Sspi" Version="2026.8.19" />

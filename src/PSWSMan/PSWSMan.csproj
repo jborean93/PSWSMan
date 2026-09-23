@@ -13,6 +13,7 @@
   <ItemGroup>
     <PackageReference Include="Devolutions.Sspi" />
     <PackageReference Include="MonoMod.RuntimeDetour" />
+    <ProjectReference Include="../PSWSMan.Lib/PSWSMan.Lib.csproj" />
     <ProjectReference Include="../PSWSMan.Loader/PSWSMan.Loader.csproj" />
     <PackageReference Include="IgnoresAccessChecksToGenerator" PrivateAssets="All" />
     <PackageReference Include="System.Formats.Asn1" PrivateAssets="all" />

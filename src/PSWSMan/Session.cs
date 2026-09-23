@@ -1,4 +1,5 @@
 using PSWSMan.Authentication;
+using PSWSMan.Lib;
 using System;
 using System.Net.Security;
 using System.Threading;
@@ -18,11 +19,11 @@ internal sealed class WSManSession : IDisposable
         Client = client;
     }
 
-    internal async Task<T> PostRequest<T>(string payload, CancellationToken cancelToken = default)
-        where T : WSManPayload
+    internal async Task<T> PostRequest<T>(WSManRequest request, CancellationToken cancelToken = default)
+        where T : IWSManPayload<T>
     {
-        string resp = await Connection.SendMessage(payload, cancelToken);
-        return WSManClient.ParseWSManPayload<T>(resp);
+        byte[] resp = await Connection.SendMessage(request.Content, cancelToken);
+        return T.Parse(resp, request.MessageId);
     }
 
     public void Dispose()

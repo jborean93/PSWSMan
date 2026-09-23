@@ -81,7 +81,7 @@ public class WSManConnection : IDisposable
     /// <param name="message">The HTTP payload to send.</param>
     /// <param name="cancelToken">The cancellation token for the request.</param>
     /// <returns>The response for this request.</returns>
-    public async Task<string> SendMessage(string message, CancellationToken cancelToken)
+    public async Task<byte[]> SendMessage(byte[] message, CancellationToken cancelToken)
     {
         HttpRequestMessage request;
 
@@ -114,12 +114,12 @@ public class WSManConnection : IDisposable
             response = await _http.SendAsync(request, cancelToken).ConfigureAwait(false);
         }
 
-        string responseContent = await ProcessResponse(response).ConfigureAwait(false);
+        byte[] responseContent = await ProcessResponse(response).ConfigureAwait(false);
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
             throw new AuthenticationException($"WinRM {AuthContext.HttpAuthLabel} authentication failure");
         }
-        else if (string.IsNullOrWhiteSpace(responseContent))
+        else if (responseContent.AsSpan().IndexOfAnyExcept(" \t\r\n"u8) == -1)
         {
             response.EnsureSuccessStatusCode();
         }
@@ -241,7 +241,7 @@ public class WSManConnection : IDisposable
         return response;
     }
 
-    private HttpContent PrepareContent(string message)
+    private HttpContent PrepareContent(byte[] message)
     {
         if (_encryptor is not null)
         {
@@ -252,20 +252,22 @@ public class WSManConnection : IDisposable
             else
             {
                 // The initial request needs to be empty as it's setting up the security context for later encryption.
-                return new StringContent("");
+                return new ByteArrayContent(Array.Empty<byte>());
             }
         }
         else
         {
-            return new StringContent(message, Encoding.UTF8, CONTENT_TYPE);
+            ByteArrayContent content = new(message);
+            content.Headers.ContentType = new MediaTypeHeaderValue(CONTENT_TYPE) { CharSet = "utf-8" };
+            return content;
         }
     }
 
-    private HttpContent PrepareEncryptedContent(string message, IWSManEncryptionContext encryptor)
+    private HttpContent PrepareEncryptedContent(byte[] message, IWSManEncryptionContext encryptor)
     {
         const string boundary = "Encrypted Boundary";
 
-        Span<byte> toEncrypt = new(Encoding.UTF8.GetBytes(message));
+        Span<byte> toEncrypt = message;
         int chunkSize = encryptor.MaxEncryptionChunkSize == -1 ? toEncrypt.Length : encryptor.MaxEncryptionChunkSize;
 
         // I tried using the .NET MultipartContent but the format is just different enough to not work for WinRM so
@@ -310,14 +312,14 @@ public class WSManConnection : IDisposable
         }
     }
 
-    private async Task<string> ProcessResponse(HttpResponseMessage response)
+    private async Task<byte[]> ProcessResponse(HttpResponseMessage response)
     {
         MediaTypeHeaderValue? contentType = response.Content.Headers.ContentType;
 
         string contentTypeBase = contentType?.MediaType ?? "";
         if (!(contentTypeBase == "multipart/encrypted" || contentTypeBase == "multipart/x-multi-encrypted"))
         {
-            return await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            return await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
         }
         else if (_encryptor is null)
         {
@@ -328,7 +330,7 @@ public class WSManConnection : IDisposable
         return DecryptMimePayload(encData.AsSpan(), _encryptor);
     }
 
-    private string DecryptMimePayload(Span<byte> payload, IWSManEncryptionContext encryptor)
+    private byte[] DecryptMimePayload(Span<byte> payload, IWSManEncryptionContext encryptor)
     {
         // While the boundary text should be derived from the HTTP headers to form '--{boundary}\r\n' some endpoints,
         // like Exchange Servers, put a space after the hyphens to become '-- {boundary}\r\n'. Instead of this just
@@ -338,7 +340,7 @@ public class WSManConnection : IDisposable
         byte[] boundaryBytes = payload[..nextIdx].ToArray();
         payload = payload[(nextIdx + 2)..];
 
-        StringBuilder response = new();
+        using MemoryStream response = new();
 
         // The last payload in the MIME will have 2 extra bytes which are disregarded here.
         while (payload.Length > 2)
@@ -373,10 +375,10 @@ public class WSManConnection : IDisposable
             {
                 throw new ArgumentException("Mismatched WSMan encryption payload length");
             }
-            response.Append(Encoding.UTF8.GetString(decData));
+            response.Write(decData);
         }
 
-        return response.ToString();
+        return response.ToArray();
     }
 
     private (byte[], int) EncryptWSManChunk(string boundary, IWSManEncryptionContext encryptor, Span<byte> chunk,
