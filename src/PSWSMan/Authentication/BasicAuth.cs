@@ -1,9 +1,11 @@
+using PSWSMan.Connection;
 using System;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
 namespace PSWSMan.Authentication;
 
-public sealed class BasicCredential : WSManCredential
+internal sealed class BasicCredential : WSManCredential
 {
     private readonly byte[] _authValue;
 
@@ -12,23 +14,28 @@ public sealed class BasicCredential : WSManCredential
         _authValue = Encoding.UTF8.GetBytes($"{username}:{password}");
     }
 
-    protected internal override AuthenticationContext CreateAuthContext()
+    public override IWSManAuthenticationContext CreateAuthContext(X509Certificate2? serverCertificate)
         => new BasicAuthContext(_authValue);
 }
 
-public sealed class BasicAuthContext : AuthenticationContext
+internal sealed class BasicAuthContext : IWSManAuthenticationContext
 {
     private readonly byte[] _authToken;
 
-    public override bool Complete => false;
+    public bool Complete => false;  // Always include the authentication header in the request
 
-    public override string HttpAuthLabel => "Basic";
+    public string HttpAuthLabel => "Basic";
+
+    public string? AuthenticationStage => null;
 
     internal BasicAuthContext(byte[] authToken)
     {
         _authToken = authToken;
     }
 
-    protected internal override byte[]? Step(Span<byte> inToken, NegotiateOptions options, ChannelBindings? bindings)
+    public byte[]? Step(Span<byte> inToken)
         => _authToken;
+
+    public void Dispose()
+    { }
 }

@@ -48,8 +48,6 @@ The following features have been introduced in this version
 + Encryption can be disabled for debugging outside Windows with `New-PSWSManSessionOption -NoEncryption`
 + Kerberos delegation can be explicitly requested with `New-PSWSManSessionOption -RequestKerberosDelegate`
 + A custom SPN can be used for Kerberos auth with `New-PSWSManSessionOption -SPNHostName ... -SPNService ...`
-+ Bumped `MonoMod.RuntimeDetour` to `25.3.6` so the WSMan hooks work on PowerShell 7.6 which runs on .NET 10
-  + With the older version the detours were applied without any error but authentication then failed with `WinRM Kerberos authentication failure`
 
 The following cmdlets have been added:
 

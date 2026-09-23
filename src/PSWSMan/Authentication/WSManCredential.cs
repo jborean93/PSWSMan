@@ -1,19 +1,17 @@
+using PSWSMan.Connection;
 using System;
+using System.Security.Cryptography.X509Certificates;
 
 namespace PSWSMan.Authentication;
 
 /// <summary>
-/// A credential that can be used by WSMan to generate a new security context
-/// when needed.
+/// Base class for credentials, providing the dispose pattern on top of
+/// <see cref="IWSManCredential"/>.
 /// </summary>
-public abstract class WSManCredential : IDisposable
+internal abstract class WSManCredential : IWSManCredential
 {
-    /// <summary>
-    /// Generates a new security context with the current credentials. A WSMan
-    /// connection may create multiple security contexts as needed when
-    /// starting a new connection.
-    /// </summary>
-    protected internal abstract AuthenticationContext CreateAuthContext();
+    /// <inheritdoc />
+    public abstract IWSManAuthenticationContext CreateAuthContext(X509Certificate2? serverCertificate);
 
     public virtual void Dispose()
     {

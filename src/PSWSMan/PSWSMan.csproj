@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <IgnoresAccessChecksTo Include="System.Management.Automation" />
+    <InternalsVisibleTo Include="PSWSMan.Connection.Tests" />
   </ItemGroup>
 
   <ItemGroup>

@@ -21,7 +21,8 @@ client once `Enable-PSWSMan -Force` has been run.
 | `manifest.psd1` | Pinned versions of the PowerShell build/test modules (InvokeBuild, Pester, platyPS, PSResourceGet, OpenAuthenticode). |
 | `global.json` | Pins the .NET SDK (10.0.x) and selects `Microsoft.Testing.Platform` as the `dotnet test` runner. |
 | `PSWSMan.slnx` | Solution file listing the three `src/` projects. |
-| `src/PSWSMan/` | The PowerShell module assembly: cmdlets, S.M.A patches, authentication (GSSAPI, SSPI, CredSSP, Basic, certificate), TLS, PSRP shim. References S.M.A directly. |
+| `src/PSWSMan/` | The PowerShell module assembly: cmdlets, S.M.A patches, authentication (GSSAPI, SSPI, CredSSP, Basic, certificate), TLS, PSRP session bridge (`WSManPSRPSession.cs`). References S.M.A directly. |
+| `src/PSWSMan/Connection/` | The synchronous HTTP transport (`PSWSMan.Connection` namespace): one authenticated socket per `WSManHttpConnection`, a `WSManConnectionPool` handing them out under exclusive leases, and `WinRSShell`/`WinRSReceivePump` driving a WinRS shell with dedicated receive threads. Nothing in this folder may reference S.M.A types so it can be loaded by a plain unit test project. |
 | `src/PSWSMan.Lib/` | Protocol-only library: WSMan/WinRS envelope building and response parsing. No PowerShell dependency, so it is unit testable with plain `dotnet test`. |
 | `src/PSWSMan.Loader/` | Tiny `AssemblyLoadContext` used by `module/PSWSMan.psm1` to isolate the module's dependencies from the host process. |
 | `src/Directory.Build.props` | Shared compiler settings (C# 12, nullable enabled, unsafe allowed). |
@@ -173,8 +174,17 @@ pwsh -File ./tools/CoverageReport.ps1 -Path ./output/TestResults/Coverage.cobert
 - Every Pester file must start with `BeforeDiscovery { . ([IO.Path]::Combine($PSScriptRoot, 'common.ps1')) }`.
 - New .NET unit test projects go in `tests/units/<Name>/` using TUnit, with
   `<OutputType>Exe</OutputType>` and the shared `Directory.*.props` in
-  `tests/units/`. They should reference `PSWSMan.Lib`, not `PSWSMan`, because
-  the latter needs the S.M.A reference assembly and a live PowerShell host.
+  `tests/units/`. Prefer referencing `PSWSMan.Lib`. `PSWSMan.Connection.Tests`
+  references `PSWSMan` directly, which works only because the transport
+  classes never touch S.M.A; building it needs the reference assembly that
+  `build.ps1` downloads, so run `-Task Build` once first.
+- Unit tests are for standalone logic (framing, parsing, pool bookkeeping).
+  Do not add tests that stand up fake HTTP servers; connection behaviour is
+  verified manually against a real WinRM host. `Trace-Command -Name
+  ClientTransport -FilePath ...` captures the transport and pump activity.
+- `build.ps1 -Task Test` instruments the built module for coverage. Do not
+  run it while another `pwsh` process has `output/PSWSMan` imported, that
+  process can crash with `BadImageFormatException`.
 
 ## Continuous integration
 

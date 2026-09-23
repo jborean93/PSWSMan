@@ -464,7 +464,7 @@ internal static class Sspi
     }
 }
 
-public class SspiException : AuthenticationException
+internal class SspiException : AuthenticationException
 {
     public int ErrorCode { get; } = -1;
 

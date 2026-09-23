@@ -1,16 +1,19 @@
+using PSWSMan.Connection;
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Formats.Asn1;
 using System.Linq;
 using System.Net.Security;
 using System.Security.Authentication;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
 namespace PSWSMan.Authentication;
 
 /// <summary>Base class used for CredSSP ASN.1 Structures.</summary>
-public abstract class CredSSPStructure
+internal abstract class CredSSPStructure
 {
     public virtual void ToBytes(AsnWriter writer) => throw new NotImplementedException();
 }
@@ -282,7 +285,7 @@ internal class TSCredentials : CredSSPStructure
 }
 
 /// <summary>Base class for CredSSP credential buffers.</summary>
-public abstract class TSCredentialBase : CredSSPStructure
+internal abstract class TSCredentialBase : CredSSPStructure
 {
     public abstract int CredType { get; }
 }
@@ -302,7 +305,7 @@ public abstract class TSCredentialBase : CredSSPStructure
 /// </para>
 /// </remarks>
 /// <see href="https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-cssp/17773cc4-21e9-4a75-a0dd-72706b174fe5">2.2.1.2.1 TSPasswordCreds</see>
-public class TSPasswordCreds : TSCredentialBase
+internal class TSPasswordCreds : TSCredentialBase
 {
     public override int CredType => 1;
 
@@ -364,13 +367,13 @@ internal enum CredSSPStage
     Delegate,
 }
 
-public sealed class CredSSPCredential : WSManCredential
+internal sealed class CredSSPCredential : WSManCredential
 {
     private readonly TSCredentialBase _credential;
-    private readonly WSManCredential _subAuthCredential;
+    private readonly IWSManCredential _subAuthCredential;
     private readonly SslClientAuthenticationOptions? _sslOptions;
 
-    public CredSSPCredential(TSCredentialBase credential, WSManCredential subAuthCredential,
+    public CredSSPCredential(TSCredentialBase credential, IWSManCredential subAuthCredential,
         SslClientAuthenticationOptions? sslOptions)
     {
         _credential = credential;
@@ -378,33 +381,33 @@ public sealed class CredSSPCredential : WSManCredential
         _sslOptions = sslOptions;
     }
 
-    protected internal override CredSSPAuthContext CreateAuthContext()
+    public override CredSSPAuthContext CreateAuthContext(X509Certificate2? serverCertificate)
     {
         return new CredSSPAuthContext(_credential, _subAuthCredential, _sslOptions);
     }
 }
 
-public sealed class CredSSPAuthContext : AuthenticationContext, IWSManEncryptionContext
+internal sealed class CredSSPAuthContext : IWSManAuthenticationContext, IWSManEncryptionContext
 {
     private readonly TSCredentialBase _credential;
-    private readonly WSManCredential _subAuthCredential;
+    private readonly IWSManCredential _subAuthCredential;
     private TlsSecurityContext _tlsContext;
 
     private IEnumerator<byte[]>? _tokenGenerator;
     private CredSSPStage _stage = CredSSPStage.Start;
 
-    public override bool Complete => _stage == CredSSPStage.Delegate;
+    public bool Complete => _stage == CredSSPStage.Delegate;
 
-    public override string HttpAuthLabel => "CredSSP";
+    public string HttpAuthLabel => "CredSSP";
 
-    public override string AuthenticationStage => _stage.ToString();
+    public string? AuthenticationStage => _stage.ToString();
 
     // Each chunk cannot exceed 16KiB which is the TLS record size.
     public int MaxEncryptionChunkSize => 16384;
 
     public string EncryptionProtocol => WSManEncryptionProtocol.CREDSSP;
 
-    internal CredSSPAuthContext(TSCredentialBase credential, WSManCredential subAuthCredential,
+    internal CredSSPAuthContext(TSCredentialBase credential, IWSManCredential subAuthCredential,
         SslClientAuthenticationOptions? sslOptions)
     {
         _credential = credential;
@@ -419,12 +422,12 @@ public sealed class CredSSPAuthContext : AuthenticationContext, IWSManEncryption
         _tlsContext = new(sslOptions);
     }
 
-    protected internal override byte[]? Step(Span<byte> inToken, NegotiateOptions options, ChannelBindings? bindings)
+    public byte[]? Step(Span<byte> inToken)
     {
         if (inToken.Length > 0)
             _tlsContext.WriteInputToken(inToken);
 
-        _tokenGenerator ??= TokenGenerator(options).GetEnumerator();
+        _tokenGenerator ??= TokenGenerator().GetEnumerator();
         _tokenGenerator.MoveNext();
 
         byte[] authValue = _tokenGenerator.Current;
@@ -437,19 +440,25 @@ public sealed class CredSSPAuthContext : AuthenticationContext, IWSManEncryption
         return authValue;
     }
 
-    public byte[] WrapWinRM(Span<byte> data, out int headerLength, out int paddingLength)
+    public byte[] WrapWinRM(ReadOnlySpan<byte> data, out int paddingLength)
     {
-        paddingLength = 0;
-        headerLength = _tlsContext.GetTlsTrailerLength(data.Length);
+        // WinRM's length prefix for CredSSP is the trailer length, the record itself is sent in its natural order.
+        Span<byte> record = _tlsContext.Encrypt(data, out int trailerLength);
 
-        Span<byte> wrappedData = _tlsContext.Encrypt(data);
-        return wrappedData.ToArray();
+        byte[] block = new byte[4 + record.Length];
+        BinaryPrimitives.WriteInt32LittleEndian(block, trailerLength);
+        record.CopyTo(block.AsSpan(4));
+
+        paddingLength = 0;
+        return block;
     }
 
-    public Span<byte> UnwrapWinRM(Span<byte> data, Span<byte> header, Span<byte> encData)
+    public Span<byte> UnwrapWinRM(Span<byte> block)
     {
-        int length = _tlsContext.Decrypt(data);
-        return data.Slice(0, length);
+        // The whole record after the prefix is fed to TLS, the prefix is not needed to find the plaintext.
+        Span<byte> record = block[4..];
+        int length = _tlsContext.Decrypt(record);
+        return record[..length];
     }
 
     /// <summary>Start a CredSSP authentication exchange.</summary>
@@ -458,7 +467,7 @@ public sealed class CredSSPAuthContext : AuthenticationContext, IWSManEncryption
     /// token for the enumerable to process on each iteration.
     /// </remarks>
     /// <returns>The CredSSP tokens to exchange with the server.</returns>
-    private IEnumerable<byte[]> TokenGenerator(NegotiateOptions options)
+    private IEnumerable<byte[]> TokenGenerator()
     {
         // First stage is the TLS Handshake which needs to be exchanged with the peer.
         _stage = CredSSPStage.TlsHandshake;
@@ -469,7 +478,8 @@ public sealed class CredSSPAuthContext : AuthenticationContext, IWSManEncryption
         }
 
         byte[] buffer = new byte[16384];
-        using AuthenticationContext secContext = _subAuthCredential.CreateAuthContext();
+        // CredSSP binds to the TLS session it runs inside, the outer HTTPS certificate is not used.
+        using IWSManAuthenticationContext secContext = _subAuthCredential.CreateAuthContext(null);
         if (secContext is not NegotiateAuthContext)
         {
             throw new AuthenticationException("The sub auth context in use is not a NegotiateAuthContext");
@@ -483,7 +493,7 @@ public sealed class CredSSPAuthContext : AuthenticationContext, IWSManEncryption
 
         NegoData[]? negoTokens = null;
         byte[]? clientNonce = null;
-        foreach ((TSRequest authRequest, bool isEnd) in DoAuthExchange(secContext, buffer, options))
+        foreach ((TSRequest authRequest, bool isEnd) in DoAuthExchange(secContext, buffer))
         {
             if (isEnd)
             {
@@ -521,7 +531,7 @@ public sealed class CredSSPAuthContext : AuthenticationContext, IWSManEncryption
             // NTLM over SPNEGO auth returned the mechListMIC for us to verify. On macOS with NTLM over Negotiate the
             // server may return the MIC token but it will fail to process as it considered the context complete so
             // this is skipped is secContext is Complete.
-            secContext.Step(tsRequest.Tokens?[0]?.Token, options, null);
+            secContext.Step(tsRequest.Tokens?[0]?.Token);
         }
 
         if (tsRequest.PubKeyAuth == null)
@@ -555,7 +565,7 @@ public sealed class CredSSPAuthContext : AuthenticationContext, IWSManEncryption
     private byte[] WrapTSRequest(TSRequest request, Span<byte> buffer)
     {
         int read = EncodeCredSSPStructure(request, buffer);
-        return _tlsContext.Encrypt(buffer[..read]).ToArray();
+        return _tlsContext.Encrypt(buffer[..read], out _).ToArray();
     }
 
     /// <summary>Unwrap a TSRequest from the input TLS buffer and check the error code.</summary>
@@ -584,21 +594,19 @@ public sealed class CredSSPAuthContext : AuthenticationContext, IWSManEncryption
     /// <summary>Start a negotiate authentication exchange over CredSSP.</summary>
     /// <param name="secContext">The security context.</param>
     /// <param name="buffer">The shared buffer to use for encoding the ASN.1 structures.</param>
-    /// <param name="options">Extra options for negotiate contexts.</param>
     /// <returns>
     /// Yields a TSRequest and bool to indicate it's the last entry. Each TSRequest should be wrapped by the TLS
     /// context and sent to the server expect the last entry which contains the Version of the server and an optional
     /// Tokens value to use for the PubKeyAuth phase.
     /// </returns>
-    private IEnumerable<(TSRequest, bool)> DoAuthExchange(AuthenticationContext secContext, byte[] buffer,
-        NegotiateOptions options)
+    private IEnumerable<(TSRequest, bool)> DoAuthExchange(IWSManAuthenticationContext secContext, byte[] buffer)
     {
         // Used to detect if the final msg is the NTLM auth token as that's sent with the pubKeyAuth info.
         // NTLMSSP\x00\x03\x00\x00\x00
         byte[] ntlm3Header = new byte[] { 78, 84, 76, 77, 83, 83, 80, 0, 3, 0, 0, 0 };
         int credSSPVersion;
 
-        NegoData[]? negoDatas = new[] { new NegoData(secContext.Step(null, options, null)!) };
+        NegoData[]? negoDatas = new[] { new NegoData(secContext.Step(null)!) };
         do
         {
             TSRequest tsRequest = new(tokens: negoDatas);
@@ -611,7 +619,7 @@ public sealed class CredSSPAuthContext : AuthenticationContext, IWSManEncryption
             byte[]? inputToken = tsRequest.Tokens?[0]?.Token;
             if (inputToken?.Length > 0)
             {
-                byte[]? outputToken = secContext.Step(inputToken, options, null);
+                byte[]? outputToken = secContext.Step(inputToken);
 
                 if ((outputToken?.Length ?? 0) > 0)
                 {
@@ -667,15 +675,10 @@ public sealed class CredSSPAuthContext : AuthenticationContext, IWSManEncryption
         }
     }
 
-    protected override void Dispose(bool disposing)
+    public void Dispose()
     {
-        if (disposing)
-        {
-            _tlsContext?.Dispose();
-            _tokenGenerator?.Dispose();
-            _tokenGenerator = null;
-        }
-
-        base.Dispose(disposing);
+        _tlsContext?.Dispose();
+        _tokenGenerator?.Dispose();
+        _tokenGenerator = null;
     }
 }

@@ -146,14 +146,14 @@ internal static class PSWSMan_WSManClientCommandTransportManager
                 IsClosedField.SetValue(self, true);
             }
 
-            WSManPSRPShim session = WSManCompatState.SessionInfo[sessionHandle];
+            WSManPSRPSession session = WSManSessionState.Get(sessionHandle);
             tracer.WriteLine(
                 "PSWSMan: WSManClientCommandTransportManager.CloseAsync - Sending Stop for {0} CmdId {1}",
                 session.RunspacePoolId, pwshInstanceId);
 
             try
             {
-                session.CloseCommandAsync(pwshInstanceId).GetAwaiter().GetResult();
+                session.CloseCommand(pwshInstanceId);
             }
             catch (Exception e)
             {
@@ -200,7 +200,7 @@ internal static class PSWSMan_WSManClientCommandTransportManager
             SerializedDataStream serializedPipeline = (SerializedDataStream)SerializedPipelineField.GetValue(self)!;
             nint sessionHandle = ((WSManClientSessionTransportManager)SessnTmField.GetValue(self)!).SessionHandle;
 
-            WSManPSRPShim session = WSManCompatState.SessionInfo[sessionHandle];
+            WSManPSRPSession session = WSManSessionState.Get(sessionHandle);
             byte[] cmdPart1 = serializedPipeline.ReadOrRegisterCallback(null) ?? Array.Empty<byte>();
 
             tracer.WriteLine(
@@ -208,7 +208,7 @@ internal static class PSWSMan_WSManClientCommandTransportManager
                 session.RunspacePoolId, pwshInstanceId);
             try
             {
-                session.CreateCommandAsync(pwshInstanceId, cmdPart1).GetAwaiter().GetResult();
+                session.CreateCommand(pwshInstanceId, cmdPart1);
             }
             catch (Exception e)
             {
@@ -222,7 +222,7 @@ internal static class PSWSMan_WSManClientCommandTransportManager
                 return;
             }
 
-            session.StartReceiveTask(self, tracer, commandId: pwshInstanceId);
+            session.StartReceive(self, commandId: pwshInstanceId);
 
             SendOneItemMeth.Invoke(self, Array.Empty<Type>());
         }
@@ -269,15 +269,15 @@ internal static class PSWSMan_WSManClientCommandTransportManager
             Guid pwshInstanceId = (Guid)PowershellInstanceIdField.GetValue(self)!;
             nint sessionHandle = ((WSManClientSessionTransportManager)SessnTmField.GetValue(self)!).SessionHandle;
 
-            WSManPSRPShim session = WSManCompatState.SessionInfo[sessionHandle];
+            WSManPSRPSession session = WSManSessionState.Get(sessionHandle);
 
             tracer.WriteLine(
                 "PSWSMan: WSManClientCommandTransportManager.SendData - Sending Data for {0} CmdId {1}",
                 session.RunspacePoolId, pwshInstanceId);
             try
             {
-                session.SendAsync(priorityType == DataPriorityType.Default ? "stdin" : "pr", data,
-                    commandId: pwshInstanceId).GetAwaiter().GetResult();
+                session.Send(priorityType == DataPriorityType.Default ? "stdin" : "pr", data,
+                    commandId: pwshInstanceId);
             }
             catch (Exception e)
             {
@@ -319,14 +319,14 @@ internal static class PSWSMan_WSManClientCommandTransportManager
             Guid pwshInstanceId = (Guid)PowershellInstanceIdField.GetValue(self)!;
             nint sessionHandle = ((WSManClientSessionTransportManager)SessnTmField.GetValue(self)!).SessionHandle;
 
-            WSManPSRPShim session = WSManCompatState.SessionInfo[sessionHandle];
+            WSManPSRPSession session = WSManSessionState.Get(sessionHandle);
 
             tracer.WriteLine(
                 "PSWSMan: WSManClientCommandTransportManager.SendStopSignal - Sending Stop for {0} CmdId {1}",
                 session.RunspacePoolId, pwshInstanceId);
             try
             {
-                session.StopCommandAsync(pwshInstanceId).GetAwaiter().GetResult();
+                session.StopCommand(pwshInstanceId);
             }
             catch (Exception e)
             {
