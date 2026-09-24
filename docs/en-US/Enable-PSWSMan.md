@@ -20,6 +20,9 @@ Enable-PSWSMan [-Force] [-ProgressAction <ActionPreference>] [<CommonParameters>
 The `Enable-PSWSMan` cmdlet injects itself into the PowerShell engine to force it to use the WSMan client it provides for WSMan transports.
 It is used to remove the use of the C omi library that PowerShell ships with which has limited features and support.
 
+On non-Windows platforms this cmdlet also hooks the `CimInstance` deserializer so those objects are returned as deserialized property bags without needing `libmi`.
+They keep the same properties and formatting but are not a live `CimInstance`.
+
 This operation is global to the process and is not reversible, once it has been enabled it cannot be disabled without restarting the process.
 
 ## EXAMPLES

@@ -920,6 +920,30 @@ Describe "PSWSMan PSRemoting tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         $actual[1] | Should -Be secret
     }
 
+    It "Receives a CimInstance" {
+        $actual = Invoke-Command @SessionParams -ScriptBlock {
+            Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $pid"
+        }
+
+        $actual | Should -Not -BeNullOrEmpty
+        $actual.Name | Should -Be 'wsmprovhost.exe'
+        $actual.ProcessId | Should -BeOfType ([uint32])
+        $actual.PSComputerName | Should -Be $SessionParams.ComputerName
+        $actual.PSObject.Properties.Name | Should -Not -Contain '__ClassMetadata'
+        $actual.PSObject.Properties.Name | Should -Not -Contain '__InstanceMetadata'
+
+        if ($IsWindows) {
+            # The OS provides the MI library so PowerShell rehydrates a live CimInstance
+            $actual.PSObject.BaseObject | Should -BeOfType ([Microsoft.Management.Infrastructure.CimInstance])
+            $actual.PSTypeNames[0] | Should -Be 'Microsoft.Management.Infrastructure.CimInstance#root/cimv2/Win32_Process'
+        }
+        else {
+            # PSWSMan skips the libmi based rehydration and keeps the deserialized property bag
+            $actual.PSObject.BaseObject | Should -BeOfType ([System.Management.Automation.PSCustomObject])
+            $actual.PSTypeNames[0] | Should -Be 'Deserialized.Microsoft.Management.Infrastructure.CimInstance#root/cimv2/Win32_Process'
+        }
+    }
+
     It "Sets max and min runspaces" {
         $connInfo = [System.Management.Automation.Runspaces.WSManConnectionInfo]@{
             ComputerName = $sessionParams.ComputerName

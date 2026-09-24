@@ -28,6 +28,7 @@ internal sealed class MonoModPatcher : IDisposable
         _hooks.AddRange(PSWSMan_WSManClientSessionTransportManager.GenerateHooks());
         _hooks.AddRange(PSWSMan_WSManClientCommandTransportManager.GenerateHooks());
         _hooks.AddRange(PSWSMan_WSManConnectionInfo.GenerateHooks());
+        _hooks.AddRange(PSWSMan_InternalDeserializer.GenerateHooks());
     }
 
     public void UnpatchAll()
