@@ -82,6 +82,12 @@ jobs:
         - name: PS_7.6_x64_Linux
           psversion: '7.6.0'
           os: ubuntu-latest
+        - name: PS_7.6_arm64_macOS
+          psversion: '7.6.0'
+          os: macos-latest
+        - name: PS_7.6_x64_macOS
+          psversion: '7.6.0'
+          os: macos-26-intel
 
     steps:
     - uses: actions/checkout@v7
@@ -91,6 +97,17 @@ jobs:
       with:
         name: PSModule
         path: output
+
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.14'
+
+    - name: Install gss-ntlmssp
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gss-ntlmssp
 
     - name: Run Tests
       shell: pwsh
