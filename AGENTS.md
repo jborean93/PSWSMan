@@ -227,6 +227,30 @@ tests and the .NET unit tests actually execute there. Put protocol logic in
 - Add a line to `CHANGELOG.md` under the unreleased heading for anything a
   user would notice.
 
+### Verifying manually against a WinRM host
+
+Connection behaviour is verified by hand, not by unit tests. The module must
+be built, imported and enabled in a fresh process before any remoting cmdlet
+goes through it. Without `Enable-PSWSMan -Force` the cmdlets use PowerShell's
+own transport, and a stale process keeps the previously loaded assembly.
+
+```powershell
+pwsh -File ./build.ps1 -Task Build
+pwsh -NoProfile -Command {
+    Import-Module ./output/PSWSMan
+    Enable-PSWSMan -Force
+    $so = New-PSWSManSessionOption -NoEncryption
+    Invoke-Command -ComputerName host.example.test { hostname } -Credential $cred -SessionOption $so
+}
+```
+
+Wrap scenarios that can stall (a remote command bouncing the network, a
+black-holed host) in `timeout` and lower `-OperationTimeout` on the session
+option, a lost `Receive` only surfaces once that timeout plus its grace
+period elapses. Return plain properties rather than CIM instances from the
+remote command, a pwsh install without `libmi` cannot deserialize them and
+the failure looks like a transport error.
+
 ## Debugging
 
 - `pwsh -NoExit -File ./tools/LaunchScript.ps1` imports the built module and

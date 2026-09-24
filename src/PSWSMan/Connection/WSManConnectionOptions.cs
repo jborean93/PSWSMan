@@ -14,8 +14,7 @@ internal sealed class WSManConnectionOptions
     public IWSManCredential Credential { get; }
 
     /// <summary>
-    /// TLS options for a https connection. The value is copied for each connection so the instance provided is never
-    /// mutated. Must be null for a http connection.
+    /// TLS options for a https connection.
     /// </summary>
     public SslClientAuthenticationOptions? TlsOptions { get; init; }
 
@@ -31,11 +30,28 @@ internal sealed class WSManConnectionOptions
     /// </summary>
     public TimeSpan RequestTimeout { get; init; } = Timeout.InfiniteTimeSpan;
 
+    /// <summary>
+    /// How long a socket sits idle before TCP keepalive probes start. A Receive waits silently for the server so
+    /// without probes a peer that vanished, for example because the remote command bounced the network adapter, is
+    /// only noticed when <see cref="RequestTimeout"/> expires. <see cref="Timeout.InfiniteTimeSpan"/> disables
+    /// keepalive.
+    /// </summary>
+    public TimeSpan KeepAliveTime { get; init; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>The time between keepalive probes once they have started.</summary>
+    public TimeSpan KeepAliveInterval { get; init; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>The number of unanswered probes before the socket is considered dead.</summary>
+    public int KeepAliveRetryCount { get; init; } = 3;
+
     /// <summary>The maximum number of concurrently open connections in the pool.</summary>
     public int MaxConnections { get; init; } = int.MaxValue;
 
     /// <summary>The User-Agent header sent with every request.</summary>
     public string UserAgent { get; init; } = "PSWSMan Client";
+
+    /// <summary>Optional callback for diagnostic messages about sockets, authentication rounds and responses.</summary>
+    public Action<string>? Trace { get; init; }
 
     /// <summary>Creates the options for a WSMan endpoint.</summary>
     /// <param name="connectionUri">The WSMan endpoint.</param>
@@ -58,9 +74,37 @@ internal sealed class WSManConnectionOptions
             throw new ArgumentException("TlsOptions can only be set for a https connection.");
         }
 
+        if (TlsOptions is { AllowTlsResume: true, ClientCertificates.Count: > 0 })
+        {
+            // Every pooled connection opens its own socket and a resumed session skips the client certificate
+            // exchange, so only the first socket would authenticate.
+            throw new ArgumentException(
+                "TlsOptions.AllowTlsResume must be false when ClientCertificates is set, a resumed TLS session " +
+                "skips the client certificate exchange that WinRM certificate authentication requires.");
+        }
+
         if (MaxConnections < 1)
         {
             throw new ArgumentOutOfRangeException(nameof(MaxConnections), "MaxConnections must be at least 1.");
+        }
+
+        if (KeepAliveTime != Timeout.InfiniteTimeSpan)
+        {
+            if (KeepAliveTime < TimeSpan.FromSeconds(1) || KeepAliveTime.TotalSeconds > int.MaxValue)
+            {
+                throw new ArgumentOutOfRangeException(nameof(KeepAliveTime),
+                    "KeepAliveTime must be at least 1 second or Timeout.InfiniteTimeSpan to disable keepalive.");
+            }
+            if (KeepAliveInterval < TimeSpan.FromSeconds(1) || KeepAliveInterval.TotalSeconds > int.MaxValue)
+            {
+                throw new ArgumentOutOfRangeException(nameof(KeepAliveInterval),
+                    "KeepAliveInterval must be at least 1 second.");
+            }
+            if (KeepAliveRetryCount < 1)
+            {
+                throw new ArgumentOutOfRangeException(nameof(KeepAliveRetryCount),
+                    "KeepAliveRetryCount must be at least 1.");
+            }
         }
 
         if (Encrypt)

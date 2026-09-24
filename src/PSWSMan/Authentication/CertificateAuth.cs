@@ -15,7 +15,10 @@ internal sealed class CertificateCredential : WSManCredential
 
 internal sealed class CertificateAuthContext : IWSManAuthenticationContext
 {
-    public bool Complete => false;  // Always include the authentication header in the request
+    // Nothing to negotiate, Step provides the same header for every request.
+    public bool Complete => true;
+
+    public bool ExchangesTokens => false;
 
     public string HttpAuthLabel => "http://schemas.dmtf.org/wbem/wsman/1/wsman/secprofile/https/mutual";
 

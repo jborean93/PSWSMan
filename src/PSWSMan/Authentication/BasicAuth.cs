@@ -22,7 +22,10 @@ internal sealed class BasicAuthContext : IWSManAuthenticationContext
 {
     private readonly byte[] _authToken;
 
-    public bool Complete => false;  // Always include the authentication header in the request
+    // Nothing to negotiate, Step provides the same header for every request.
+    public bool Complete => true;
+
+    public bool ExchangesTokens => false;
 
     public string HttpAuthLabel => "Basic";
 

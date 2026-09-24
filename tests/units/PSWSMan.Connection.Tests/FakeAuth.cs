@@ -122,6 +122,8 @@ internal sealed class FakeNegoContext : IWSManAuthenticationContext, IWSManEncry
 
     public bool Complete => _step >= _rounds;
 
+    public bool ExchangesTokens => true;
+
     public string HttpAuthLabel => FakeNegoCredential.Label;
 
     public string? AuthenticationStage => $"step {_step}";

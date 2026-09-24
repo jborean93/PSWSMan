@@ -109,14 +109,6 @@ internal class TSRequest : CredSSPStructure
         }
     }
 
-    public void CheckSuccess()
-    {
-        if (ErrorCode is not null && ErrorCode != 0)
-        {
-            throw new AuthenticationException(string.Format("Received CredSSP TSRequest error 0x{0:X8}", ErrorCode));
-        }
-    }
-
     public static TSRequest FromBytes(ReadOnlySpan<byte> data, out int bytesConsumed,
         AsnEncodingRules ruleSet = AsnEncodingRules.DER)
     {
@@ -398,6 +390,8 @@ internal sealed class CredSSPAuthContext : IWSManAuthenticationContext, IWSManEn
 
     public bool Complete => _stage == CredSSPStage.Delegate;
 
+    public bool ExchangesTokens => true;
+
     public string HttpAuthLabel => "CredSSP";
 
     public string? AuthenticationStage => _stage.ToString();
@@ -424,6 +418,10 @@ internal sealed class CredSSPAuthContext : IWSManAuthenticationContext, IWSManEn
         };
         _tlsContext = new(sslOptions);
     }
+
+    /// <summary>Builds the error for a failure in the current stage so the caller can see how far the exchange got.</summary>
+    private AuthenticationException Failure(string message)
+        => new($"CredSSP authentication failure during the stage {_stage} - {message}");
 
     public byte[]? Step(Span<byte> inToken)
     {
@@ -483,7 +481,7 @@ internal sealed class CredSSPAuthContext : IWSManAuthenticationContext, IWSManEn
         using IWSManAuthenticationContext secContext = _subAuthCredential.CreateAuthContext(null);
         if (secContext is not NegotiateAuthContext)
         {
-            throw new AuthenticationException("The sub auth context in use is not a NegotiateAuthContext");
+            throw Failure("the sub auth context in use is not a NegotiateAuthContext");
         }
         NegotiateAuthContext negoContext = (NegotiateAuthContext)secContext;
 
@@ -537,13 +535,13 @@ internal sealed class CredSSPAuthContext : IWSManAuthenticationContext, IWSManEn
 
         if (tsRequest.PubKeyAuth == null)
         {
-            throw new AuthenticationException("CredSSP Server did not response with pub key auth information.");
+            throw Failure("the server did not respond with pub key auth information");
         }
         // Unwrap returns a span so it is compared inline, an iterator method cannot hold a span in a local.
         byte[] expectedKey = GetPubKeyAuth(pubKeyBytes, false, clientNonce);
         if (!negoContext.Unwrap(tsRequest.PubKeyAuth).SequenceEqual(expectedKey))
         {
-            throw new AuthenticationException("CredSSP Public key verification failed.");
+            throw Failure("public key verification failed");
         }
 
         // Fifth stage is to wrap the credential and send to the peer.
@@ -575,7 +573,10 @@ internal sealed class CredSSPAuthContext : IWSManAuthenticationContext, IWSManEn
     {
         int length = _tlsContext.ReadInputToken(buffer);
         TSRequest tsRequest = TSRequest.FromBytes(buffer[..length], out var _);
-        tsRequest.CheckSuccess();
+        if (tsRequest.ErrorCode is not null && tsRequest.ErrorCode != 0)
+        {
+            throw Failure($"received TSRequest error 0x{tsRequest.ErrorCode:X8}");
+        }
 
         return tsRequest;
     }
@@ -637,8 +638,7 @@ internal sealed class CredSSPAuthContext : IWSManAuthenticationContext, IWSManEn
             else if (!secContext.Complete)
             {
                 // This shouldn't ever happen but check it to ensure the loop doesn't run forever.
-                throw new AuthenticationException(
-                    "CredSSP exchange failure, expecting input token to complete negotiate auth.");
+                throw Failure("expecting an input token to complete the negotiate auth");
             }
         }
         while (!secContext.Complete);

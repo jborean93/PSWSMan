@@ -47,13 +47,17 @@ internal sealed class WSManPSRPSession : IDisposable
         Guid runspacePoolId,
         string shellUri,
         bool noMachineProfile,
+        int receiveRetries,
         PSTraceSource tracer)
     {
         _pool = pool;
         _client = client;
         _noMachineProfile = noMachineProfile;
         RunspacePoolId = runspacePoolId;
-        _shell = new WinRSShell(pool, client, shellUri, tracer.WriteLine);
+        _shell = new WinRSShell(pool, client, shellUri, tracer.WriteLine)
+        {
+            ReceiveRetries = receiveRetries,
+        };
     }
 
     public static WSManPSRPSession Create(
@@ -68,6 +72,13 @@ internal sealed class WSManPSRPSession : IDisposable
         if (connectionUri.Scheme == Uri.UriSchemeHttps)
         {
             tlsOptions = extraConnInfo?.TlsOption ?? BuildTlsOptions(connectionUri, connInfo, extraConnInfo);
+
+            // If using client certificates, disable TLS session resumption to ensure the certificate exchange occurs
+            // on every new connection.
+            if ((tlsOptions.ClientCertificates?.Count ?? 0) > 0)
+            {
+                tlsOptions.AllowTlsResume = false;
+            }
         }
 
         // Use the extra options auth method if set, otherwise map the builtin methods to our known enum.
@@ -122,6 +133,7 @@ internal sealed class WSManPSRPSession : IDisposable
             Encrypt = encrypt,
             ConnectTimeout = connectTimeout,
             RequestTimeout = operationTimeout + s_requestTimeoutGrace,
+            Trace = tracer.WriteLine,
         };
 
         WSManConnectionPool pool = new(options);
@@ -132,7 +144,12 @@ internal sealed class WSManPSRPSession : IDisposable
             connInfo.Culture.Name,
             dataLocale: connInfo.UICulture?.Name);
 
-        return new(pool, client, runspacePoolId, connInfo.ShellUri, connInfo.NoMachineProfile, tracer);
+        // PowerShell exposes this as the number of times the native client reconnects after a network failure. Here
+        // it bounds how often a lost Receive is resent on a new connection, e.g. when the remote command restarts
+        // the network adapter. A negative value is treated as no retries.
+        int receiveRetries = Math.Max(connInfo.MaxConnectionRetryCount, 0);
+
+        return new(pool, client, runspacePoolId, connInfo.ShellUri, connInfo.NoMachineProfile, receiveRetries, tracer);
     }
 
     public void SetMaxEnvelopeSize(int size) => _client.UpdateMaxEnvelopeSize(size);
@@ -321,30 +338,30 @@ internal sealed class WSManPSRPSession : IDisposable
             return new SspiCredential(systemProvider, userName, password, negoMethod, negoOptions);
         }
 
-        // If on non-Windows we first check if a custom GSSAPI library is
-        // specified in the module settings. If not we fallback to the system
-        // GSSAPI library. Set-PSWSManAuth checks the library when it is set
-        // so a failure here means it stopped loading since, the error names
-        // the library and the loader's reason.
-        ModuleSettings moduleSettings = ModuleSettings.GetFromTLS();
-        bool loaded;
-        GssapiProvider? gssapiProvider;
-        Exception? gssapiError;
+        GssapiProvider gssapiProvider = LoadGssapiProvider(ModuleSettings.GetFromTLS());
+        return new GssapiCredential(gssapiProvider, userName, password, negoMethod, negoOptions);
+    }
+
+    /// <summary>Loads the GSSAPI library configured by Set-PSWSManAuth, or the system one when none is set.</summary>
+    private static GssapiProvider LoadGssapiProvider(ModuleSettings moduleSettings)
+    {
         if (moduleSettings.GssapiLib != ModuleSettings.DefaultGssapiLib)
         {
-            loaded = ProviderLibs.TryGetGssapi(moduleSettings.GssapiLib, out gssapiProvider, out gssapiError);
-        }
-        else
-        {
-            loaded = ProviderLibs.TryGetSystemGssapi(out gssapiProvider, out gssapiError);
+            if (!ProviderLibs.TryGetGssapi(moduleSettings.GssapiLib, out GssapiProvider? customProvider,
+                out Exception? customError))
+            {
+                throw new ArgumentException(customError.Message, customError);
+            }
+
+            return customProvider;
         }
 
-        if (!loaded)
+        if (!ProviderLibs.TryGetSystemGssapi(out GssapiProvider? systemProvider, out Exception? systemError))
         {
-            throw new ArgumentException(gssapiError.Message, gssapiError);
+            throw new ArgumentException(systemError.Message, systemError);
         }
 
-        return new GssapiCredential(gssapiProvider, userName, password, negoMethod, negoOptions);
+        return systemProvider;
     }
 
     /// <summary>Delivers pumped output to a transport manager and reports pump failures as transport errors.</summary>
