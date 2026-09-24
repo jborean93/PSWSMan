@@ -127,6 +127,8 @@ internal abstract class NegotiateAuthContext : IWSManAuthenticationContext
     /// <inheritdoc />
     public abstract bool Complete { get; }
 
+    public bool ExchangesTokens => true;
+
     /// <inheritdoc />
     public abstract string HttpAuthLabel { get; }
 

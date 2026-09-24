@@ -37,6 +37,15 @@ internal sealed class WinRSShell : IDisposable
     /// <summary>The identifier of the shell once it has been opened or when targeting an existing shell.</summary>
     public Guid? ShellId { get; private set; }
 
+    /// <summary>
+    /// How many times a receive pump resends a Receive that failed at the transport level before giving up. Each
+    /// retry uses a new connection and the same envelope, see <see cref="WinRSReceivePump"/>.
+    /// </summary>
+    public int ReceiveRetries { get; init; } = 5;
+
+    /// <summary>The delay before the first Receive retry, it doubles with each subsequent retry.</summary>
+    public TimeSpan ReceiveRetryBackoff { get; init; } = TimeSpan.FromSeconds(2);
+
     /// <summary>Whether <see cref="Close"/> or <see cref="Abort"/> has been called.</summary>
     public bool IsClosed
     {
@@ -162,7 +171,17 @@ internal sealed class WinRSShell : IDisposable
     {
         AssertOpened();
 
-        WinRSReceivePump pump = new(this, _winrs, _pool, sink, streams, commandId, _cts.Token, _trace);
+        if (ReceiveRetries < 0)
+        {
+            throw new InvalidOperationException("ReceiveRetries cannot be negative.");
+        }
+        if (ReceiveRetryBackoff < TimeSpan.Zero)
+        {
+            throw new InvalidOperationException("ReceiveRetryBackoff cannot be negative.");
+        }
+
+        WinRSReceivePump pump = new(this, _winrs, _pool, sink, streams, commandId, ReceiveRetries,
+            ReceiveRetryBackoff, _cts.Token, _trace);
         lock (_lock)
         {
             if (_closed)

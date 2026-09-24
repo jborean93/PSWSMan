@@ -316,7 +316,10 @@ Accept wildcard characters: False
 ```
 
 ### -MaxConnectionRetryCount
-Specifies the number of times that PowerShell attempts to make a connection to a target machine if the current attempt fails due to network issues.
+Specifies the number of times a `Receive` request is resent on a new connection if it fails due to network issues, for example when the remote command restarts the network adapter and the response is lost.
+WSMan returns the same response for a repeated request so the retry does not lose or duplicate any output.
+Each retry waits twice as long as the previous one, starting at 2 seconds.
+Set to `0` to fail the session on the first network failure.
 The default value is `5`.
 
 ```yaml
@@ -570,8 +573,7 @@ The [New-PSWSManCertValidationCallback](./New-PSWSManCertValidationCallback.md) 
 
 Using an explicit `-TlsOption` will ignore the `-CertificateThumbprint` parameter used when creating a PSSession and the `-ClientCertificate` parameter on this cmdlet.
 Use the `ClientCertificates` property of the TLS options to specify a client certificate for certificate based authentication.
-Support for TLS 1.3 and client certificate authentication is limited to dotnet 7+.
-If using an older dotnet version with client certificate authentication, TLS 1.3 must be disabled with the `EnabledSslProtocols` property.
+When `ClientCertificates` is set, `AllowTlsResume` is set to `$false` on the supplied object because a resumed TLS session skips the client certificate exchange that WinRM certificate authentication requires.
 
 ```yaml
 Type: SslClientAuthenticationOptions

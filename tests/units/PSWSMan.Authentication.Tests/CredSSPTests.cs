@@ -89,7 +89,7 @@ public class CredSSPTests
         AuthenticationException ex = Assert.Throws<AuthenticationException>(
             () => AuthExchange.Authenticate(client, acceptor));
 
-        await Assert.That(ex.Message).Contains("Received CredSSP TSRequest error");
+        await Assert.That(ex.Message).Contains("during the stage VerifyServerKey - received TSRequest error");
         await Assert.That(acceptor.Query().Complete).IsFalse();
         await Assert.That(acceptor.Query().DelegatedCredentials).IsNull();
     }

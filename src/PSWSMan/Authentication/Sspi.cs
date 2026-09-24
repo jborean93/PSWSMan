@@ -1,6 +1,7 @@
 using PSWSMan.Authentication.Native;
 using PSWSMan.Connection;
 using System;
+using System.Security.Authentication;
 using System.Buffers.Binary;
 using System.Security.Cryptography.X509Certificates;
 
@@ -119,6 +120,13 @@ internal sealed unsafe class SspiAuthContext : NegotiateAuthContext, IWSManEncry
 
     public override byte[]? Step(Span<byte> inToken)
     {
+        if (inToken.IsEmpty && _context is not null)
+        {
+            // InitializeSecurityContext on an existing context needs the server's token to continue.
+            throw new AuthenticationException(
+                $"WinRM {HttpAuthLabel} authentication failure - the server did not provide a token to continue the exchange");
+        }
+
         if (_targetSpn is null)
         {
             _targetSpn = $"{Options.SPNService ?? "host"}/{Options.SPNHostName ?? "unknown"}";

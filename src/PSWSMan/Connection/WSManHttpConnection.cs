@@ -25,6 +25,10 @@ namespace PSWSMan.Connection;
 /// socket and re-runs the authentication handshake. A request that fails for any reason marks the connection as
 /// broken so the pool disposes it rather than handing it out again.
 /// </para>
+/// <para>
+/// TCP keepalive is enabled on every socket so a peer that disappears while a request is waiting for its response
+/// fails the request within a few probe intervals instead of the full request timeout.
+/// </para>
 /// </remarks>
 internal sealed class WSManHttpConnection : IDisposable
 {
@@ -152,81 +156,105 @@ internal sealed class WSManHttpConnection : IDisposable
 
     private ReadOnlyMemory<byte> SendCore(ReadOnlyMemory<byte> message, CancellationToken token)
     {
-        HttpResponseMessage? response = null;
-        try
+        for (int attempt = 1; ; attempt++)
         {
-            for (int attempt = 1; ; attempt++)
+            // The server closes idle sockets on its own schedule. Checking up front means the request is built for
+            // a fresh handshake rather than for a context that is about to be replaced by the connect callback.
+            if (_auth is not null && !IsSocketAlive())
             {
-                // The server closes idle sockets on its own schedule. Checking up front means the request is built
-                // for a fresh handshake rather than for a context that is about to be replaced by the connect
-                // callback.
-                if (_auth is not null && !IsSocketAlive())
-                {
-                    DropContext();
-                }
-
-                int generation = _generation;
-                bool builtWithoutContext = _auth is null;
-                HttpRequestMessage request = CreateRequest(message);
-                response = _http.Send(request, HttpCompletionOption.ResponseContentRead, token);
-
-                if (_generation != generation && _options.Encrypt && !builtWithoutContext)
-                {
-                    // The handler reconnected under a request whose body was encrypted with the previous context.
-                    // The server cannot have decrypted it so it is safe to start over on the new socket, which now
-                    // has a fresh context that the callback already primed with its first token.
-                    if (attempt >= MaxSendAttempts)
-                    {
-                        throw new WSManTransportException(
-                            $"WSMan connection was reset {attempt} times while sending the request.");
-                    }
-
-                    response.Dispose();
-                    response = null;
-                    continue;
-                }
-
-                // The connect callback creates the authentication context so it is always set once a response is
-                // received. Each challenge round is sent with a new request that carries the next token.
-                IWSManAuthenticationContext auth = _auth
-                    ?? throw new WSManTransportException("WSMan connection has no authentication context.");
-                while (!auth.Complete)
-                {
-                    HttpRequestMessage authRequest = CreateRequest(message, addAuthHeader: false);
-                    if (!AddAuthenticationHeader(authRequest, response))
-                    {
-                        break;
-                    }
-
-                    request = authRequest;
-                    response.Dispose();
-                    response = _http.Send(request, HttpCompletionOption.ResponseContentRead, token);
-                }
-
-                // When encrypting, the requests used to establish the context carry an empty body. Now that the
-                // context is complete the real payload must be sent. This loops in case the server closed the socket
-                // in between which restarts the handshake on a new socket.
-                if (request.Content is AuthPlaceholderContent && response.StatusCode != HttpStatusCode.Unauthorized)
-                {
-                    if (attempt >= MaxSendAttempts)
-                    {
-                        throw new WSManTransportException(
-                            $"WSMan connection failed to send the request after {attempt} authentication attempts.");
-                    }
-
-                    response.Dispose();
-                    response = null;
-                    continue;
-                }
-
-                return ProcessResponse(response);
+                Trace("socket closed by the peer, dropping the authentication context");
+                DropContext();
             }
-        }
-        finally
-        {
-            response?.Dispose();
+
+            int generation = _generation;
+            HttpRequestMessage request = CreateRequest(message);
+            using HttpResponseMessage response = SendWithChallenges(message, ref request, token);
+            IWSManAuthenticationContext auth = CurrentAuth;
+            TraceResponse(response, auth);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                throw new AuthenticationException(
+                    $"WinRM {auth.HttpAuthLabel} authentication failure{StageSuffix(auth)}");
+            }
+
+            // Without encryption the payload goes out with the very first request. With it the payload is only sent
+            // once the context is complete, and a reconnect under the request means the body was encrypted with a
+            // context the server never had.
+            bool payloadSent = !_options.Encrypt
+                || (request.Content is not AuthPlaceholderContent && generation == _generation);
+
+            if (!auth.Complete)
+            {
+                // The server answered without finishing the exchange. The context cannot produce another token until
+                // it gets a challenge, so nothing more can be sent on this connection and the pool disposes it once
+                // the caller is done. The response is still the server's answer to the payload if that went out.
+                IsBroken = true;
+                Trace("authentication exchange was not completed by the server, connection marked broken");
+                if (!payloadSent)
+                {
+                    throw new AuthenticationException(
+                        $"WinRM {auth.HttpAuthLabel} authentication failure{StageSuffix(auth)} - the server " +
+                        $"responded with {(int)response.StatusCode} before the authentication exchange completed");
+                }
+            }
+            else if (!payloadSent)
+            {
+                // The context is complete now so the next attempt carries the real payload. This loops in case the
+                // server closes the socket in between, which restarts the handshake on a new socket.
+                if (attempt >= MaxSendAttempts)
+                {
+                    throw new WSManTransportException(
+                        $"WSMan connection failed to send the request after {attempt} authentication attempts.");
+                }
+                continue;
+            }
+
+            return ProcessResponse(response);
         }
     }
+
+    /// <summary>Sends the request and answers each challenge until the context is complete or the server stops challenging.</summary>
+    /// <param name="message">The envelope, used to build the request for each challenge round.</param>
+    /// <param name="request">The request to send, replaced with the last request sent when challenges were answered.</param>
+    /// <param name="token">Cancels the requests.</param>
+    /// <returns>The response to the last request sent, owned by the caller.</returns>
+    private HttpResponseMessage SendWithChallenges(ReadOnlyMemory<byte> message, ref HttpRequestMessage request,
+        CancellationToken token)
+    {
+        HttpResponseMessage response = _http.Send(request, HttpCompletionOption.ResponseContentRead, token);
+        try
+        {
+            // The connect callback creates the authentication context so it is always set once a response is
+            // received. Each challenge round is sent with a new request that carries the next token.
+            while (!CurrentAuth.Complete)
+            {
+                HttpRequestMessage next = CreateRequest(message, addAuthHeader: false);
+                if (!AddAuthenticationHeader(next, response))
+                {
+                    break;
+                }
+
+                request = next;
+                response.Dispose();
+                response = _http.Send(request, HttpCompletionOption.ResponseContentRead, token);
+            }
+
+            return response;
+        }
+        catch
+        {
+            response.Dispose();
+            throw;
+        }
+    }
+
+    private IWSManAuthenticationContext CurrentAuth => _auth
+        ?? throw new WSManTransportException("WSMan connection has no authentication context.");
+
+    /// <summary>The " during the stage X" suffix for error messages of contexts that report a stage, like CredSSP.</summary>
+    private static string StageSuffix(IWSManAuthenticationContext auth)
+        => string.IsNullOrWhiteSpace(auth.AuthenticationStage) ? "" : $" during the stage {auth.AuthenticationStage}";
 
     private HttpRequestMessage CreateRequest(ReadOnlyMemory<byte> message, bool addAuthHeader = true)
     {
@@ -235,11 +263,23 @@ internal sealed class WSManHttpConnection : IDisposable
             Content = CreateContent(message),
         };
 
-        // Contexts that never complete, like Basic, provide the header on every request. A fresh socket has no
-        // context yet, the connect callback will add the first token in that case.
-        if (addAuthHeader && _auth is not null && !_auth.Complete)
+        if (addAuthHeader && _auth is not null)
         {
-            AddAuthenticationHeader(request, null);
+            if (!_auth.Complete)
+            {
+                // Stepping an exchange without the server's token is never valid, SendCore marks the connection
+                // broken when an exchange stalls so this cannot happen through the pool.
+                throw new WSManTransportException(
+                    "WSMan connection has an unfinished authentication exchange and cannot send a new request.");
+            }
+
+            // Schemes that do not exchange tokens, like Basic, provide their header on every request. For the rest
+            // the socket is authenticated once the exchange completes. A fresh socket has no context yet, the
+            // connect callback adds the first token in that case.
+            if (!_auth.ExchangesTokens)
+            {
+                AddAuthenticationHeader(request, null);
+            }
         }
 
         return request;
@@ -283,11 +323,7 @@ internal sealed class WSManHttpConnection : IDisposable
             body = buffer.AsMemory(0, length);
         }
 
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
-        {
-            throw new AuthenticationException($"WinRM {_auth?.HttpAuthLabel} authentication failure");
-        }
-        else if (body.Span.IndexOfAnyExcept(" \t\r\n"u8) == -1)
+        if (body.Span.IndexOfAnyExcept(" \t\r\n"u8) == -1)
         {
             // WSMan faults come back as a 500 with a SOAP body which the caller parses, only an empty error body is
             // treated as a transport failure.
@@ -317,12 +353,7 @@ internal sealed class WSManHttpConnection : IDisposable
 
     private bool AddAuthenticationHeader(HttpRequestMessage request, HttpResponseMessage? response)
     {
-        IWSManAuthenticationContext auth = _auth
-            ?? throw new WSManTransportException("WSMan connection has no authentication context.");
-        if (auth.Complete)
-        {
-            return false;
-        }
+        IWSManAuthenticationContext auth = CurrentAuth;
 
         AuthenticationHeaderValue[]? challenges = response?.Headers.WwwAuthenticate.ToArray();
         byte[]? inputToken = null;
@@ -340,8 +371,8 @@ internal sealed class WSManHttpConnection : IDisposable
                 response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 throw new AuthenticationException(
-                    "WinRM authentication failure - server did not respond to token during the stage " +
-                    auth.AuthenticationStage);
+                    $"WinRM {auth.HttpAuthLabel} authentication failure{StageSuffix(auth)} - the server did not " +
+                    "respond with a token");
             }
 
             // No challenge to process, let the caller deal with the response as is.
@@ -359,10 +390,8 @@ internal sealed class WSManHttpConnection : IDisposable
         }
         catch (Exception e)
         {
-            string stageMsg = string.IsNullOrWhiteSpace(auth.AuthenticationStage)
-                ? ""
-                : $" during the stage {auth.AuthenticationStage}";
-            throw new AuthenticationException($"Unknown WinRM authentication failure{stageMsg}: {e.Message}", e);
+            throw new AuthenticationException(
+                $"Unknown WinRM authentication failure{StageSuffix(auth)}: {e.Message}", e);
         }
 
         if (outputToken is null)
@@ -387,6 +416,7 @@ internal sealed class WSManHttpConnection : IDisposable
         Stream? stream = null;
         try
         {
+            ConfigureKeepAlive(socket);
             await socket.ConnectAsync(context.DnsEndPoint, token).ConfigureAwait(false);
             stream = new NetworkStream(socket, ownsSocket: true);
 
@@ -396,14 +426,7 @@ internal sealed class WSManHttpConnection : IDisposable
                 SslStream ssl = new(stream);
                 stream = ssl;
 
-                SslClientAuthenticationOptions tlsOptions = CloneTlsOptions(_options.TlsOptions);
-                if ((tlsOptions.ClientCertificates?.Count ?? 0) > 0)
-                {
-                    // TLS resumption skips the client certificate exchange which WinRM needs for certificate auth.
-                    tlsOptions.AllowTlsResume = false;
-                }
-
-                await ssl.AuthenticateAsClientAsync(tlsOptions, token).ConfigureAwait(false);
+                await ssl.AuthenticateAsClientAsync(_options.TlsOptions, token).ConfigureAwait(false);
                 if (ssl.RemoteCertificate is not null)
                 {
                     serverCertificate = new X509Certificate2(ssl.RemoteCertificate);
@@ -415,6 +438,8 @@ internal sealed class WSManHttpConnection : IDisposable
             {
                 ResetAuthentication(serverCertificate, context.InitialRequestMessage);
             }
+            Trace($"connected socket generation {_generation} to {context.DnsEndPoint}, " +
+                $"authenticating with {_auth?.HttpAuthLabel}");
             return stream;
         }
         catch
@@ -431,16 +456,69 @@ internal sealed class WSManHttpConnection : IDisposable
         }
     }
 
+    private void ConfigureKeepAlive(Socket socket)
+    {
+        if (_options.KeepAliveTime == Timeout.InfiniteTimeSpan)
+        {
+            return;
+        }
+
+        // The socket options are in whole seconds. A request/response exchange has nothing on the wire while the
+        // server holds a Receive so the probes are the only way to learn the peer is gone before the request
+        // timeout. The per socket timers are supported on Windows 10 1709+, Linux and macOS.
+        socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+        socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime,
+            (int)_options.KeepAliveTime.TotalSeconds);
+        socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveInterval,
+            (int)_options.KeepAliveInterval.TotalSeconds);
+        socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveRetryCount,
+            _options.KeepAliveRetryCount);
+    }
+
     private void ResetAuthentication(X509Certificate2? serverCertificate, HttpRequestMessage request)
     {
-        // A new socket means a new security context. The first token is added to the request that triggered the
-        // connection here because the channel bindings are only known once TLS is established.
+        // A new socket means a new security context. Its first token, or the credential header of a scheme that does
+        // not exchange tokens, is added to the request that triggered the connection here because the channel
+        // bindings are only known once TLS is established.
         DropContext();
         _generation++;
         _auth = _options.Credential.CreateAuthContext(serverCertificate);
         _encryptor = _options.Encrypt ? (IWSManEncryptionContext)_auth : null;
 
         AddAuthenticationHeader(request, null);
+    }
+
+    private void TraceResponse(HttpResponseMessage response, IWSManAuthenticationContext auth)
+    {
+        if (_options.Trace is null)
+        {
+            return;
+        }
+
+        // Only the schemes of the challenges are logged, never the tokens.
+        string challenges = string.Join(", ", response.Headers.WwwAuthenticate.Select(
+            c => string.IsNullOrEmpty(c.Parameter) ? c.Scheme : $"{c.Scheme} <token>"));
+        Trace($"response {(int)response.StatusCode} {response.ReasonPhrase}, " +
+            $"content-type '{response.Content.Headers.ContentType?.MediaType}', " +
+            $"authentication {(auth.Complete ? "complete" : "incomplete")}, " +
+            $"www-authenticate [{challenges}]");
+    }
+
+    private void Trace(string message)
+    {
+        if (_options.Trace is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _options.Trace($"PSWSMan Connection: {message}");
+        }
+        catch (Exception)
+        {
+            // Tracing is best effort, it must never affect the connection.
+        }
     }
 
     private void DropContext()
@@ -468,26 +546,6 @@ internal sealed class WSManHttpConnection : IDisposable
         {
             return false;
         }
-    }
-
-    private static SslClientAuthenticationOptions CloneTlsOptions(SslClientAuthenticationOptions source)
-    {
-        return new SslClientAuthenticationOptions
-        {
-            AllowRenegotiation = source.AllowRenegotiation,
-            AllowTlsResume = source.AllowTlsResume,
-            ApplicationProtocols = source.ApplicationProtocols,
-            CertificateChainPolicy = source.CertificateChainPolicy,
-            CertificateRevocationCheckMode = source.CertificateRevocationCheckMode,
-            CipherSuitesPolicy = source.CipherSuitesPolicy,
-            ClientCertificateContext = source.ClientCertificateContext,
-            ClientCertificates = source.ClientCertificates,
-            EnabledSslProtocols = source.EnabledSslProtocols,
-            EncryptionPolicy = source.EncryptionPolicy,
-            LocalCertificateSelectionCallback = source.LocalCertificateSelectionCallback,
-            RemoteCertificateValidationCallback = source.RemoteCertificateValidationCallback,
-            TargetHost = source.TargetHost,
-        };
     }
 
     /// <summary>Closes the socket and releases the authentication context. Aborts any request in flight.</summary>

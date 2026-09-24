@@ -1,6 +1,7 @@
 using PSWSMan.Authentication.Native;
 using PSWSMan.Connection;
 using System;
+using System.Security.Authentication;
 using System.Buffers.Binary;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
@@ -13,6 +14,11 @@ internal sealed unsafe class GssapiCredential : WSManCredential
     private readonly byte[] _mech;
     private readonly NegotiateOptions _options;
     private readonly SafeGssapiCred? _credential;
+
+    // Every context created from this credential shares the same gss_cred_id_t. MIT krb5 crashes inside
+    // gss_init_sec_context when two threads initiate contexts on one credential at the same time, which
+    // happens when several pooled connections reconnect together, so the handshake steps are serialised here.
+    private readonly object _stepLock = new();
 
     internal GssapiCredential(GssapiProvider provider, string? username, string? password, NegotiateMethod method,
         NegotiateOptions options)
@@ -50,7 +56,7 @@ internal sealed unsafe class GssapiCredential : WSManCredential
     }
 
     public override IWSManAuthenticationContext CreateAuthContext(X509Certificate2? serverCertificate)
-        => new GssapiAuthContext(_provider, _credential, _mech, _options, serverCertificate);
+        => new GssapiAuthContext(_provider, _credential, _stepLock, _mech, _options, serverCertificate);
 
     protected override void Dispose(bool disposing)
     {
@@ -67,6 +73,7 @@ internal sealed unsafe class GssapiAuthContext : NegotiateAuthContext, IWSManEnc
 {
     private readonly GssapiProvider _provider;
     private readonly SafeGssapiCred? _credential;
+    private readonly object _stepLock;
     private readonly string _wsmanAuthHeader;
     private readonly string _wsmanEncryptionProtocol;
     private readonly byte[] _mech;
@@ -94,11 +101,12 @@ internal sealed unsafe class GssapiAuthContext : NegotiateAuthContext, IWSManEnc
 
     public int MaxEncryptionChunkSize => -1;
 
-    internal GssapiAuthContext(GssapiProvider provider, SafeGssapiCred? credential, byte[] mech,
+    internal GssapiAuthContext(GssapiProvider provider, SafeGssapiCred? credential, object stepLock, byte[] mech,
         NegotiateOptions options, X509Certificate2? serverCertificate) : base(options, serverCertificate)
     {
         _provider = provider;
         _credential = credential;
+        _stepLock = stepLock;
         _mech = mech;
 
         if (mech.AsSpan().SequenceEqual(GssapiOid.KERBEROS))
@@ -115,6 +123,23 @@ internal sealed unsafe class GssapiAuthContext : NegotiateAuthContext, IWSManEnc
 
     public override byte[]? Step(Span<byte> inToken)
     {
+        // See GssapiCredential, contexts sharing a credential must not step concurrently.
+        lock (_stepLock)
+        {
+            return StepCore(inToken);
+        }
+    }
+
+    private byte[]? StepCore(Span<byte> inToken)
+    {
+        if (inToken.IsEmpty && _context?.IsInvalid == false)
+        {
+            // gss_init_sec_context on an existing context needs the acceptor's token, MIT krb5 dereferences a
+            // missing one rather than reporting it.
+            throw new AuthenticationException(
+                $"WinRM {_wsmanAuthHeader} authentication failure - the server did not provide a token to continue the exchange");
+        }
+
         if (_targetName is null)
         {
             string target = $"{Options.SPNService ?? "host"}@{Options.SPNHostName ?? "unknown"}";

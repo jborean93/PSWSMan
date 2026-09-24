@@ -1,5 +1,6 @@
 using PSWSMan.Connection;
 using System;
+using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
@@ -161,5 +162,25 @@ public class NtlmTests
         AcceptorException ex = Assert.Throws<AcceptorException>(() => AuthExchange.Authenticate(client, acceptor));
 
         await Assert.That(ex.Type).IsEqualTo("BadBindingsError");
+    }
+
+    [Test]
+    [Arguments(TestProviders.Gssapi)]
+    [Arguments(TestProviders.Sspi)]
+    [Arguments(TestProviders.Devolutions)]
+    public async Task Step_WithoutTokenAfterFirstStep_IsRejected(string providerName)
+    {
+        // A stalled exchange must surface as an authentication failure, MIT krb5 crashes the process if the missing
+        // token reaches gss_init_sec_context.
+        AuthProvider provider = TestProviders.Require(providerName);
+        using WSManCredential credential = CreateCredential(provider);
+        using NegotiateAuthContext client = (NegotiateAuthContext)credential.CreateAuthContext(null);
+
+        byte[]? first = client.Step(null);
+        AuthenticationException ex = Assert.Throws<AuthenticationException>(() => client.Step(null));
+
+        await Assert.That(first).IsNotNull();
+        await Assert.That(client.Complete).IsFalse();
+        await Assert.That(ex.Message).Contains("did not provide a token");
     }
 }
