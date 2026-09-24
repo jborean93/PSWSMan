@@ -37,7 +37,7 @@ internal sealed class FakeEncryptor : IWSManEncryptionContext
 
     private int TrailerLength => TrailerMode ? Trailer.Length : 0;
 
-    public byte[] WrapWinRM(ReadOnlySpan<byte> data, out int paddingLength)
+    public ReadOnlyMemory<byte> WrapWinRM(ReadOnlySpan<byte> data, out int paddingLength)
     {
         Wraps++;
         byte[] block = new byte[4 + Header.Length + data.Length + TrailerLength];
@@ -159,7 +159,7 @@ internal sealed class FakeNegoContext : IWSManAuthenticationContext, IWSManEncry
         return Encoding.ASCII.GetBytes($"C{_step}");
     }
 
-    public byte[] WrapWinRM(ReadOnlySpan<byte> data, out int paddingLength)
+    public ReadOnlyMemory<byte> WrapWinRM(ReadOnlySpan<byte> data, out int paddingLength)
         => _encryptor.WrapWinRM(data, out paddingLength);
 
     public Span<byte> UnwrapWinRM(Span<byte> block) => _encryptor.UnwrapWinRM(block);

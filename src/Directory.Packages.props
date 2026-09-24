@@ -9,7 +9,7 @@
     <PackageVersion Include="TUnit" Version="1.69.0" />
 
     <!-- Module Deps -->
-    <PackageVersion Include="Devolutions.Sspi" Version="2026.8.19" />
+    <PackageVersion Include="Devolutions.Sspi" Version="2026.9.23" />
     <PackageVersion Include="IgnoresAccessChecksToGenerator" Version="1.0.0" />
     <PackageVersion Include="MonoMod.RuntimeDetour" Version="25.3.6" />
     <PackageVersion Include="System.Formats.Asn1" Version="8.0.0" />

@@ -43,7 +43,7 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
             });
             if (gssapiLib != IntPtr.Zero)
             {
-                GlobalState.Gssapi = new GSSFrameworkProvider(gssapiLib);
+                GlobalState.Gssapi = new GssapiProvider(gssapiLib, isGssFramework: true);
             }
             else
             {
@@ -54,7 +54,7 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
                 });
                 if (gssapiLib != IntPtr.Zero)
                 {
-                    GlobalState.Gssapi = new(gssapiLib);
+                    GlobalState.Gssapi = new GssapiProvider(gssapiLib, isGssFramework: false);
                 }
             }
         }

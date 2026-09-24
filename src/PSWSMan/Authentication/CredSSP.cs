@@ -440,14 +440,12 @@ internal sealed class CredSSPAuthContext : IWSManAuthenticationContext, IWSManEn
         return authValue;
     }
 
-    public byte[] WrapWinRM(ReadOnlySpan<byte> data, out int paddingLength)
+    public ReadOnlyMemory<byte> WrapWinRM(ReadOnlySpan<byte> data, out int paddingLength)
     {
         // WinRM's length prefix for CredSSP is the trailer length, the record itself is sent in its natural order.
-        Span<byte> record = _tlsContext.Encrypt(data, out int trailerLength);
-
-        byte[] block = new byte[4 + record.Length];
+        // The TLS context writes the record straight after the 4 bytes reserved for the prefix.
+        byte[] block = _tlsContext.Encrypt(data, 4, out int trailerLength);
         BinaryPrimitives.WriteInt32LittleEndian(block, trailerLength);
-        record.CopyTo(block.AsSpan(4));
 
         paddingLength = 0;
         return block;
@@ -538,10 +536,9 @@ internal sealed class CredSSPAuthContext : IWSManAuthenticationContext, IWSManEn
         {
             throw new AuthenticationException("CredSSP Server did not response with pub key auth information.");
         }
-        pubKeyAuth = negoContext.Unwrap(tsRequest.PubKeyAuth);
-
+        // Unwrap returns a span so it is compared inline, an iterator method cannot hold a span in a local.
         byte[] expectedKey = GetPubKeyAuth(pubKeyBytes, false, clientNonce);
-        if (!pubKeyAuth.SequenceEqual(expectedKey))
+        if (!negoContext.Unwrap(tsRequest.PubKeyAuth).SequenceEqual(expectedKey))
         {
             throw new AuthenticationException("CredSSP Public key verification failed.");
         }
@@ -565,7 +562,7 @@ internal sealed class CredSSPAuthContext : IWSManAuthenticationContext, IWSManEn
     private byte[] WrapTSRequest(TSRequest request, Span<byte> buffer)
     {
         int read = EncodeCredSSPStructure(request, buffer);
-        return _tlsContext.Encrypt(buffer[..read], out _).ToArray();
+        return _tlsContext.Encrypt(buffer[..read], 0, out _);
     }
 
     /// <summary>Unwrap a TSRequest from the input TLS buffer and check the error code.</summary>

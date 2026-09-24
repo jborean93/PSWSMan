@@ -31,8 +31,11 @@ internal interface IWSManEncryptionContext
     /// The number of padding bytes the mechanism counts against the plaintext length. They are reported in the MIME
     /// OriginalContent length but are not part of the block, matching the Windows client.
     /// </param>
-    /// <returns>The block including the 4 byte length prefix.</returns>
-    byte[] WrapWinRM(ReadOnlySpan<byte> data, out int paddingLength);
+    /// <returns>
+    /// The block including the 4 byte length prefix. It may be a slice of a larger buffer the context allocated, the
+    /// caller only reads it.
+    /// </returns>
+    ReadOnlyMemory<byte> WrapWinRM(ReadOnlySpan<byte> data, out int paddingLength);
 
     /// <summary>Decrypts a complete block in place.</summary>
     /// <param name="block">The block including the 4 byte length prefix, mutated by the decryption.</param>

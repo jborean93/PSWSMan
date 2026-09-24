@@ -147,16 +147,17 @@ internal abstract class NegotiateAuthContext : IWSManAuthenticationContext
     /// <returns>The wrapped data.</returns>
     protected internal abstract byte[] Wrap(Span<byte> data);
 
-    /// <summary>Unwraps the data as a single stream.</summary>
+    /// <summary>Unwraps the data as a single stream, in place.</summary>
     /// <remarks>
-    /// Some platforms may mutate the input data while others won't.
-    /// Don't rely on the input data to not change and always use the return
-    /// value to reference the newly unwrapped data. This is used by CredSSP
-    /// to unwrap the authentication tokesn it receives post authentication.
+    /// The plaintext ends up inside the input buffer and a slice of it is
+    /// returned. Mechanisms that cannot decrypt in place copy their output back
+    /// over the input, so the input is consumed either way. This is used by
+    /// CredSSP to unwrap the authentication tokens it receives post
+    /// authentication.
     /// </remarks>
-    /// <param name="data">The data to unwrap.</param>
-    /// <returns>The unwrapped data.</returns>
-    protected internal abstract byte[] Unwrap(Span<byte> data);
+    /// <param name="data">The data to unwrap, overwritten with the plaintext.</param>
+    /// <returns>The slice of <paramref name="data"/> holding the plaintext.</returns>
+    protected internal abstract Span<byte> Unwrap(Span<byte> data);
 
     public void Dispose()
     {
