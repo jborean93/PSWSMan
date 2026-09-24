@@ -1,4 +1,5 @@
 using PSWSMan.Authentication;
+using PSWSMan.Authentication.Native;
 using PSWSMan.Connection;
 using PSWSMan.Lib;
 using System;
@@ -298,31 +299,52 @@ internal sealed class WSManPSRPSession : IDisposable
             _ => NegotiateMethod.Negotiate,
         };
 
-        bool isDefault = false;
         if (provider == AuthenticationProvider.Default)
         {
-            isDefault = true;
-            provider = GlobalState.DefaultProvider;
+            provider = ModuleSettings.GetFromTLS().DefaultAuthProvider;
         }
 
-        if (provider == AuthenticationProvider.System)
+        if (provider == AuthenticationProvider.Devolutions)
         {
-            if (GlobalState.Gssapi != null)
+            if (!ProviderLibs.TryGetDevolutionsSspi(out SspiProvider? devolutionsProvider, out Exception? devolutionsError))
             {
-                return new GssapiCredential(GlobalState.Gssapi, userName, password, negoMethod, negoOptions);
+                throw new ArgumentException(devolutionsError.Message, devolutionsError);
             }
-            else if (GlobalState.WinSspi != null)
-            {
-                return new SspiCredential(GlobalState.WinSspi, userName, password, negoMethod, negoOptions);
-            }
-            else if (!isDefault)
-            {
-                string msg = "Failed to find System SSPI/GSSAPI library, can only use Default or Devolutions for Negotiate auth.";
-                throw new ArgumentException(msg);
-            }
+
+            return new SspiCredential(devolutionsProvider, userName, password, negoMethod, negoOptions);
         }
 
-        return new SspiCredential(GlobalState.DevolutionsSspi, userName, password, negoMethod, negoOptions);
+        // This is set when running on Windows
+        SspiProvider? systemProvider = ProviderLibs.GetSystemSspi();
+        if (systemProvider is not null)
+        {
+            return new SspiCredential(systemProvider, userName, password, negoMethod, negoOptions);
+        }
+
+        // If on non-Windows we first check if a custom GSSAPI library is
+        // specified in the module settings. If not we fallback to the system
+        // GSSAPI library. Set-PSWSManAuth checks the library when it is set
+        // so a failure here means it stopped loading since, the error names
+        // the library and the loader's reason.
+        ModuleSettings moduleSettings = ModuleSettings.GetFromTLS();
+        bool loaded;
+        GssapiProvider? gssapiProvider;
+        Exception? gssapiError;
+        if (moduleSettings.GssapiLib != ModuleSettings.DefaultGssapiLib)
+        {
+            loaded = ProviderLibs.TryGetGssapi(moduleSettings.GssapiLib, out gssapiProvider, out gssapiError);
+        }
+        else
+        {
+            loaded = ProviderLibs.TryGetSystemGssapi(out gssapiProvider, out gssapiError);
+        }
+
+        if (!loaded)
+        {
+            throw new ArgumentException(gssapiError.Message, gssapiError);
+        }
+
+        return new GssapiCredential(gssapiProvider, userName, password, negoMethod, negoOptions);
     }
 
     /// <summary>Delivers pumped output to a transport manager and reports pump failures as transport errors.</summary>

@@ -1,5 +1,5 @@
 ---
-external help file: PSWSMan.Module.dll-Help.xml
+external help file: PSWSMan.dll-Help.xml
 Module Name: PSWSMan
 online version: https://www.github.com/jborean93/PSWSMan/blob/main/docs/en-US/New-PSWSManCertValidationCallback.md
 schema: 2.0.0
@@ -13,7 +13,8 @@ Create a scriptblock delegate to validate certificates.
 ## SYNTAX
 
 ```
-New-PSWSManCertValidationCallback [-ScriptBlock] <ScriptBlock> [<CommonParameters>]
+New-PSWSManCertValidationCallback [-ScriptBlock] <ScriptBlock> [-ProgressAction <ActionPreference>]
+ [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -70,6 +71,21 @@ PS C:\> $pso = New-PSWSManSessionOption -TlsOption $tlsOptions
 Creates a WSMan session option with a callback that rejects certs with the subject `CN=host1` or `CN=host2`.
 
 ## PARAMETERS
+
+### -ProgressAction
+New common parameter introduced in PowerShell 7.4.
+
+```yaml
+Type: ActionPreference
+Parameter Sets: (All)
+Aliases: proga
+
+Required: False
+Position: Named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
 
 ### -ScriptBlock
 The scriptblock to run as the delegate.

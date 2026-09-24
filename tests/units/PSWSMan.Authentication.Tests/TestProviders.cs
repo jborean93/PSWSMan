@@ -71,67 +71,27 @@ internal static class TestProviders
 
     private static AuthProvider? LoadGssapi()
     {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            return null;
-        }
-
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX) &&
-            NativeLibrary.TryLoad(OnModuleImportAndRemove.MACOS_GSS_FRAMEWORK, out IntPtr framework))
-        {
-            return AuthProvider.FromGssapi(Gssapi, new GssapiProvider(framework, isGssFramework: true));
-        }
-
-        foreach (string name in new[] { "libgssapi_krb5.so.2", "libgssapi.so.3", "libgssapi.so" })
-        {
-            if (NativeLibrary.TryLoad(name, out IntPtr lib))
-            {
-                return AuthProvider.FromGssapi(Gssapi, new GssapiProvider(lib, isGssFramework: false));
-            }
-        }
-
-        return null;
+        return ProviderLibs.TryGetSystemGssapi(out GssapiProvider? provider, out _)
+            ? AuthProvider.FromGssapi(Gssapi, provider)
+            : null;
     }
 
     private static AuthProvider? LoadSspi()
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            return null;
-        }
-
-        return AuthProvider.FromSspi(Sspi, new SspiProvider(NativeLibrary.Load("Secur32.dll")));
+        SspiProvider? provider = ProviderLibs.GetSystemSspi();
+        return provider is null ? null : AuthProvider.FromSspi(Sspi, provider);
     }
 
     private static AuthProvider? LoadDevolutions()
     {
-        string os;
-        string prefix = "lib";
-        string ext;
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            os = "win";
-            prefix = "";
-            ext = "dll";
-        }
-        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-        {
-            os = "osx";
-            ext = "dylib";
-        }
-        else
-        {
-            os = "linux";
-            ext = "so";
-        }
-
-        // The package's runtimes folder is copied next to the test assembly by the project reference.
+        // The package's runtimes folder is copied next to the test assembly by the project reference, which is a
+        // different layout from the built module so the path is resolved here rather than by ProviderLibs.
         string path = Path.Combine(
             AppContext.BaseDirectory,
             "runtimes",
-            $"{os}-{RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant()}",
+            $"{ProviderLibs.OsName}-{RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant()}",
             "native",
-            $"{prefix}DevolutionsSspi.{ext}");
+            $"{ProviderLibs.LibPrefix}DevolutionsSspi.{ProviderLibs.LibExt}");
 
         return NativeLibrary.TryLoad(path, out IntPtr lib)
             ? AuthProvider.FromSspi(Devolutions, new SspiProvider(lib))

@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 
-namespace PSWSMan.Module.Patches;
+namespace PSWSMan.Patches;
 
 internal sealed class MonoModPatcher : IDisposable
 {
