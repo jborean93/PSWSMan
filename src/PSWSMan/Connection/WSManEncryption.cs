@@ -1,14 +1,8 @@
 using System;
 using System.Buffers.Text;
-using System.Collections.Generic;
 using System.Text;
 
 namespace PSWSMan.Connection;
-
-/// <summary>An encrypted HTTP body.</summary>
-/// <param name="Payload">The body bytes.</param>
-/// <param name="ContentType">The Content-Type header value to send with the payload.</param>
-internal readonly record struct WSManEncryptedPayload(byte[] Payload, string ContentType);
 
 /// <summary>Builds and parses the multipart/encrypted MIME framing WinRM uses for message level encryption.</summary>
 /// <remarks>
@@ -23,6 +17,8 @@ internal readonly record struct WSManEncryptedPayload(byte[] Payload, string Con
 /// [block built by the encryption context]
 /// </code>
 /// Chunks follow each other directly and the payload ends with a single <c>--Encrypted Boundary--\r\n</c>.
+/// The outgoing body is not gathered into one buffer, <see cref="WSManEncryptedContent"/> writes the parts to the
+/// connection stream as they are.
 /// </remarks>
 internal static class WSManEncryption
 {
@@ -33,13 +29,12 @@ internal static class WSManEncryption
 
     private static readonly byte[] s_newLine = "\r\n"u8.ToArray();
     private static readonly byte[] s_lengthLabel = "Length="u8.ToArray();
-    private static readonly byte[] s_terminator = Encoding.UTF8.GetBytes($"--{Boundary}--\r\n");
 
-    /// <summary>Wraps the message in the encrypted MIME payload.</summary>
+    /// <summary>Wraps the message into the encrypted MIME body.</summary>
     /// <param name="message">The plaintext message to encrypt.</param>
     /// <param name="encryptor">The context used to encrypt each chunk.</param>
-    /// <returns>The MIME payload and its content type.</returns>
-    public static WSManEncryptedPayload Wrap(ReadOnlySpan<byte> message, IWSManEncryptionContext encryptor)
+    /// <returns>The HTTP content that writes the MIME body, with its Content-Type header set.</returns>
+    public static WSManEncryptedContent Wrap(ReadOnlySpan<byte> message, IWSManEncryptionContext encryptor)
     {
         int chunkSize = encryptor.MaxEncryptionChunkSize == -1 ? message.Length : encryptor.MaxEncryptionChunkSize;
         if (chunkSize <= 0)
@@ -47,39 +42,21 @@ internal static class WSManEncryption
             chunkSize = Math.Max(message.Length, 1);
         }
 
-        // Each chunk contributes its MIME text and the block the context built, gathered into the body afterwards.
-        List<byte[]> parts = new();
-        int total = s_terminator.Length;
-        int chunkCount = 0;
+        // An empty message still produces one chunk.
+        int chunkCount = Math.Max(1, (message.Length + chunkSize - 1) / chunkSize);
+        WSManEncryptedChunk[] chunks = new WSManEncryptedChunk[chunkCount];
 
         ReadOnlySpan<byte> remaining = message;
-        do
+        for (int i = 0; i < chunks.Length; i++)
         {
             int length = Math.Min(remaining.Length, chunkSize);
-            byte[] block = encryptor.WrapWinRM(remaining[..length], out int paddingLength);
-            byte[] text = ChunkHeader(encryptor.EncryptionProtocol, length + paddingLength);
-
-            parts.Add(text);
-            parts.Add(block);
-            total += text.Length + block.Length;
-            chunkCount++;
+            ReadOnlyMemory<byte> block = encryptor.WrapWinRM(remaining[..length], out int paddingLength);
+            chunks[i] = new(block, length + paddingLength);
 
             remaining = remaining[length..];
         }
-        while (remaining.Length > 0);
 
-        byte[] payload = new byte[total];
-        int position = 0;
-        foreach (byte[] part in parts)
-        {
-            part.CopyTo(payload, position);
-            position += part.Length;
-        }
-        s_terminator.CopyTo(payload, position);
-
-        string subType = chunkCount == 1 ? MultipartEncrypted : MultipartMultiEncrypted;
-        string contentType = $"{subType};protocol=\"{encryptor.EncryptionProtocol}\";boundary=\"{Boundary}\"";
-        return new(payload, contentType);
+        return new WSManEncryptedContent(encryptor.EncryptionProtocol, chunks);
     }
 
     /// <summary>Unwraps an encrypted MIME payload in place.</summary>
@@ -147,18 +124,6 @@ internal static class WSManEncryption
         }
 
         return written;
-    }
-
-    private static byte[] ChunkHeader(string protocol, int originalLength)
-    {
-        string text =
-            $"--{Boundary}\r\n" +
-            $"Content-Type: {protocol}\r\n" +
-            $"OriginalContent: type={ContentType};charset=UTF-8;Length={originalLength}\r\n" +
-            $"--{Boundary}\r\n" +
-            "Content-Type: application/octet-stream\r\n";
-
-        return Encoding.UTF8.GetBytes(text);
     }
 
     private static int ParseOriginalLength(ReadOnlySpan<byte> metadata)

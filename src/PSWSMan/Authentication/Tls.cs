@@ -15,12 +15,18 @@ internal class TlsBIOStream : Stream
 {
     // Max TLS record size is 16KiB + 2KiB extra info.
     private readonly byte[] _incomingBuffer = new byte[18432];
-    private readonly byte[] _outgoingBuffer = new byte[18432];
     private readonly BlockingCollection<(int, int)> _incoming = new();
-    private readonly BlockingCollection<(int, int)> _outgoing = new();
+    private readonly BlockingCollection<byte[]> _outgoing = new();
 
     /// <summary>The buffer used to store incoming data.</summary>
     public byte[] IncomingBuffer => _incomingBuffer;
+
+    /// <summary>The number of bytes left free at the start of each outgoing record array.</summary>
+    /// <remarks>
+    /// Lets a caller that needs to put something in front of the record, like WinRM's length prefix, have the
+    /// SslStream output land directly in its final buffer.
+    /// </remarks>
+    public int OutgoingPrefix { get; set; }
 
     public override bool CanRead => true;
 
@@ -38,19 +44,22 @@ internal class TlsBIOStream : Stream
 
     public override void SetLength(long value) => throw new NotImplementedException();
 
-    /// <summary>Write data from the client to the outgoing buffer.</summary>
+    /// <summary>Write a record from the client to the outgoing queue.</summary>
     /// <remarks>
-    /// This is called by the SslStream that wraps this stream to write TLS encrypted data to send to the server. Use
-    /// the <c>ServerRead</c> method to retrieve this data to send.
+    /// This is called by the SslStream that wraps this stream to write TLS encrypted data to send to the server. Each
+    /// record is copied into its own array, with <see cref="OutgoingPrefix"/> bytes left free in front, and queued
+    /// for <c>ServerRead</c> to hand out.
     /// </remarks>
     /// <param name="buffer">The data to write.</param>
-    /// <param name="offset">The offset in buffer to write from.</param>
-    /// <param name="count">The number of bytes from offset to write.</param>
-    public override void Write(byte[] buffer, int offset, int count)
+    public override void Write(ReadOnlySpan<byte> buffer)
     {
-        buffer.AsSpan(offset, count).CopyTo(_outgoingBuffer.AsSpan());
-        _outgoing.Add((0, count));
+        byte[] record = new byte[OutgoingPrefix + buffer.Length];
+        buffer.CopyTo(record.AsSpan(OutgoingPrefix));
+        _outgoing.Add(record);
     }
+
+    public override void Write(byte[] buffer, int offset, int count)
+        => Write(buffer.AsSpan(offset, count));
 
     /// <summary>Read data from the incoming buffer to be processed.</summary>
     /// <remarks>
@@ -81,31 +90,28 @@ internal class TlsBIOStream : Stream
     public override void Flush()
     { }
 
-    /// <summary>Get data from the outgoing buffer to send to the server.</summary>
+    /// <summary>Get the next record to send to the server.</summary>
     /// <remarks>
-    /// This will wait until data has been placed by the SslStream client into the outgoing buffer that needs to be
-    /// sent to the server. It will block until either data is available in the outgoing buffer or the passed in
-    /// cancellation token is set.
+    /// This will wait until a record has been written by the SslStream client. It will block until either a record
+    /// is available or the passed in cancellation token is set. The array is owned by the caller and starts with
+    /// the <see cref="OutgoingPrefix"/> bytes that were in effect when it was written.
     /// </remarks>
     /// <param name="cancelToken">Token used to cancel the read wait.</param>
-    /// <returns>The data from the outgoing buffer that should be sent to the server.</returns>
-    public Span<byte> ServerRead(CancellationToken? cancelToken = null)
-    {
-        (int dataoffset, int dataLength) = _outgoing.Take(cancelToken ?? default);
-        return _outgoingBuffer.AsSpan(dataoffset, dataLength);
-    }
+    /// <returns>The record that should be sent to the server.</returns>
+    public byte[] ServerRead(CancellationToken? cancelToken = null)
+        => _outgoing.Take(cancelToken ?? default);
 
-    /// <summary>Get data from the outgoing buffer without blocking.</summary>
+    /// <summary>Get the next record to send to the server without blocking.</summary>
     /// <remarks>
-    /// Used to retrieve any data that was written by the SslStream client before it finished its operation.
+    /// Used to retrieve any record that was written by the SslStream client before it finished its operation.
     /// </remarks>
-    /// <param name="data">The data from the outgoing buffer that should be sent to the server.</param>
-    /// <returns>Whether there was any data in the outgoing buffer.</returns>
+    /// <param name="data">The record that should be sent to the server.</param>
+    /// <returns>Whether there was a record waiting.</returns>
     public bool TryServerRead(out byte[] data)
     {
-        if (_outgoing.TryTake(out (int, int) entry))
+        if (_outgoing.TryTake(out byte[]? record))
         {
-            data = _outgoingBuffer.AsSpan(entry.Item1, entry.Item2).ToArray();
+            data = record;
             return true;
         }
 
@@ -187,7 +193,7 @@ internal class TlsSecurityContext : IDisposable
             byte[] tlsPacket;
             try
             {
-                tlsPacket = _bio.ServerRead(handshakeDone.Token).ToArray();
+                tlsPacket = _bio.ServerRead(handshakeDone.Token);
             }
             catch (OperationCanceledException)
             {
@@ -281,24 +287,37 @@ internal class TlsSecurityContext : IDisposable
     }
 
     /// <summary>Encrypt data to send to the server.</summary>
+    /// <remarks>
+    /// The data must fit in a single TLS record, at most 16KiB, so that one array holds the whole record.
+    /// </remarks>
     /// <param name="data">The data to encrypt.</param>
+    /// <param name="prefixLength">The number of bytes to leave free in front of the record for the caller.</param>
     /// <param name="trailerLength">
     /// The number of bytes that follow the encrypted data in the record, which is what WinRM expects as the length
     /// prefix of a CredSSP block. AEAD suites have a constant overhead so it is read straight off the record, TLS
     /// 1.3 has no explicit nonce while the TLS 1.2 AEAD suites SChannel offers carry an 8 byte one after the 5 byte
     /// record header. CBC and RC4 suites carry a MAC and length dependent padding instead.
     /// </param>
-    /// <returns>The TLS record to send.</returns>
-    public Span<byte> Encrypt(ReadOnlySpan<byte> data, out int trailerLength)
+    /// <returns>A new array holding <paramref name="prefixLength"/> free bytes followed by the TLS record.</returns>
+    public byte[] Encrypt(ReadOnlySpan<byte> data, int prefixLength, out int trailerLength)
     {
-        _ssl.Write(data);
-        Span<byte> record = _bio.ServerRead();
+        _bio.OutgoingPrefix = prefixLength;
+        try
+        {
+            _ssl.Write(data);
+        }
+        finally
+        {
+            _bio.OutgoingPrefix = 0;
+        }
+        byte[] block = _bio.ServerRead();
 
+        int recordLength = block.Length - prefixLength;
         trailerLength = IsAeadSuite
-            ? record.Length - data.Length - (_ssl.SslProtocol == SslProtocols.Tls13 ? 5 : 13)
+            ? recordLength - data.Length - (_ssl.SslProtocol == SslProtocols.Tls13 ? 5 : 13)
             : GetMacTrailerLength(data.Length);
 
-        return record;
+        return block;
     }
 
     private int GetMacTrailerLength(int dataLength)

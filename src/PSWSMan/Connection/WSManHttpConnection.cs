@@ -92,7 +92,7 @@ internal sealed class WSManHttpConnection : IDisposable
     /// <exception cref="TimeoutException">The request exceeded the configured request timeout.</exception>
     /// <exception cref="AuthenticationException">The server rejected the authentication attempt.</exception>
     /// <exception cref="HttpRequestException">The connection failed or the server returned an empty error response.</exception>
-    public ReadOnlyMemory<byte> Send(ReadOnlySpan<byte> message, CancellationToken cancellationToken = default)
+    public ReadOnlyMemory<byte> Send(ReadOnlyMemory<byte> message, CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (IsBroken)
@@ -150,7 +150,7 @@ internal sealed class WSManHttpConnection : IDisposable
         }
     }
 
-    private ReadOnlyMemory<byte> SendCore(ReadOnlySpan<byte> message, CancellationToken token)
+    private ReadOnlyMemory<byte> SendCore(ReadOnlyMemory<byte> message, CancellationToken token)
     {
         HttpResponseMessage? response = null;
         try
@@ -228,7 +228,7 @@ internal sealed class WSManHttpConnection : IDisposable
         }
     }
 
-    private HttpRequestMessage CreateRequest(ReadOnlySpan<byte> message, bool addAuthHeader = true)
+    private HttpRequestMessage CreateRequest(ReadOnlyMemory<byte> message, bool addAuthHeader = true)
     {
         HttpRequestMessage request = new(HttpMethod.Post, _requestUri)
         {
@@ -245,11 +245,12 @@ internal sealed class WSManHttpConnection : IDisposable
         return request;
     }
 
-    private HttpContent CreateContent(ReadOnlySpan<byte> message)
+    private HttpContent CreateContent(ReadOnlyMemory<byte> message)
     {
         if (!_options.Encrypt)
         {
-            ByteArrayContent content = new(message.ToArray());
+            // The caller's buffer is referenced as is, the request is fully sent before Send returns.
+            ReadOnlyMemoryContent content = new(message);
             content.Headers.ContentType = new MediaTypeHeaderValue(WSManEncryption.ContentType) { CharSet = "UTF-8" };
             return content;
         }
@@ -261,10 +262,7 @@ internal sealed class WSManHttpConnection : IDisposable
             return new AuthPlaceholderContent();
         }
 
-        WSManEncryptedPayload payload = WSManEncryption.Wrap(message, _encryptor);
-        ByteArrayContent encContent = new(payload.Payload);
-        encContent.Headers.TryAddWithoutValidation("Content-Type", payload.ContentType);
-        return encContent;
+        return WSManEncryption.Wrap(message.Span, _encryptor);
     }
 
     private ReadOnlyMemory<byte> ProcessResponse(HttpResponseMessage response)
