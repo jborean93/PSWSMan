@@ -5,133 +5,36 @@ using System.Management.Automation.Remoting;
 using System.Management.Automation.Remoting.Client;
 using System.Management.Automation.Runspaces;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Threading;
 
 namespace PSWSMan.Patches;
 
 internal static class PSWSMan_WSManClientSessionTransportManager
 {
-    private static FieldInfo? _dataToBeSentField;
-    private static FieldInfo? _syncObjectField;
-    private static FieldInfo? _tracerField;
-    private static FieldInfo? _wsManSessionHandleField;
-    private static FieldInfo? _wsManShellOperationHandleField;
-
     private static MethodInfo? _adjustForProtocolVariationsMeth;
     private static MethodInfo? _closeAsyncMeth;
     private static MethodInfo? _closeSessionAndClearResourcesMeth;
     private static MethodInfo? _createAsyncMeth;
     private static MethodInfo? _disposeMeth;
     private static MethodInfo? _initializeMeth;
-    private static MethodInfo? _sendOneItemMeth;
     private static MethodInfo? _sendDataMeth;
     private static MethodInfo? _startReceivingDataMeth;
 
-    private static PropertyInfo? _connectionInfoProp;
-    private static PropertyInfo? _supportedDisconnectProp;
+    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_wsManSessionHandle")]
+    private static extern ref nint SessionHandle(WSManClientSessionTransportManager self);
 
-    #region Fields/Methods/Properties of WSManClientSessionTransportManager
+    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_wsManShellOperationHandle")]
+    private static extern ref nint ShellOperationHandle(WSManClientSessionTransportManager self);
 
-    private static FieldInfo DataToBeSentField
-    {
-        get
-        {
-            return _dataToBeSentField ??= MonoModPatcher.GetField(
-                typeof(WSManClientSessionTransportManager),
-                "dataToBeSent",
-                BindingFlags.Instance | BindingFlags.NonPublic
-            );
-        }
-    }
+    [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "set_ConnectionInfo")]
+    private static extern void SetConnectionInfo(WSManClientSessionTransportManager self, WSManConnectionInfo value);
 
-    private static FieldInfo SyncObjectField
-    {
-        get
-        {
-            return _syncObjectField ??= MonoModPatcher.GetField(
-                typeof(WSManClientSessionTransportManager),
-                "syncObject",
-                BindingFlags.Instance | BindingFlags.NonPublic
-            );
-        }
-    }
+    [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "set_SupportsDisconnect")]
+    private static extern void SetSupportsDisconnect(WSManClientSessionTransportManager self, bool value);
 
-    private static FieldInfo WSManSessionHandleField
-    {
-        get
-        {
-            return _wsManSessionHandleField ??= MonoModPatcher.GetField(
-                typeof(WSManClientSessionTransportManager),
-                "_wsManSessionHandle",
-                BindingFlags.Instance | BindingFlags.NonPublic
-            );
-        }
-    }
-
-    private static FieldInfo WSManShellOperationHandleField
-    {
-        get
-        {
-            return _wsManShellOperationHandleField ??= MonoModPatcher.GetField(
-                typeof(WSManClientSessionTransportManager),
-                "_wsManShellOperationHandle",
-                BindingFlags.Instance | BindingFlags.NonPublic
-            );
-        }
-    }
-
-    private static FieldInfo TracerField
-    {
-        get
-        {
-            return _tracerField ??= MonoModPatcher.GetField(
-                typeof(BaseClientTransportManager),
-                "tracer",
-                BindingFlags.NonPublic | BindingFlags.Static
-            );
-        }
-    }
-
-    private static MethodInfo SendOneItemMeth
-    {
-        get
-        {
-            return _sendOneItemMeth ??= MonoModPatcher.GetMethod(
-                typeof(WSManClientSessionTransportManager),
-                "SendOneItem",
-                Array.Empty<Type>(),
-                BindingFlags.Instance | BindingFlags.NonPublic
-            );
-        }
-    }
-
-    private static PropertyInfo ConnectionInfoProperty
-    {
-        get
-        {
-            return _connectionInfoProp ??= MonoModPatcher.GetProperty(
-                typeof(WSManClientSessionTransportManager),
-                nameof(WSManClientSessionTransportManager.ConnectionInfo),
-                BindingFlags.Instance | BindingFlags.NonPublic
-            );
-        }
-    }
-
-    private static PropertyInfo SupportsDisconnectProperty
-    {
-        get
-        {
-            return _supportedDisconnectProp ??= MonoModPatcher.GetProperty(
-                typeof(WSManClientSessionTransportManager),
-                "SupportsDisconnect",
-                BindingFlags.Instance | BindingFlags.NonPublic
-            );
-        }
-    }
-
-    #endregion
-
-    #region Patched methods
+    [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "SendOneItem")]
+    private static extern void SendOneItem(WSManClientSessionTransportManager self);
 
     private static void AdjustForProtocolVariationsPatch(
         Action<WSManClientSessionTransportManager, Version> orig,
@@ -147,7 +50,7 @@ internal static class PSWSMan_WSManClientSessionTransportManager
 
             https://github.com/PowerShell/PowerShell/blob/3f3d79d4758704c8dad5ca7c12690ba62fd03a3b/src/System.Management.Automation/engine/remoting/fanin/WSManTransportManager.cs#L1259
         */
-        PSTraceSource tracer = (PSTraceSource)TracerField.GetValue(null)!;
+        PSTraceSource tracer = BaseClientTransportManager.tracer;
 
         try
         {
@@ -155,7 +58,7 @@ internal static class PSWSMan_WSManClientSessionTransportManager
                 "PSWSMan: WSManClientSessionTransportManager.AdjustForProtocolVariations - Called with {0}",
                 serverProtocolVersion);
 
-            nint wsManSessionHandle = (nint)WSManSessionHandleField.GetValue(self)!;
+            nint wsManSessionHandle = SessionHandle(self);
             if (wsManSessionHandle == IntPtr.Zero)
             {
                 return;
@@ -196,13 +99,13 @@ internal static class PSWSMan_WSManClientSessionTransportManager
 
             https://github.com/PowerShell/PowerShell/blob/3f3d79d4758704c8dad5ca7c12690ba62fd03a3b/src/System.Management.Automation/engine/remoting/fanin/WSManTransportManager.cs#L3153C25-L3153C25
         */
-        PSTraceSource tracer = (PSTraceSource)TracerField.GetValue(null)!;
+        PSTraceSource tracer = BaseClientTransportManager.tracer;
 
         try
         {
             tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.CloseAsync - Called");
 
-            nint wsManSessionHandle = (nint)WSManSessionHandleField.GetValue(self)!;
+            nint wsManSessionHandle = SessionHandle(self);
             if (wsManSessionHandle != IntPtr.Zero)
             {
                 WSManPSRPSession session = WSManSessionState.Get(wsManSessionHandle);
@@ -223,7 +126,7 @@ internal static class PSWSMan_WSManClientSessionTransportManager
                         session.RunspacePoolId, e);
 
                     WSManSessionState.Remove(wsManSessionHandle)?.Dispose();
-                    WSManSessionHandleField.SetValue(self, IntPtr.Zero);
+                    SessionHandle(self) = IntPtr.Zero;
 
                     TransportErrorOccuredEventArgs err = new(new PSRemotingTransportException(e.Message, e),
                         TransportMethodEnum.CloseShellOperationEx);
@@ -252,7 +155,7 @@ internal static class PSWSMan_WSManClientSessionTransportManager
 
             https://github.com/PowerShell/PowerShell/blob/3f3d79d4758704c8dad5ca7c12690ba62fd03a3b/src/System.Management.Automation/engine/remoting/fanin/WSManTransportManager.cs#L2567
         */
-        PSTraceSource tracer = (PSTraceSource)TracerField.GetValue(null)!;
+        PSTraceSource tracer = BaseClientTransportManager.tracer;
         tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.CloseSessionAndClearResources - Called");
     }
 
@@ -271,16 +174,16 @@ internal static class PSWSMan_WSManClientSessionTransportManager
 
             https://github.com/PowerShell/PowerShell/blob/3f3d79d4758704c8dad5ca7c12690ba62fd03a3b/src/System.Management.Automation/engine/remoting/fanin/WSManTransportManager.cs#L3024
         */
-        PSTraceSource tracer = (PSTraceSource)TracerField.GetValue(null)!;
+        PSTraceSource tracer = BaseClientTransportManager.tracer;
 
         try
         {
             tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.CreateAsync - Called");
 
-            nint wsManSessionHandle = (nint)WSManSessionHandleField.GetValue(self)!;
+            nint wsManSessionHandle = SessionHandle(self);
             WSManPSRPSession session = WSManSessionState.Get(wsManSessionHandle);
 
-            PrioritySendDataCollection dataToBeSent = (PrioritySendDataCollection)DataToBeSentField.GetValue(self)!;
+            PrioritySendDataCollection dataToBeSent = self.dataToBeSent;
             byte[] additionalData = dataToBeSent.ReadOrRegisterCallback(null, out var _);
 
             Thread createThread = new(() => CreateShell(self, session, wsManSessionHandle, additionalData, tracer))
@@ -327,7 +230,7 @@ internal static class PSWSMan_WSManClientSessionTransportManager
                 }
 
                 WSManSessionState.Remove(wsManSessionHandle)?.Dispose();
-                WSManSessionHandleField.SetValue(self, IntPtr.Zero);
+                SessionHandle(self) = IntPtr.Zero;
 
                 TransportErrorOccuredEventArgs err = new(new PSRemotingTransportException(e.Message, e),
                     TransportMethodEnum.CreateShellEx);
@@ -336,13 +239,13 @@ internal static class PSWSMan_WSManClientSessionTransportManager
             }
 
             // Satifies some Debug.Assert statements in pwsh
-            WSManShellOperationHandleField.SetValue(self, (nint)1);
+            ShellOperationHandle(self) = 1;
 
             // Disconnect is not implemented, but SupportsDisconnect must be true
             // so that RemoteRunspace.GetCapabilities() returns SupportsDisconnect
             // instead of Default. CommandCompletion.CompleteInput treats Default
             // as "pre-PSv3 server" and skips tab completion entirely.
-            SupportsDisconnectProperty.SetValue(self, true);
+            SetSupportsDisconnect(self, true);
 
             self.RaiseCreateCompleted(new CreateCompleteEventArgs(self.ConnectionInfo.Copy()));
 
@@ -370,17 +273,17 @@ internal static class PSWSMan_WSManClientSessionTransportManager
 
             https://github.com/PowerShell/PowerShell/blob/3f3d79d4758704c8dad5ca7c12690ba62fd03a3b/src/System.Management.Automation/engine/remoting/fanin/WSManTransportManager.cs#L2725
         */
-        PSTraceSource tracer = (PSTraceSource)TracerField.GetValue(null)!;
+        PSTraceSource tracer = BaseClientTransportManager.tracer;
 
         try
         {
             tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.Dispose - Called");
 
-            nint wsManSessionHandle = (nint)WSManSessionHandleField.GetValue(self)!;
+            nint wsManSessionHandle = SessionHandle(self);
             if (wsManSessionHandle != IntPtr.Zero)
             {
                 WSManSessionState.Remove(wsManSessionHandle)?.Dispose();
-                WSManSessionHandleField.SetValue(self, IntPtr.Zero);
+                SessionHandle(self) = IntPtr.Zero;
             }
         }
         catch (Exception e)
@@ -415,13 +318,13 @@ internal static class PSWSMan_WSManClientSessionTransportManager
             https://github.com/PowerShell/PowerShell/blob/3f3d79d4758704c8dad5ca7c12690ba62fd03a3b/src/System.Management.Automation/engine/remoting/fanin/WSManTransportManager.cs#L1376
         */
 
-        PSTraceSource tracer = (PSTraceSource)TracerField.GetValue(null)!;
+        PSTraceSource tracer = BaseClientTransportManager.tracer;
 
         try
         {
             tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.Initialized - Called");
 
-            object syncObject = SyncObjectField.GetValue(self)!;
+            object syncObject = self.syncObject;
 
             PSWSManSessionOption? extraOptions = (PSWSManSessionOption?)PSObject
                 .AsPSObject(connectionInfo)
@@ -430,7 +333,7 @@ internal static class PSWSMan_WSManClientSessionTransportManager
 
             Guid runspacePoolId = self.RunspacePoolInstanceId;
 
-            ConnectionInfoProperty.SetValue(self, connectionInfo);
+            SetConnectionInfo(self, connectionInfo);
             self.Fragmentor.FragmentSize = WSManPSRPSession.DefaultMaxEnvelopeSize;
 
             // The connection URI needs to be rewritten if this flag is set so that it uses the default WSMan port
@@ -458,7 +361,7 @@ internal static class PSWSMan_WSManClientSessionTransportManager
             lock (syncObject)
             {
                 nint nextSessionId = WSManSessionState.Store(session);
-                WSManSessionHandleField.SetValue(self, nextSessionId);
+                SessionHandle(self) = nextSessionId;
             }
         }
         catch (Exception e)
@@ -480,13 +383,13 @@ internal static class PSWSMan_WSManClientSessionTransportManager
 
             https://github.com/PowerShell/PowerShell/blob/3f3d79d4758704c8dad5ca7c12690ba62fd03a3b/src/System.Management.Automation/engine/remoting/fanin/WSManTransportManager.cs#L2486
         */
-        PSTraceSource tracer = (PSTraceSource)TracerField.GetValue(null)!;
+        PSTraceSource tracer = BaseClientTransportManager.tracer;
 
         try
         {
             tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.SendData - Called");
 
-            nint wsManSessionHandle = (nint)WSManSessionHandleField.GetValue(self)!;
+            nint wsManSessionHandle = SessionHandle(self);
             if (wsManSessionHandle == IntPtr.Zero)
             {
                 return;
@@ -514,7 +417,7 @@ internal static class PSWSMan_WSManClientSessionTransportManager
             }
 
             // Will continue to send data if there is more available
-            SendOneItemMeth.Invoke(self, Array.Empty<Type>());
+            SendOneItem(self);
         }
         catch (Exception e)
         {
@@ -533,12 +436,12 @@ internal static class PSWSMan_WSManClientSessionTransportManager
             we need to check if there is more data to send to create the Runspace. It is imperative this is called
             after the first receive has a response to avoid a race condition on the WSMan server.
         */
-        PSTraceSource tracer = (PSTraceSource)TracerField.GetValue(null)!;
+        PSTraceSource tracer = BaseClientTransportManager.tracer;
 
         try
         {
             tracer.WriteLine("PSWSMan: WSManClientSessionTransportManager.StartReceivingData - Called");
-            SendOneItemMeth.Invoke(self, Array.Empty<Type>());
+            SendOneItem(self);
         }
         catch (Exception e)
         {
@@ -547,8 +450,6 @@ internal static class PSWSMan_WSManClientSessionTransportManager
             throw;
         }
     }
-
-    #endregion
 
     public static Hook[] GenerateHooks()
     {
