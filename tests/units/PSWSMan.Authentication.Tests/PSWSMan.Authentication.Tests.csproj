@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net8.0</TargetFrameworks>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+    <!--
+    Like PSWSMan.Connection.Tests this references the module assembly directly. The authentication classes under test
+    never touch System.Management.Automation so it is not loaded at runtime.
+    -->
+    <ProjectReference Include="../../../src/PSWSMan/PSWSMan.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The pyspnego acceptor the tests spawn, kept next to the test assembly. -->
+    <None Include="acceptor.py" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

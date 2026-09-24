@@ -6,6 +6,8 @@
   </Folder>
   <Folder Name="/tests/" />
   <Folder Name="/tests/units/">
+    <Project Path="tests/units/PSWSMan.Authentication.Tests/PSWSMan.Authentication.Tests.csproj" />
+    <Project Path="tests/units/PSWSMan.Connection.Tests/PSWSMan.Connection.Tests.csproj" />
     <Project Path="tests/units/PSWSMan.Lib.Tests/PSWSMan.Lib.Tests.csproj" />
   </Folder>
 </Solution>

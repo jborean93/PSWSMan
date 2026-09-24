@@ -13,13 +13,13 @@ namespace PSWSMan.Authentication;
 /// <summary>Used as an in memory BIO stream for SslStream.</summary>
 internal class TlsBIOStream : Stream
 {
-    // Max TLS record size is 16KiB + 2KiB extra info.
-    private readonly byte[] _incomingBuffer = new byte[18432];
-    private readonly BlockingCollection<(int, int)> _incoming = new();
+    // Each incoming token is queued as its own copy. More than one can be waiting, a TLS 1.3 server sends its
+    // session tickets after the client Finished and they sit in front of the first application record until the
+    // client next reads, so a single shared buffer would be overwritten.
+    private readonly BlockingCollection<byte[]> _incoming = new();
+    private byte[]? _incomingCurrent;
+    private int _incomingOffset;
     private readonly BlockingCollection<byte[]> _outgoing = new();
-
-    /// <summary>The buffer used to store incoming data.</summary>
-    public byte[] IncomingBuffer => _incomingBuffer;
 
     /// <summary>The number of bytes left free at the start of each outgoing record array.</summary>
     /// <remarks>
@@ -61,10 +61,12 @@ internal class TlsBIOStream : Stream
     public override void Write(byte[] buffer, int offset, int count)
         => Write(buffer.AsSpan(offset, count));
 
-    /// <summary>Read data from the incoming buffer to be processed.</summary>
+    /// <summary>Read data from the incoming queue to be processed.</summary>
     /// <remarks>
     /// This is called by the SslStream that wraps this stream to read incoming TLS encrypted data from the server. Use
-    /// the <c>ServerWrite</c> method to load data to be read and processed.
+    /// the <c>ServerWrite</c> method to load data to be read and processed. A read never spans two queued tokens,
+    /// the SslStream keeps reading until it has a whole record so a token split over several reads is fine. It
+    /// blocks when the queue is empty, which only the handshake relies on.
     /// </remarks>
     /// <param name="buffer">The buffer to read into.</param>
     /// <param name="offset">The offset in buffer to read into.</param>
@@ -76,15 +78,17 @@ internal class TlsBIOStream : Stream
         {
             return 0;
         }
-        (int dataOffset, int dataLength) = _incoming.Take();
-        int writeLength = Math.Min(count, dataLength);
 
-        _incomingBuffer.AsSpan(dataOffset, dataLength).CopyTo(buffer.AsSpan(offset, count));
-        if (count < dataLength)
+        if (_incomingCurrent is null || _incomingOffset >= _incomingCurrent.Length)
         {
-            _incoming.Add((count, dataLength - count));
+            _incomingCurrent = _incoming.Take();
+            _incomingOffset = 0;
         }
-        return writeLength;
+
+        int readLength = Math.Min(count, _incomingCurrent.Length - _incomingOffset);
+        _incomingCurrent.AsSpan(_incomingOffset, readLength).CopyTo(buffer.AsSpan(offset));
+        _incomingOffset += readLength;
+        return readLength;
     }
 
     public override void Flush()
@@ -119,27 +123,15 @@ internal class TlsBIOStream : Stream
         return false;
     }
 
-    /// <summary>Write data from the server into the incoming buffer.</summary>
+    /// <summary>Queue data from the server for the SslStream client to process.</summary>
     /// <remarks>
-    /// This will place data into the incoming buffer to be processed by the SslStream client.
+    /// The data is copied so the caller's buffer can be reused, including as the destination of the decrypted
+    /// output of the very same record.
     /// </remarks>
-    /// <param name="data">The data to write into the incoming buffer.</param>
+    /// <param name="data">The data received from the server.</param>
     public void ServerWrite(ReadOnlySpan<byte> data)
     {
-        data.CopyTo(_incomingBuffer.AsSpan());
-        MarkIncomingWrite(data.Length);
-    }
-
-    /// <summary>Mark the number of bytes placed in the incoming buffer.</summary>
-    /// <remarks>
-    /// This will notify the SslClient client that the incoming buffer now contains the number of bytes specified. This
-    /// is used if the caller has placed data into the incoming buffer array directly and not through
-    /// <c>ServerWrite</c>.
-    /// </remarks>
-    /// <param name="length">The number of bytes in the incoming buffer.</param>
-    public void MarkIncomingWrite(int length)
-    {
-        _incoming.Add((0, length));
+        _incoming.Add(data.ToArray());
     }
 }
 
@@ -263,8 +255,7 @@ internal class TlsSecurityContext : IDisposable
     /// <param name="token">The TLS record as a base64 string.</param>
     public void WriteInputToken(Span<byte> token)
     {
-        token.CopyTo(_bio.IncomingBuffer.AsSpan());
-        _bio.MarkIncomingWrite(token.Length);
+        _bio.ServerWrite(token);
     }
 
     /// <summary>Get the processed input token from the server.</summary>
@@ -301,6 +292,16 @@ internal class TlsSecurityContext : IDisposable
     /// <returns>A new array holding <paramref name="prefixLength"/> free bytes followed by the TLS record.</returns>
     public byte[] Encrypt(ReadOnlySpan<byte> data, int prefixLength, out int trailerLength)
     {
+        // The WinRM framing needs exactly one record per write. SslStream can break that in two ways, a read that
+        // processed a post handshake message may have written a reply that is still queued, and a write beyond the
+        // maximum message size of the TLS stack is split over several records. Either silently corrupts the stream
+        // so both are checked and reported with the sizes involved.
+        if (_bio.TryServerRead(out byte[] stale))
+        {
+            throw new InvalidOperationException(
+                $"TLS output had a {stale.Length} byte record queued before encrypting {data.Length} bytes");
+        }
+
         _bio.OutgoingPrefix = prefixLength;
         try
         {
@@ -311,6 +312,12 @@ internal class TlsSecurityContext : IDisposable
             _bio.OutgoingPrefix = 0;
         }
         byte[] block = _bio.ServerRead();
+
+        if (_bio.TryServerRead(out byte[] extra))
+        {
+            throw new InvalidOperationException(
+                $"TLS produced more than one record for {data.Length} bytes, the first was {block.Length - prefixLength} bytes and the next {extra.Length}");
+        }
 
         int recordLength = block.Length - prefixLength;
         trailerLength = IsAeadSuite
@@ -331,13 +338,15 @@ internal class TlsSecurityContext : IDisposable
             _ => throw new NotImplementedException($"Unknown Cipher Suite {_ssl.NegotiatedCipherSuite}"),
         };
 
+        // The padding always includes its length byte so a full block is added when the data and MAC already fill
+        // one. DES and 3DES have an 8 byte block, AES and anything newer 16.
         int prepadLength = dataLength + hashLength;
         int paddingLength = _ssl.CipherAlgorithm switch
         {
             CipherAlgorithmType.Rc4 => 0,
             CipherAlgorithmType.Des => 8 - (prepadLength % 8),
             CipherAlgorithmType.TripleDes => 8 - (prepadLength % 8),
-            _ => 16 - (prepadLength % 8),
+            _ => 16 - (prepadLength % 16),
         };
 
         return hashLength + paddingLength;

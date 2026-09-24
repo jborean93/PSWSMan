@@ -402,8 +402,11 @@ internal sealed class CredSSPAuthContext : IWSManAuthenticationContext, IWSManEn
 
     public string? AuthenticationStage => _stage.ToString();
 
-    // Each chunk cannot exceed 16KiB which is the TLS record size.
-    public int MaxEncryptionChunkSize => 16384;
+    // Each chunk must fit in one TLS record. The protocol limit is 16KiB of plaintext but SslStream caps a single
+    // record at the TLS stack's maximum message size less its header and trailer sizes, and on Windows SChannel
+    // reports 16KiB as that maximum so the usable size is smaller. Anything over the cap is split into two records
+    // which the WinRM framing cannot carry. The margin covers the largest header and trailer SChannel reports.
+    public int MaxEncryptionChunkSize => 16384 - 256;
 
     public string EncryptionProtocol => WSManEncryptionProtocol.CREDSSP;
 

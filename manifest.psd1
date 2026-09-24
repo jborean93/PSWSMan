@@ -16,4 +16,9 @@
         }
     )
     TestRequirements = @()
+    # Installed into a virtual environment under output/python by the Test
+    # task. The authentication unit tests skip when it is unavailable.
+    PythonRequirements = @(
+        'pyspnego==0.12.2'
+    )
 }

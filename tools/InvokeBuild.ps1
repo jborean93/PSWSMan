@@ -163,6 +163,55 @@ task TestSetup {
     Set-Content -Path $Manifest.TestSettingsPath -Value $configJson -Encoding UTF8
 }
 
+task PythonSetup {
+    if (-not $Manifest.PythonRequirements) {
+        return
+    }
+
+    $venvPath = [Path]::Combine($Manifest.OutputPath, 'python-venv')
+    $venvSubPath = $IsWindows ? 'Scripts\python.exe' : 'bin/python'
+    $venvPython = [Path]::Combine($venvPath, $venvSubPath)
+
+    # Prefer uv if available, otherwise fallback to python
+    $uv = Get-Command -Name uv -CommandType Application -ErrorAction Ignore | Select-Object -First 1
+    $python = Get-Command -Name python -CommandType Application -ErrorAction Ignore | Select-Object -First 1
+
+    if (-not (Test-Path -LiteralPath $venvPython)) {
+        if ($uv) {
+            Write-Host "Creating Python virtual environment at '$venvPath' with uv" -ForegroundColor Cyan
+            & $uv.Source venv --quiet $venvPath
+            if ($LASTEXITCODE) {
+                throw "Failed to create Python virtual environment with uv"
+            }
+        }
+        elseif ($python) {
+            Write-Host "Creating Python virtual environment at '$venvPath'" -ForegroundColor Cyan
+            & $python.Source -m venv $venvPath
+            if ($LASTEXITCODE) {
+                throw "Failed to create Python virtual environment with '$python'"
+            }
+        }
+        else {
+            Write-Warning "Neither uv nor python was found, unit tests that need Python will be skipped"
+            return
+        }
+    }
+
+    Write-Host "Installing Python requirements $($Manifest.PythonRequirements -join ', ')" -ForegroundColor Cyan
+    if ($uv) {
+        & $uv.Source pip install --quiet --python $venvPython $Manifest.PythonRequirements
+    }
+    else {
+        & $venvPython -m pip install --disable-pip-version-check --quiet $Manifest.PythonRequirements
+    }
+    if ($LASTEXITCODE) {
+        throw "Failed to install Python requirements"
+    }
+
+    # Consumed by PSWSMan.Authentication.Tests to find the pyspnego acceptor.
+    $env:PSWSMAN_TEST_PYTHON = $venvPython
+}
+
 task UnitTests {
     $testsPath = [Path]::Combine($Manifest.TestPath, 'units')
     if (-not (Test-Path -LiteralPath $testsPath)) {
@@ -295,4 +344,4 @@ task CoverageReport {
 
 task Build -Jobs Clean, BuildManaged, BuildModule, BuildDocs, Sign, Package
 
-task Test -Jobs TestSetup, UnitTests, PesterTests, CoverageReport
+task Test -Jobs TestSetup, PythonSetup, UnitTests, PesterTests, CoverageReport

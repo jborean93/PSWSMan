@@ -18,7 +18,7 @@ client once `Enable-PSWSMan -Force` has been run.
 | Path | Purpose |
 | --- | --- |
 | `build.ps1` | Entry point for every build and test action. Wraps InvokeBuild. |
-| `manifest.psd1` | Pinned versions of the PowerShell build/test modules (InvokeBuild, Pester, platyPS, PSResourceGet, OpenAuthenticode). |
+| `manifest.psd1` | Pinned versions of the PowerShell build/test modules (InvokeBuild, Pester, platyPS, PSResourceGet, OpenAuthenticode) and the Python packages the authentication tests need. |
 | `global.json` | Pins the .NET SDK (10.0.x) and selects `Microsoft.Testing.Platform` as the `dotnet test` runner. |
 | `PSWSMan.slnx` | Solution file listing the three `src/` projects. |
 | `src/PSWSMan/` | The PowerShell module assembly: cmdlets, S.M.A patches, authentication (GSSAPI, SSPI, CredSSP, Basic, certificate), TLS, PSRP session bridge (`WSManPSRPSession.cs`). Compiles against the S.M.A implementation assembly from the `System.Management.Automation` NuGet package. |
@@ -32,6 +32,7 @@ client once `Enable-PSWSMan -Force` has been run.
 | `tests/*.Tests.ps1` | Pester tests that run against the built module. Most connection tests need a real WinRM server and skip without one. |
 | `tests/common.ps1` | Dot-sourced by every Pester file. Imports the built module and runs `Enable-PSWSMan -Force`. |
 | `tests/units/<Project>/` | .NET unit test projects (TUnit). Each directory is discovered and run automatically by the `Test` task. |
+| `tests/units/PSWSMan.Authentication.Tests/` | Drives the module's authentication contexts (GSSAPI, Windows SSPI, Devolutions) against an independent acceptor, the pyspnego library, over stdin/stdout. `acceptor.py` is the Python side. These tests skip when Python with pyspnego is not available. |
 | `tests/integration/` | Notes on standing up a WinRM lab for the server-backed tests. This area is due for a cleanup. |
 | `tools/` | Scripts used by `build.ps1`. `InvokeBuild.ps1` defines the tasks; `common.ps1` holds the `Manifest` class and helpers. |
 | `output/` | Git-ignored. Built module, nupkg, downloaded PowerShell versions, cached build modules, and test results all land here. Never commit or hand-edit it. |
@@ -109,15 +110,20 @@ The `Test` task runs, in order:
 
 1. `TestSetup`: writes `output/TestResults/settings.json` restricting coverage
    to the module's own assemblies (those with a `.pdb`).
-2. `UnitTests`: for every directory under `tests/units/`, runs `dotnet test
+2. `PythonSetup`: creates a virtual environment at `output/python-venv` and
+   installs the `PythonRequirements` pinned in `manifest.psd1`, with `uv`
+   when it is on the PATH and otherwise with `python` and `pip`. Its
+   interpreter is passed to the unit tests through `PSWSMAN_TEST_PYTHON`.
+   Without either this warns and the tests needing it skip.
+3. `UnitTests`: for every directory under `tests/units/`, runs `dotnet test
    --project <dir>` with coverage enabled. Output goes to
    `output/TestResults/Unit.<Project>.Coverage.cobertura.xml`.
-3. `PesterTests`: launches a separate `pwsh` process (downloaded into
+4. `PesterTests`: launches a separate `pwsh` process (downloaded into
    `output/PowerShell-<version>-<arch>/` if it does not match the current one)
    under `dotnet-coverage collect`, running all `tests/*.Tests.ps1`. Results
    go to `output/TestResults/Pester.xml` and
    `output/TestResults/Integration.Coverage.cobertura.xml`.
-4. `CoverageReport`: merges the cobertura files into
+5. `CoverageReport`: merges the cobertura files into
    `output/TestResults/Coverage.cobertura.xml`, writes an HTML report to
    `output/TestResults/CoverageReport/`, and prints a summary table of files
    with missing coverage.
@@ -144,6 +150,9 @@ finishing.
 dotnet test --project tests/units/PSWSMan.Lib.Tests
 # Filter to one test/class (Microsoft.Testing.Platform syntax)
 dotnet test --project tests/units/PSWSMan.Lib.Tests -- --treenode-filter "/*/*/WSManClientTests/*"
+
+# The authentication tests need pyspnego, point them at the venv the Test task made (absolute path)
+PSWSMAN_TEST_PYTHON=$PWD/output/python-venv/bin/python dotnet test --project tests/units/PSWSMan.Authentication.Tests
 ```
 
 Pester tests need a built module. Run them in a fresh process so a stale
@@ -180,7 +189,11 @@ pwsh -File ./tools/CoverageReport.ps1 -Path ./output/TestResults/Coverage.cobert
   classes never touch S.M.A.
 - Unit tests are for standalone logic (framing, parsing, pool bookkeeping).
   Do not add tests that stand up fake HTTP servers; connection behaviour is
-  verified manually against a real WinRM host. `Trace-Command -Name
+  verified manually against a real WinRM host. The one process a unit test
+  may spawn is the pyspnego acceptor in `PSWSMan.Authentication.Tests`, which
+  checks the token exchange and message protection of each security library
+  against an independent implementation without any HTTP involved. Tests
+  needing it must go through `Acceptor.Start` so they skip cleanly. `Trace-Command -Name
   ClientTransport -FilePath ...` captures the transport and pump activity.
 - `build.ps1 -Task Test` instruments the built module for coverage. Do not
   run it while another `pwsh` process has `output/PSWSMan` imported, that
@@ -190,7 +203,9 @@ pwsh -File ./tools/CoverageReport.ps1 -Path ./output/TestResults/Coverage.cobert
 
 `.github/workflows/ci.yml` builds once on Ubuntu, uploads the nupkg, then runs
 `build.ps1 -Task Test -ModuleNupkg` on a matrix of PowerShell 7.4, 7.5 and 7.6
-on both Windows and Linux. Coverage goes to Codecov. Pushes to `main` and
+on Windows, Linux, and macOS on both Apple silicon and Intel. Each test job
+sets up Python for the authentication tests, and the Linux jobs install
+gss-ntlmssp so MIT krb5 can do NTLM. Coverage goes to Codecov. Pushes to `main` and
 tagged releases (`v*`) build in `Release` configuration; pull requests build
 `Debug`. Releases are signed with Azure Trusted Signing and published to the
 PowerShell Gallery. CI has no WinRM server, so only the non-connection Pester
