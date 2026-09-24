@@ -2,6 +2,7 @@ using MonoMod.RuntimeDetour;
 using System;
 using System.Management.Automation.Remoting.Client;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 
 namespace PSWSMan.Patches;
 
@@ -9,19 +10,9 @@ internal static class PSWSMan_WSManApiDataCommon
 {
     private static ConstructorInfo? _cstor;
     private static MethodInfo? _dispose;
-    private static FieldInfo? _handleField;
 
-    private static FieldInfo HandleField
-    {
-        get
-        {
-            return _handleField ??= MonoModPatcher.GetField(
-                typeof(WSManClientSessionTransportManager.WSManAPIDataCommon),
-                "_handle",
-                BindingFlags.Instance | BindingFlags.NonPublic
-            );
-        }
-    }
+    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_handle")]
+    private static extern ref nint Handle(WSManClientSessionTransportManager.WSManAPIDataCommon self);
 
     private static void CstorPatch(
         Action<WSManClientSessionTransportManager.WSManAPIDataCommon> orig,
@@ -42,7 +33,7 @@ internal static class PSWSMan_WSManApiDataCommon
             https://github.com/PowerShell/PowerShell/blob/042765dd1c4d46a86a4545e7e0df0a7ee19f4dd6/src/System.Management.Automation/engine/remoting/fanin/WSManTransportManager.cs#L2661-L2706
 
         */
-        HandleField.SetValue(self, (nint)(-1));
+        Handle(self) = -1;
     }
 
     private static void DisposePatch(
@@ -57,7 +48,7 @@ internal static class PSWSMan_WSManApiDataCommon
 
             https://github.com/PowerShell/PowerShell/blob/042765dd1c4d46a86a4545e7e0df0a7ee19f4dd6/src/System.Management.Automation/engine/remoting/fanin/WSManTransportManager.cs#L2725-L2760
         */
-        HandleField.SetValue(self, IntPtr.Zero);
+        Handle(self) = IntPtr.Zero;
     }
 
     public static Hook[] GenerateHooks()

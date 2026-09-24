@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 
 namespace PSWSMan.Patches;
 
@@ -16,6 +17,13 @@ internal sealed class MonoModPatcher : IDisposable
 
     public void PatchAll()
     {
+        // Bind every UnsafeAccessor up front. The runtime otherwise resolves
+        // the member name on the accessor's first call, which would turn a
+        // renamed S.M.A member into a failure part way through a session.
+        PrepareAccessors(typeof(PSWSMan_WSManApiDataCommon));
+        PrepareAccessors(typeof(PSWSMan_WSManClientSessionTransportManager));
+        PrepareAccessors(typeof(PSWSMan_WSManClientCommandTransportManager));
+
         _hooks.AddRange(PSWSMan_WSManApiDataCommon.GenerateHooks());
         _hooks.AddRange(PSWSMan_WSManClientSessionTransportManager.GenerateHooks());
         _hooks.AddRange(PSWSMan_WSManClientCommandTransportManager.GenerateHooks());
@@ -43,18 +51,6 @@ internal sealed class MonoModPatcher : IDisposable
         ) ?? throw new NullReferenceException($"Failed to find constructor for {type.FullName}");
     }
 
-    internal static FieldInfo GetField(
-        Type type,
-        string name,
-        BindingFlags bindingFlags
-    )
-    {
-        return type.GetField(
-            name,
-            bindingFlags
-        ) ?? throw new NullReferenceException($"Failed to find find field {type.FullName}.{name}");
-    }
-
     internal static MethodInfo GetMethod(
         Type type,
         string name,
@@ -69,16 +65,28 @@ internal sealed class MonoModPatcher : IDisposable
         ) ?? throw new NullReferenceException($"Failed to find method {type.FullName}.{name}({GetArgumentDef(args)})");
     }
 
-    internal static PropertyInfo GetProperty(
-        Type type,
-        string name,
-        BindingFlags bindingFlags
-    )
+    internal static void PrepareAccessors(Type patchType)
     {
-        return type.GetProperty(
-            name,
-            bindingFlags
-        ) ?? throw new NullReferenceException($"Failed to find property {type.FullName}.{name}");
+        foreach (MethodInfo method in patchType.GetMethods(BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public))
+        {
+            if (!method.IsDefined(typeof(UnsafeAccessorAttribute), inherit: false))
+            {
+                continue;
+            }
+
+            try
+            {
+                RuntimeHelpers.PrepareMethod(method.MethodHandle);
+            }
+            catch (Exception e) when (e is MissingMemberException or TypeLoadException)
+            {
+                string name = method.GetCustomAttribute<UnsafeAccessorAttribute>()?.Name ?? method.Name;
+                Type target = method.GetParameters()[0].ParameterType;
+                throw new MissingMemberException(
+                    $"Failed to bind PSWSMan accessor {patchType.Name}.{method.Name} to {target.FullName}.{name}: {e.Message}",
+                    e);
+            }
+        }
     }
 
     private static string GetArgumentDef(Type[] args)
