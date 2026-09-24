@@ -98,6 +98,11 @@ jobs:
         name: PSModule
         path: output
 
+    - name: Set up .NET
+      uses: actions/setup-dotnet@v6
+      with:
+        global-json-file: global.json
+
     - name: Set up Python
       uses: actions/setup-python@v7
       with:
