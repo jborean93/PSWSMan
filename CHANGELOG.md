@@ -48,6 +48,11 @@ The following features have been introduced in this version
 + Encryption can be disabled for debugging outside Windows with `New-PSWSManSessionOption -NoEncryption`
 + Kerberos delegation can be explicitly requested with `New-PSWSManSessionOption -RequestKerberosDelegate`
 + A custom SPN can be used for Kerberos auth with `New-PSWSManSessionOption -SPNHostName ... -SPNService ...`
++ CIM instances returned from a remote session are now returned as deserialized property bags (`Deserialized.Microsoft.Management.Infrastructure.CimInstance#...`) on Linux and macOS
+  + PowerShell rebuilds a live `CimInstance` on the client through the `libmi` library from `omi`, which the old `omi` based module provided
+  + `Enable-PSWSMan` now hooks the deserializer on non-Windows platforms so these objects no longer depend on `libmi` at all, they keep the same properties and formatting
+  + They are no longer a `CimInstance` so `CimClass`, `CimSystemProperties` and `Invoke-CimMethod -InputObject` are not available on the client, and arrays are returned as `ArrayList`
+  + Windows is unaffected as the MI library is part of the OS
 
 The following cmdlets have been added:
 
