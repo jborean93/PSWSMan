@@ -1,5 +1,5 @@
 ---
-external help file: PSWSMan.Module.dll-Help.xml
+external help file: PSWSMan.dll-Help.xml
 Module Name: PSWSMan
 online version: https://www.github.com/jborean93/PSWSMan/blob/main/docs/en-US/New-PSWSManSessionOption.md
 schema: 2.0.0
@@ -21,7 +21,7 @@ New-PSWSManSessionOption [-MaximumRedirection <Int32>] [-NoMachineProfile] [-Cul
  [-OperationTimeout <Int32>] [-NoEncryption] [-SPNService <String>] [-SPNHostName <String>]
  [-AuthMethod <AuthenticationMethod>] [-AuthProvider <AuthenticationProvider>] [-RequestKerberosDelegate]
  [-CredSSPAuthMethod <AuthenticationMethod>] [-CredSSPTlsOption <SslClientAuthenticationOptions>]
- [<CommonParameters>]
+ [-ProgressAction <ActionPreference>] [<CommonParameters>]
 ```
 
 ### TlsOption
@@ -33,7 +33,7 @@ New-PSWSManSessionOption [-MaximumRedirection <Int32>] [-NoMachineProfile] [-Cul
  [-SPNHostName <String>] [-AuthMethod <AuthenticationMethod>] [-AuthProvider <AuthenticationProvider>]
  [-RequestKerberosDelegate] [-TlsOption <SslClientAuthenticationOptions>]
  [-CredSSPAuthMethod <AuthenticationMethod>] [-CredSSPTlsOption <SslClientAuthenticationOptions>]
- [<CommonParameters>]
+ [-ProgressAction <ActionPreference>] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -195,8 +195,8 @@ Accept wildcard characters: False
 
 ### -AuthProvider
 The authentication provider to use when doing `NTLM`, `Kerberos`, `Negotiate`, or `CredSSP` authentication.
-If omitted, or set to `Default`, then the process wide default provider is used.
-Use [Get-PSWSManAuthProvider](./Get-PSWSManAuthProvider.md) to get the process wide default and [Set-PSWSManAuthProvider](./Set-PSWSManAuthProvider.md) to set the process wide default.
+If omitted, or set to `Default`, then the default provider of the current runspace is used.
+Use [Get-PSWSManAuth](./Get-PSWSManAuth.md) to get the runspace default and [Set-PSWSManAuth](./Set-PSWSManAuth.md) to set it.
 
 Using `System` will use the system provided authentication provider.
 On Windows this is `SSPI`, on Linux this is `GSSAPI`, and on macOS this is `GSS.Framework`.
@@ -445,6 +445,21 @@ The default value is `180000` (3 minutes) and a value of `0` means no time out.
 Type: Int32
 Parameter Sets: (All)
 Aliases: OperationTimeoutMSec
+
+Required: False
+Position: Named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -ProgressAction
+New common parameter introduced in PowerShell 7.4.
+
+```yaml
+Type: ActionPreference
+Parameter Sets: (All)
+Aliases: proga
 
 Required: False
 Position: Named

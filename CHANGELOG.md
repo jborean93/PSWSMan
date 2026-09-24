@@ -52,10 +52,10 @@ The following features have been introduced in this version
 The following cmdlets have been added:
 
 + [Enable-PSWSMan](./docs/en-US/Enable-PSWSMan.md) - enables this library
-+ [Get-PSWSManAuthProvider](./docs/en-US/Get-PSWSManAuthProvider.md) - gets the current default authentication provider
++ [Get-PSWSManAuth](./docs/en-US/Get-PSWSManAuth.md) - gets the current authentication settings
 + [New-PSWSManCertValidationCallback](./docs/en-US/New-PSWSManCertValidationCallback.md) - creates a TLS cert validation callback from the scriptblock provided
 + [New-PSWSManSessionOption](./docs/en-US/New-PSWSManSessionOption.md) - exposes more session options that can be applied to `-SessionOption` on the builtin cmdlets
-+ [Set-PSWSManAuthProvider](./docs/en-US/Set-PSWSManAuthProvider.md) - changes the default authentication provider
++ [Set-PSWSManAuth](./docs/en-US/Set-PSWSManAuth.md) - changes the default authentication provider and GSSAPI library
 
 ## 2.3.1 - 2022-11-28
 

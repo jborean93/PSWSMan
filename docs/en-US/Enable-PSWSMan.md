@@ -1,5 +1,5 @@
 ---
-external help file: PSWSMan.Module.dll-Help.xml
+external help file: PSWSMan.dll-Help.xml
 Module Name: PSWSMan
 online version: https://www.github.com/jborean93/PSWSMan/blob/main/docs/en-US/Enable-PSWSMan.md
 schema: 2.0.0
@@ -13,7 +13,7 @@ Enables PSWSMan as the transport method for WSMan based transports in PowerShell
 ## SYNTAX
 
 ```
-Enable-PSWSMan [-Force] [<CommonParameters>]
+Enable-PSWSMan [-Force] [-ProgressAction <ActionPreference>] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -42,6 +42,21 @@ Do not prompt for confirmation before enabling PSWSMan injection.
 Type: SwitchParameter
 Parameter Sets: (All)
 Aliases:
+
+Required: False
+Position: Named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -ProgressAction
+New common parameter introduced in PowerShell 7.4.
+
+```yaml
+Type: ActionPreference
+Parameter Sets: (All)
+Aliases: proga
 
 Required: False
 Position: Named

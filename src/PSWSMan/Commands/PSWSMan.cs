@@ -1,7 +1,7 @@
-using PSWSMan.Module.Patches;
+using PSWSMan.Patches;
 using System.Management.Automation;
 
-namespace PSWSMan.Module.Commands;
+namespace PSWSMan.Commands;
 
 internal static class PSWSManStatus
 {

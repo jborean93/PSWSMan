@@ -33,7 +33,7 @@ public enum AuthenticationMethod
 public enum AuthenticationProvider
 {
     /// <summary>
-    /// Uses the process wide default authentication provider.
+    /// Uses the module specified default authentication provider.
     /// </summary>
     Default,
 

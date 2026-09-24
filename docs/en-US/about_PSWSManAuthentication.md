@@ -194,7 +194,7 @@ On Linux NTLM is only available if both GSSAPI is installed and the [gss-ntlmssp
 The `Devolutions` authentication provider also supports NTLM authentication out of the box.
 It only supports explicit credentials but is a good option to use that is consistent across all platforms.
 To specify the `Devolutions` authentication provider to be used pass in the session options `New-PSWSManSessionOption -AuthProvider Devolutions`.
-Alternatively, the `Devolutions` authentication package can be set globally as the default with `Set-PSWSManAuthProvider -AuthProvider Devolutions`.
+Alternatively, the `Devolutions` authentication package can be set globally as the default with `Set-PSWSManAuth -AuthProvider Devolutions`.
 See `#DEVOLUTIONS SSPI` for more details.
 
 By default Windows will allow NTLM authentication through the `Negotiate` auth package.
@@ -227,7 +227,7 @@ The `Devolutions` authentication provider also supports Kerberos authentication 
 It only support explicit credentials but as it requires no system packages it provides a consistent experience across all platforms.
 DevolutionsSspi can retrieve domain configuration through many means, like the `/etc/krb5.config`.
 To specify the `Devolutions` authentication provider to be used pass in the session options `New-PSWSManSessionOption -AuthProvider Devolutions`.
-Alternatively, the `Devolutions` authentication package can be set globally as the default with `Set-PSWSManAuthProvider -AuthProvider Devolutions`.
+Alternatively, the `Devolutions` authentication package can be set globally as the default with `Set-PSWSManAuth -AuthProvider Devolutions`.
 See `#DEVOLUTIONS SSPI` for more details.
 
 Kerberos can either be used through the Negotiate method but can also be explicitly used as the Kerberos method.
@@ -275,7 +275,8 @@ There are two main ways an authentication method is set:
 The `-Authentication` parameter is limited to just `Basic`, `Kerberos`, `Negotiate`, or `CredSSP` while the `-AuthMethod` parameter also includes `NTLM` as an option.
 The `-AuthMethod` parameter takes priority over `-Authentication` if both are set.
 The default authentication method chosen in `Negotiate` which typically offers the best out of box experience.
-It favours the system SSPI/GSSAPI library but on Linux it may fallback to the Devolutions provider if GSSAPI is not installed.
+It uses the system SSPI/GSSAPI library unless the Devolutions provider is requested for the session or has been set as the default with `Set-PSWSManAuth`.
+On Linux, if no GSSAPI library is installed and Devolutions has not been selected, the connection fails with an error saying no SSPI/GSSAPI library could be found.
 
 # CREDENTIAL DELEGATION
 A common problem that is encountered with remote PSSessions is the lack of credential delegation on the default authentication methods.
@@ -324,10 +325,11 @@ The `sspi-rs` library is a cross platform implementation of the SSPI API that is
 This means it can use both NTLM and Kerberos authentication without relying on either SSPI or GSSAPI to be installed and configured.
 It also means that any behaviour on one platform is the same on any other.
 
-By default Devolutions SSPI is only used if the builtin GSSAPI library is not installed on Linux but it can be set as the default authentication provider process wide or on a specific session.
-The code `Set-PSWSManAuthProvider -AuthProvider Devolutions` can be used to default the process wide default to use Devolutions SSPI.
+Devolutions SSPI is never chosen automatically, it is only used when it is set as the default authentication provider for the runspace or requested on a specific session.
+The code `Set-PSWSManAuth -AuthProvider Devolutions` sets the default for the current runspace to use Devolutions SSPI.
+The default is scoped to the runspace, so a new runspace such as a `ForEach-Object -Parallel` or `Start-ThreadJob` job starts from the `System` provider again.
 Otherwise `New-PSWSManSessionOption -AuthProvider Devolutions` can be used on a specific session setup to use Devolutions for that connection.
-The `New-PSWSManSessionOption -AuthProvider ...` takes precedence over the global process wide setting.
+The `New-PSWSManSessionOption -AuthProvider ...` takes precedence over the runspace default.
 
 Support for Devolutions is limited and while things should work it is an experimental feature and mileage may vary.
 Currently `CredSSP` will not work with Devolutions due to it missing the feature https://github.com/Devolutions/sspi-rs/issues/84.

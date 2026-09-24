@@ -7,7 +7,7 @@ using System.Management.Automation.Runspaces;
 using System.Reflection;
 using System.Threading;
 
-namespace PSWSMan.Module.Patches;
+namespace PSWSMan.Patches;
 
 internal static class PSWSMan_WSManClientSessionTransportManager
 {
