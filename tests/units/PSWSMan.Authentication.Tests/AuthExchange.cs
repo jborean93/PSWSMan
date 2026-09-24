@@ -53,6 +53,12 @@ internal static class AuthExchange
         // The prefix is the header length for NTLM and the trailer length for CredSSP. pyspnego joins the two parts
         // back together for CredSSP so the same split serves both.
         int headerLength = BinaryPrimitives.ReadInt32LittleEndian(block.Span);
+        if (headerLength < 0 || headerLength > block.Length - 4)
+        {
+            throw new InvalidOperationException(
+                $"WrapWinRM of {plaintext.Length} bytes produced a {block.Length} byte block with a prefix of {headerLength}");
+        }
+
         byte[] header = block.Span.Slice(4, headerLength).ToArray();
         byte[] data = block.Span[(4 + headerLength)..].ToArray();
         return acceptor.UnwrapWinRM(header, data);

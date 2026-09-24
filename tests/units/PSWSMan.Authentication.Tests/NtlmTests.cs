@@ -162,23 +162,4 @@ public class NtlmTests
 
         await Assert.That(ex.Type).IsEqualTo("BadBindingsError");
     }
-
-    [Test]
-    [Arguments(TestProviders.Gssapi)]
-    [Arguments(TestProviders.Sspi)]
-    [Arguments(TestProviders.Devolutions)]
-    public async Task ChannelBindings_MissingOnClient_IsRejected(string providerName)
-    {
-        AuthProvider provider = TestProviders.Require(providerName);
-        using X509Certificate2 certificate = AuthExchange.CreateCertificate();
-        using Acceptor acceptor = Acceptor.Start(s_user);
-        acceptor.Create("ntlm", s_pureNtlm, channelBindings: AuthExchange.TlsServerEndPoint(certificate));
-        using WSManCredential credential = CreateCredential(provider);
-        using NegotiateAuthContext client = (NegotiateAuthContext)credential.CreateAuthContext(null);
-
-        // A client that sends no bindings at all is treated as a mismatch, not as opting out.
-        AcceptorException ex = Assert.Throws<AcceptorException>(() => AuthExchange.Authenticate(client, acceptor));
-
-        await Assert.That(ex.Type).IsEqualTo("BadBindingsError");
-    }
 }

@@ -292,6 +292,16 @@ internal class TlsSecurityContext : IDisposable
     /// <returns>A new array holding <paramref name="prefixLength"/> free bytes followed by the TLS record.</returns>
     public byte[] Encrypt(ReadOnlySpan<byte> data, int prefixLength, out int trailerLength)
     {
+        // The WinRM framing needs exactly one record per write. SslStream can break that in two ways, a read that
+        // processed a post handshake message may have written a reply that is still queued, and a write beyond the
+        // maximum message size of the TLS stack is split over several records. Either silently corrupts the stream
+        // so both are checked and reported with the sizes involved.
+        if (_bio.TryServerRead(out byte[] stale))
+        {
+            throw new InvalidOperationException(
+                $"TLS output had a {stale.Length} byte record queued before encrypting {data.Length} bytes");
+        }
+
         _bio.OutgoingPrefix = prefixLength;
         try
         {
@@ -302,6 +312,12 @@ internal class TlsSecurityContext : IDisposable
             _bio.OutgoingPrefix = 0;
         }
         byte[] block = _bio.ServerRead();
+
+        if (_bio.TryServerRead(out byte[] extra))
+        {
+            throw new InvalidOperationException(
+                $"TLS produced more than one record for {data.Length} bytes, the first was {block.Length - prefixLength} bytes and the next {extra.Length}");
+        }
 
         int recordLength = block.Length - prefixLength;
         trailerLength = IsAeadSuite

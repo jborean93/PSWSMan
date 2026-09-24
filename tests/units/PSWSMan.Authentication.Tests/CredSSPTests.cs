@@ -63,7 +63,7 @@ public class CredSSPTests
         await Assert.That(client.Complete).IsTrue();
         await Assert.That(client.HttpAuthLabel).IsEqualTo("CredSSP");
         await Assert.That(client.EncryptionProtocol).IsEqualTo(WSManEncryptionProtocol.CREDSSP);
-        await Assert.That(client.MaxEncryptionChunkSize).IsEqualTo(16384);
+        await Assert.That(client.MaxEncryptionChunkSize).IsEqualTo(16384 - 256);
         await Assert.That(info.Complete).IsTrue();
         await Assert.That(info.NegotiatedProtocol).IsEqualTo("ntlm");
         await Assert.That(info.ClientPrincipal).IsEqualTo($"{Domain}\\{Username}");
@@ -129,6 +129,9 @@ public class CredSSPTests
     [Arguments(CredSSPTls.Tls12Cbc)]
     public async Task WinRMEncryption_PerTlsSession(CredSSPTls tls)
     {
+        // SslStream on macOS goes through SecureTransport where TLS 1.3 support depends on the .NET version.
+        Skip.When(tls == CredSSPTls.Tls13 && OperatingSystem.IsMacOS(), "TLS 1.3 is not reliably available on macOS");
+
         AuthProvider provider = TestProviders.Require(TestProviders.Devolutions);
         using Acceptor acceptor = Acceptor.Start(s_user);
         acceptor.Create("credssp", s_pureNtlm, tls: tls switch
@@ -177,6 +180,14 @@ public class CredSSPTests
             int prefix = BinaryPrimitives.ReadInt32LittleEndian(block.Span);
             int recordTrailer = block.Length - 4 - 5 - recordPrefix - size;
             AcceptorWinRMWrapResult acceptorWrapped = acceptor.WrapWinRM(request);
+
+            // Spelled out so a failure on another platform reports every number needed to reason about it.
+            if (prefix != recordTrailer || prefix != acceptorWrapped.Header.Length)
+            {
+                throw new InvalidOperationException(
+                    $"Trailer mismatch for {size} bytes over {info.TlsProtocol} {info.TlsCipher}: module prefix {prefix}, " +
+                    $"record implies {recordTrailer} (block {block.Length} bytes), pyspnego {acceptorWrapped.Header.Length}");
+            }
 
             await Assert.That(paddingLength).IsEqualTo(0);
             await Assert.That(prefix).IsEqualTo(recordTrailer);

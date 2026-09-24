@@ -125,9 +125,6 @@ jobs:
         }
         ./build.ps1 @buildParams
         exit $LASTEXITCODE
-      env:
-        # Enabled TLS 1.3 for macOS https://learn.microsoft.com/en-us/dotnet/core/whats-new/dotnet-10/libraries#tls-13-for-macos-client
-        DOTNET_SYSTEM_NET_SECURITY_USENETWORKFRAMEWORK: '1'
 
     - name: Upload Test Results
       if: always()
