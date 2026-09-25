@@ -247,9 +247,6 @@ Use the `-CertificateThumbprint` parameter on cmdlets that create the session to
 You cannot use this parameter with `-TlsOption`.
 If using `-TlsOption` the `ClientCertificates` property must be set to utilise TLS client authentication.
 
-Client authentication has known problems with TLS 1.3 when using dotnet versions older than dotnet 7.
-If using dotnet 6, then the TLS protocols must be set to not use TLS 1.3 for client authentication to work.
-
 ```yaml
 Type: X509Certificate
 Parameter Sets: SimpleTls

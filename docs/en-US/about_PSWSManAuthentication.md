@@ -63,112 +63,21 @@ Set-Item -Path WSMan:\localhost\Service\Auth\Basic -Value True
 Certificate authentication is when the client offers an X.509 certificate to the server for authentication.
 The server will check that this certificate was issued by a Certificate Authority (CA) that it trusts and whether the certificate maps to a local account mapping defined on the server itself.
 It can only be used over a HTTPS connection as it's a feature done through the TLS connection itself.
-To use certificate authentication the following must be done:
 
-+ A WSMan HTTPS listener created on the server
+The certificate must have the `ClientAuthentication` extended key usage and a Subject Alternative Name (SAN) that identifies the local user it maps to.
+On the server side a HTTPS listener must exist, the certificate must be trusted and installed in the `TrustedPeople` store, mapped to the local account, and the WSMan service must have certificate authentication enabled.
+The [winrm-cert-auth](https://github.com/jborean93/winrm-cert-auth) repository covers these requirements in greater detail and includes scripts that generate the certificate and configure the server.
 
-+ A X.509 certificate created for `ClientAuthentication` extended key usage
-
-+ The X.509 certificate must also have the Subject Alternative Name (SAN) set to `otherName:1.3.6.1.4.1.311.20.2.3;UTF8:$USERNAME@localhost` where the `$USERNAME` is the local user it is for
-
-+ The X.509 certificate must be issued by a CA trusted by the server, if the client certificate is a self signed cert, it must be installed in the trusted CA root store on the server
-
-+ The X.509 certificate must be installed in the `TrustedPeople` store on `LocalMachine`
-
-+ A mapping between the certificate and the local user account must be set up
-
-+ The WSMan service must be configured to allow Certificate authentication
-
-The following PowerShell snippet can be used to generate a self-signed client certificate that is mapped to a local account on the server.
+Once the server is configured, specify the client certificate with `-ClientCertificate` on `New-PSWSManSessionOption` and connect with `-UseSSL`.
 
 ```powershell
-# Prompt for the username and password to map the certificate to
-# Do not use the SERVERNAME\ prefix. Just specify the username itself
-$credential = Get-Credential -UserName username
-
-# Generate self signed certificate for client authentication
-$selfSignedParams = @{
-    Subject           = "CN=$($credential.UserName)"
-    KeyUsage          = 'DigitalSignature', 'KeyEncipherment'
-    KeyAlgorithm      = 'RSA'
-    KeyLength         = 2048
-    TextExtension     = @("2.5.29.37={text}1.3.6.1.5.5.7.3.2","2.5.29.17={text}upn=$($credential.UserName)@localhost")
-    Type              = 'Custom'
-    CertStoreLocation = "Cert:\CurrentUser\My"
-}
-$cert = New-SelfSignedCertificate @selfSignedParams
-
-# Create a PFX for the client to use.
-$certPath = Join-Path $pwd "client_auth.pfx"
-$certBytes = $cert.Export("Pfx")
-
-# Use this to export and protect with a password
-# $certBytes = $cert.Export("Pfx", $password)
-[System.IO.File]::WriteAllBytes($certPath, $certBytes)
-
-# Remove it from the cert store once exported
-Remove-Item -Path "Cert:\CurrentUser\My\$($cert.Thumbprint)" -Force
-
-# Reload the certificate but with no key associated with it
-# before loading it into the relevant stores.
-$certNoKey = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($cert.RawData)
-
-# Store the certificate in the trusted root store. This can be skipped if the
-# cert is signed by a trusted CA. If the cert is signed but the issuer is not
-# trusted, this should be the root CA certificate to trust.
-$store = Get-Item -Path Cert:\LocalMachine\Root
-$store.Open("ReadWrite")
-$store.Add($certNoKey)
-$store.Dispose()
-
-# Install the client certificate into the TrustedPeople store.
-# This is the client certificate itself and not the CA.
-$store = Get-Item -Path Cert:\LocalMachine\TrustedPeople
-$store.Open("ReadWrite")
-$store.Add($certNoKey)
-$store.Dispose()
-
-# Get the thumbprint of the chain root. For self signed certs this is
-# the cert itself, for a signed cert this is the root issuer.
-$certChain = [Security.Cryptography.X509Certificates.X509Chain]::new()
-[void]$certChain.Build($certNokey)
-$caThumbprint = $certChain.ChainElements.Certificate[-1].Thumbprint
-
-# Map the certificate to the user's credentials
-$credBinding = @{
-    Path       = 'WSMan:\localhost\ClientCertificate'
-    Subject    = $credential.UserName
-    URI        = "*"
-    Issuer     = $caThumbprint
-    Credential = $credential
-    Force      = $true
-}
-New-Item @credBinding
-
-# Enable Certificate authentication on the WSMan service
-Set-Item -Path WSMan:\localhost\Service\Auth\Certificate -Value True
+$cert = Get-PfxCertificate -FilePath ~/client_auth.pfx
+$pso = New-PSWSManSessionOption -ClientCertificate $cert
+Invoke-Command -ComputerName host -UseSSL -SessionOption $pso -ScriptBlock { ... }
 ```
 
-If the local account's password expires, the credential and the certificate needs to be remapped.
-
-Support for using certificate authentication with TLS 1.3 enabled servers is limited.
-Client certificate authentication does not currently work on Linux hosts running PowerShell 7.2 (dotnet 6) and with a TLS 1.3 connection.
-In order to use certificate auth with TLS 1.3 on Linux either upgrade to PowerShell 7.3 or limit the TLS protocol to TLS 1.2.
-
-```powershell
-$tlsOption = [System.Net.Security.SslClientAuthenticationOptions]@{
-    TargetHost                          = 'TargetHost'
-    ClientCertificates                  = [System.Security.Cryptography.X509Certificates.X509CertificateCollection]::new(
-        @($ClientCertificate))
-}
-
-if ($IsLinux -and [Environment]::Version -lt [Version]'7.0') {
-    $tlsOption.EnabledSslProtocols = [System.Security.Authentication.SslProtocols]::Tls12
-}
-
-$pso = New-PSWSManSessionOption -TlsOption $tlsOption
-Invoke-Command -ComputerName host -SessionOption $pso -ScriptBlock { ... }
-```
+Certificates already in the `Cert:\CurrentUser\My` or `Cert:\LocalMachine\My` store can be referenced by thumbprint with the `-CertificateThumbprint` parameter of the remoting cmdlets instead.
+If `-TlsOption` is used, the `ClientCertificates` property of the `SslClientAuthenticationOptions` object must contain the certificate instead.
 
 # NTLM AUTH
 NTLM authentication is a legacy authentication protocol offered by Microsoft.
@@ -268,7 +177,7 @@ There are two main ways an authentication method is set:
 
 The `-Authentication` parameter is limited to just `Basic`, `Kerberos`, `Negotiate`, or `CredSSP` while the `-AuthMethod` parameter also includes `NTLM` as an option.
 The `-AuthMethod` parameter takes priority over `-Authentication` if both are set.
-The default authentication method chosen in `Negotiate` which typically offers the best out of box experience.
+The default authentication method chosen is `Negotiate` which typically offers the best out of box experience.
 It uses the system SSPI/GSSAPI library unless the Devolutions provider is requested for the session or has been set as the default with `Set-PSWSManAuth`.
 On Linux, if no GSSAPI library is installed and Devolutions has not been selected, the connection fails with an error saying no SSPI/GSSAPI library could be found.
 
@@ -309,8 +218,6 @@ Linux and macOS can also only delegate if:
 To verify if the cred retrieved from `kinit` is forwardable, run `klist -f` and the flags should have `F`.
 
 To verify if the remote PSSession has a forwardable ticket that it can use for delegation, the `klist.exe` command will display the `forwarded` flag.
-
-The Devolutions auth provider does not currently support `-RequestKerberosDelegation` as it is missing the feature https://github.com/Devolutions/sspi-rs/issues/81.
 
 # DEVOLUTIONS SSPI
 By default the PSWSMan authentication process will use the system provided library, SSPI and GSSPI.

@@ -27,10 +27,10 @@ You can install this module by running;
 
 ```powershell
 # Install for only the current user
-Install-Module -Name PSWSMan -Scope CurrentUser
+Install-PSResource -Name PSWSMan -Scope CurrentUser
 
 # Install for all users
-Install-Module -Name PSWSMan -Scope AllUsers
+Install-PSResource -Name PSWSMan -Scope AllUsers
 ```
 
 Once installed, run `Enable-PSWSMan -Force` to enable the hooks needed for PowerShell to use this module.
