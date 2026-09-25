@@ -1,336 +1,114 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
-    "$id": "http://example.com/example.json",
+    "title": "PSWSMan Test Settings",
+    "description": "WinRM servers the Pester connection tests can use. Each entry describes one way to connect: an endpoint, a credential, and the facts about that endpoint the tests use to decide what to run against it.",
     "type": "object",
-    "title": "PSWSMan Test Settings Schema",
-    "description": "The schema used for PSWSMan's test settings.",
-    "default": {},
-    "examples": [
-        {
-            "credentials": {
-                "default": {
-                    "username": "vagrant-domain@WSMAN.ENV",
-                    "password": "VagrantPass1"
-                }
-            },
-            "servers": {
-                "default": {
-                    "hostname": "test.wsman.env",
-                    "credential": "default"
-                },
-                "untrusted": {
-                    "hostname": "untrusted.wsman.env"
-                }
-            },
-            "scenarios": {
-                "https_trusted": "default",
-                "https_untrusted": "untrusted"
-            }
-        }
-    ],
     "required": [
-        "credentials",
         "servers"
     ],
+    "additionalProperties": false,
     "properties": {
-        "credentials": {
-            "$id": "#/properties/credentials",
-            "type": "object",
-            "title": "Test Credentials",
-            "description": "Credentials that can be referenced by servers",
-            "default": {},
-            "examples": [
-                {
-                    "default": {
-                        "username": "vagrant-domain@WSMAN.ENV",
-                        "password": "VagrantPass1"
-                    }
-                }
-            ],
-            "required": [
-                "default"
-            ],
-            "properties": {
-                "default": {
-                    "$id": "#/properties/credentials/properties/default",
-                    "type": "object",
-                    "title": "Credential Information",
-                    "description": "A credential username and password",
-                    "default": {
-                        "username": "",
-                        "password": ""
-                    },
-                    "required": [
-                        "username",
-                        "password"
-                    ],
-                    "properties": {
-                        "username": {
-                            "type": "string",
-                            "title": "Credential UserName"
-                        },
-                        "password": {
-                            "type": "string",
-                            "title": "Credential Password"
-                        }
-                    }
-                }
-            },
-            "additionalProperties": {
-                "$ref": "#/properties/credentials/properties/default"
-            }
-        },
         "servers": {
-            "$id": "#/properties/servers",
-            "type": "object",
-            "title": "Test Servers",
-            "description": "Servers that can be used in the tests",
-            "default": {},
-            "examples": [
-                {
-                    "default": {}
-                }
-            ],
-            "required": [
-                "default"
-            ],
-            "properties": {
-                "default": {
-                    "$id": "#/properties/servers/properties/default",
-                    "type": "object",
-                    "title": "Test Host Details",
-                    "description": "Details on how to connect to this host",
-                    "default": {
-                        "hostname": "test.wsman.env",
-                        "credential": "default"
+            "type": "array",
+            "description": "Every server entry is tested independently. List the same URL twice to test it with a second credential.",
+            "items": {
+                "type": "object",
+                "required": [
+                    "url",
+                    "auth"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Label used in test names. Defaults to the username and endpoint."
                     },
-                    "required": [
-                        "hostname"
-                    ],
-                    "properties": {
-                        "hostname": {
+                    "url": {
+                        "type": "string",
+                        "pattern": "^https?://",
+                        "description": "The WSMan endpoint, for example http://server:5985/wsman or https://server:5986/wsman. The scheme selects HTTP or HTTPS and the port and path are taken from the URL.",
+                        "examples": [
+                            "http://test.wsman.env:5985/wsman",
+                            "https://test.wsman.env:5986/wsman"
+                        ]
+                    },
+                    "username": {
+                        "type": "string",
+                        "description": "The username to authenticate with, user@REALM for a domain account or the plain name for a local account. Required unless auth only contains certificate."
+                    },
+                    "password": {
+                        "type": "string",
+                        "description": "The password for username."
+                    },
+                    "auth": {
+                        "type": "array",
+                        "description": "The authentication methods that work for this endpoint and credential. A domain account normally supports kerberos, ntlm and credssp while a local account supports basic, ntlm and credssp. certificate needs client_certificate and is the only method that does not need a username and password.",
+                        "uniqueItems": true,
+                        "minItems": 1,
+                        "items": {
                             "type": "string",
-                            "title": "HostName",
-                            "description": "The hostname that can be used to connect to this host"
-                        },
-                        "port": {
-                            "type": "integer",
-                            "title": "Port to connect to",
-                            "description": "The port to connect to for this host"
-                        },
-                        "credential": {
-                            "type": "string",
-                            "title": "Credential",
-                            "description": "The credential key this host can use, uses the default credential if not set",
-                            "default": "default"
+                            "enum": [
+                                "basic",
+                                "kerberos",
+                                "ntlm",
+                                "credssp",
+                                "certificate"
+                            ]
                         }
+                    },
+                    "untrusted_certificate": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Set when the HTTPS certificate is not trusted by this machine. The tests then disable certificate validation when connecting to this entry."
+                    },
+                    "client_certificate": {
+                        "type": "object",
+                        "description": "The client certificate to use when auth contains certificate. Either a PFX file or a PEM certificate and key pair.",
+                        "required": [
+                            "cert"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                            "cert": {
+                                "type": "string",
+                                "description": "Path to the certificate. A .pfx or .p12 file holds the private key itself, any other extension is a PEM certificate that needs key. Relative paths are resolved from the directory containing the settings file."
+                            },
+                            "key": {
+                                "type": "string",
+                                "description": "Path to the PEM encoded RSA private key. Required unless cert is a .pfx or .p12 file. Relative paths are resolved from the directory containing the settings file."
+                            },
+                            "password": {
+                                "type": "string",
+                                "description": "The PFX password, or the password of the PEM private key when it is encrypted."
+                            }
+                        }
+                    },
+                    "jea": {
+                        "type": "object",
+                        "description": "A Just Enough Administration session configuration on this endpoint. Enables the JEA test for this entry.",
+                        "required": [
+                            "name",
+                            "username"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                            "name": {
+                                "type": "string",
+                                "description": "The session configuration name to connect to."
+                            },
+                            "username": {
+                                "type": "string",
+                                "description": "The value of [Environment]::UserName inside that configuration, for example the gMSA it runs as."
+                            }
+                        }
+                    },
+                    "trusted_for_delegation": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Set when the server is trusted for unconstrained Kerberos delegation. Enables the delegation tests for this entry."
                     }
                 }
-            },
-            "additionalProperties": {
-                "$ref": "#/properties/servers/properties/default"
             }
-        },
-        "scenarios": {
-            "$id": "#/properties/scenarios",
-            "type": "object",
-            "title": "Test Scenario Hosts",
-            "descriptions": "Hosts to use for the various test scenarios. The values must match with a host entry in servers.\nIf not set the test that needs this scenario is skipped.",
-            "default": {},
-            "examples": [
-                {
-                    "https_trusted": "https_trusted_host",
-                    "local_auth": "basic_auth_host"
-                }
-            ],
-            "properties": {
-                "domain_auth": {
-                    "type": "string",
-                    "title": "HTTP Host with Domain Credential",
-                    "description": "Host with a domain credential that can be used for Kerberos authentication attempts"
-                },
-                "local_auth": {
-                    "type": "string",
-                    "title": "HTTP Host with Local Credential",
-                    "description": "Host with a local credential that can be used for Basic authentication attempts"
-                },
-                "https_trusted": {
-                    "type": "string",
-                    "title": "HTTPS Host",
-                    "description": "Host that can be used for HTTPS tests with a trusted certificate"
-                },
-                "https_untrusted": {
-                    "type": "string",
-                    "title": "HTTPS Host Untrusted Certificate",
-                    "description": "Host that can be used for HTTPS tests with an untrusted certificate"
-                },
-                "https_domain_auth": {
-                    "type": "string",
-                    "title": "HTTPS Host with Domain Credential",
-                    "description": "Host with a domain credential that can be used for Kerberos authentication attempts over HTTPS"
-                },
-                "https_local_auth": {
-                    "type": "string",
-                    "title": "HTTPS Host with Local Credential",
-                    "description": "Host with a local credential that can be used for Basic authentication attempts over HTTPS"
-                },
-                "https_sha1": {
-                    "type": "string",
-                    "title": "HTTPS Host with SHA1 Cert",
-                    "description": "Tests Channel Binding Token support for a SHA1 cert"
-                },
-                "https_sha256": {
-                    "type": "string",
-                    "title": "HTTPS Host with SHA256 Cert",
-                    "description": "Tests Channel Binding Token support for a SHA256 cert"
-                },
-                "https_sha256_pss": {
-                    "type": "string",
-                    "title": "HTTPS Host with SHA256 RSA PSS Cert",
-                    "description": "Tests Channel Binding Token support for a SHA256 RSA PSS cert"
-                },
-                "https_sha384": {
-                    "type": "string",
-                    "title": "HTTPS Host with SHA384 Cert",
-                    "description": "Tests Channel Binding Token support for a SHA384 cert"
-                },
-                "https_sha512": {
-                    "type": "string",
-                    "title": "HTTPS Host with SHA512 RSA PSS Cert",
-                    "description": "Tests Channel Binding Token support for a SHA512 cert"
-                },
-                "https_sha512_pss": {
-                    "type": "string",
-                    "title": "HTTPS Host with SHA512 Cert",
-                    "description": "Tests Channel Binding Token support for a SHA512 cert"
-                },
-                "jea": {
-                    "type": "string",
-                    "title": "JEA endpoint",
-                    "description": "The host to connect to the JEA endpoint that jea_configuration is on"
-                },
-                "trusted_for_delegation": {
-                    "type": "string",
-                    "title": "Host Trusted for Unconstrained Kerberos Delegation",
-                    "description": "The host that is trusted for unconstrained delegation"
-                }
-            },
-            "additionalProperties": false
-        },
-        "data": {
-            "$id": "#/properties/data",
-            "type": "object",
-            "title": "Extra Data for Tests",
-            "description": "Extra information used by the test, for example a certificate to trust",
-            "default": {},
-            "examples": [
-                {
-                    "ca_file": "~/test/ca.pem"
-                }
-            ],
-            "properties": {
-                "ca_file": {
-                    "type": "string",
-                    "title": "CA Certificate File",
-                    "description": "The path to the CA certificate pem and key to load during the test"
-                },
-                "client_certificate": {
-                    "type": "object",
-                    "title": "Client Certificate Settings",
-                    "description": "The client cert authentication settings",
-                    "examples": [
-                        {
-                            "cert": "~/test/client_auth.pem",
-                            "key": "~/test/client_auth.key",
-                            "password": "password"
-                        }
-                    ],
-                    "required": [
-                        "cert",
-                        "key"
-                    ],
-                    "properties": {
-                        "cert": {
-                            "type": "string",
-                            "title": "Client Certificate PFX Path"
-                        },
-                        "key": {
-                            "type": "string",
-                            "title": "Client Certificate PFX Path"
-                        },
-                        "password": {
-                            "type": "string",
-                            "title": "Client Certificate PFX Password"
-                        }
-                    },
-                    "additionalProperties": false
-                },
-                "jea_configuration": {
-                    "type": "object",
-                    "title": "JEA Settings",
-                    "description": "The JEA test settings",
-                    "examples": [
-                        {
-                            "name": "JEA",
-                            "username": "gmsa$"
-                        }
-                    ],
-                    "required": [
-                        "name",
-                        "username"
-                    ],
-                    "properties": {
-                        "name": {
-                            "type": "string",
-                            "title": "JEA Configuration Name"
-                        },
-                        "username": {
-                            "type": "string",
-                            "title": "JEA UserName",
-                            "description": "The output of [Environment]::UserName in this JEA configuration"
-                        }
-                    },
-                    "additionalProperties": false
-                },
-                "exchange_online": {
-                    "type": "object",
-                    "title": "Exchange Online Settings",
-                    "description": "The Exchange Online test settings",
-                    "examples": [
-                        {
-                            "organization": "test.onmicrosoft.com",
-                            "app_id": "db1075e0-d097-4903-9765-39570eb43153",
-                            "certificate_path": "/home/user/PSWSMan/tests/integration/exchange-cert.pfx",
-                            "certificate_password": "...",
-                            "client_secret": "..."
-                        }
-                    ],
-                    "required": [
-                        "organization",
-                        "app_id"
-                    ],
-                    "properties": {
-                        "organization": {
-                            "type": "string",
-                            "title": "Exchange Organization Name"
-                        },
-                        "app_id": {
-                            "type": "string",
-                            "title": "The App Principal ID (GUID)"
-                        },
-                        "certificate_path": {
-                            "type": "string",
-                            "title": "Path to the certificate PFX"
-                        },
-                        "certificate_password": {
-                            "type": "string",
-                            "title": "Password for certificate PFX"
-                        }
-                    },
-                    "additionalProperties": false
-                }
-            },
-            "additionalProperties": false
         }
     }
 }

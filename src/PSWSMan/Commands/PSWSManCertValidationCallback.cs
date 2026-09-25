@@ -52,11 +52,14 @@ public sealed class ScriptBlockCertificateValidation
         using PowerShell ps = PowerShell.Create();
         ps.Runspace = rs;
 
-        ps.AddScript(ScriptBlock.ToString())
-            .AddArgument(sender)
-            .AddArgument(certificate)
-            .AddArgument(chain)
-            .AddArgument(sslPolicyErrors);
+        object?[] sbkArgs = [sender, certificate, chain, sslPolicyErrors];
+        ps.AddScript(@"
+            $methArgs = $args[2]
+            & $args[0].Invoke($args[1]) @methArgs
+        ", true)
+            .AddArgument((object)ScriptBlockHelper.StripScriptBlockAffinity)
+            .AddArgument(ScriptBlock)
+            .AddArgument(sbkArgs);
         ps.AddParameter("--%", UsingVars);
 
         Collection<PSObject> res = ps.Invoke();

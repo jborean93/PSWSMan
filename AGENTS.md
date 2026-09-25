@@ -33,7 +33,6 @@ client once `Enable-PSWSMan -Force` has been run.
 | `tests/common.ps1` | Dot-sourced by every Pester file. Imports the built module and runs `Enable-PSWSMan -Force`. |
 | `tests/units/<Project>/` | .NET unit test projects (TUnit). Each directory is discovered and run automatically by the `Test` task. |
 | `tests/units/PSWSMan.Authentication.Tests/` | Drives the module's authentication contexts (GSSAPI, Windows SSPI, Devolutions) against an independent acceptor, the pyspnego library, over stdin/stdout. `acceptor.py` is the Python side. These tests skip when Python with pyspnego is not available. |
-| `tests/integration/` | Notes on standing up a WinRM lab for the server-backed tests. This area is due for a cleanup. |
 | `tools/` | Scripts used by `build.ps1`. `InvokeBuild.ps1` defines the tasks; `common.ps1` holds the `Manifest` class and helpers. |
 | `output/` | Git-ignored. Built module, nupkg, downloaded PowerShell versions, cached build modules, and test results all land here. Never commit or hand-edit it. |
 | `CHANGELOG.md` | Update under the top (unreleased) heading for any user-visible change. |
@@ -177,8 +176,18 @@ pwsh -File ./tools/CoverageReport.ps1 -Path ./output/TestResults/Coverage.cobert
 
 - Pester tests that need a real WinRM server are skipped, not failed, when no
   server is configured. A green local run therefore does not prove connection
-  code works. The integration test configuration is being reworked, so do not
-  document or build on its current shape.
+  code works.
+- `test.settings.json` in the repository root lists the servers those tests
+  use, one entry per endpoint and credential with the auth methods and
+  features that work there (schema in `tests/settings.schema.json`, field
+  guide under "Testing against a WinRM server" in `README.md`). Tests select
+  entries by capability through `Get-PSWSManTestServer` in `tests/common.ps1`
+  and feed them to Pester's `-ForEach` (the entry is `$_` in the test), so a
+  new connection test should filter on what it needs rather than assume a
+  particular host. `Get-PSSessionSplat` turns an entry into the
+  `New-PSSession` parameters and takes the `New-PSWSManSessionOption`
+  parameters as a hashtable, so it can disable certificate validation for
+  entries marked `untrusted_certificate`.
 - `test.settings.json` is git-ignored and contains credentials. Never commit
   it or copy its contents into other files.
 - Every Pester file must start with `BeforeDiscovery { . ([IO.Path]::Combine($PSScriptRoot, 'common.ps1')) }`.
