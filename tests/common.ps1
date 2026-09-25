@@ -1,7 +1,11 @@
+using namespace System.IO
+using namespace System.Security.Cryptography
+using namespace System.Security.Cryptography.X509Certificates
+
 $ErrorActionPreference = 'Stop'
 
-$moduleName = (Get-Item ([IO.Path]::Combine($PSScriptRoot, '..', 'module', '*.psd1'))).BaseName
-$manifestPath = [IO.Path]::Combine($PSScriptRoot, '..', 'output', $moduleName)
+$moduleName = (Get-Item ([Path]::Combine($PSScriptRoot, '..', 'module', '*.psd1'))).BaseName
+$manifestPath = [Path]::Combine($PSScriptRoot, '..', 'output', $moduleName)
 
 if (-not (Get-Module -Name $moduleName -ErrorAction SilentlyContinue)) {
     Import-Module $manifestPath -ErrorAction Stop
@@ -9,220 +13,363 @@ if (-not (Get-Module -Name $moduleName -ErrorAction SilentlyContinue)) {
 
 Enable-PSWSMan -Force
 
-class JEAConfiguration {
+# One entry of the servers list in test.settings.json, see tests/settings.schema.json.
+class PSWSManTestServer {
     [string]$Name
-    [string]$ExpectedUserName
-}
-
-class EXOConfiguration {
-    [string]$Organization
-    [string]$AppId
-    [System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate
-}
-
-class PSWSManServer {
-    [string]$HostName
+    [Uri]$Uri
+    # Null for an entry that only authenticates with a client certificate.
     [PSCredential]$Credential
-    [int]$Port
-}
+    [string[]]$Auth
+    [bool]$UntrustedCertificate
+    [X509Certificate2]$ClientCertificate
+    [string]$JEAName
+    [string]$JEAUserName
+    [bool]$TrustedForDelegation
 
-class PSWSManSettings {
-    [System.Collections.Generic.Dictionary[[string], [PSWSManServer]]]$Servers
-    [System.Collections.Generic.Dictionary[[string], [string]]]$Scenarios = [System.Collections.Generic.Dictionary[[string], [string]]]::new()
-    [System.Security.Cryptography.X509Certificates.X509Certificate2] $CACert
-    [JEAConfiguration]$JEAConfiguration
-    [EXOConfiguration]$EXOConfiguration
-    [System.Security.Cryptography.X509Certificates.X509Certificate2]$ClientCertificate
-
-    [PSWSManServer] GetScenarioServer([string]$Scenario) {
-        if ($this.Scenarios.ContainsKey($Scenario)) {
-            $hostEntry = $this.Scenarios[$Scenario]
-            return $this.Servers[$hostEntry]
-        }
-
-        return $null
+    [string] ToString() {
+        return $this.Name
     }
 }
 
-if (-not $global:PSWSManSettings) {
-    $schemaPath = [IO.Path]::Combine($PSScriptRoot, 'settings.schema.json')
-    $settingsPath = [IO.Path]::Combine($PSScriptRoot, '..', 'test.settings.json')
-    if (Test-Path -LiteralPath $settingsPath) {
-        $settingsJson = Get-Content -LiteralPath $settingsPath -Raw
-        Test-Json -Json $settingsJson -SchemaFile $schemaPath -ErrorAction Stop
+Function Import-PSWSManTestClientCertificate {
+    <#
+    .SYNOPSIS
+    Loads the client_certificate of a settings entry with its private key.
 
-        $settings = ConvertFrom-Json -InputObject $settingsJson -AsHashtable
+    .DESCRIPTION
+    A PFX key is loaded ephemerally so nothing is left in the OS key store,
+    except on macOS which rejects that flag and uses a temporary keychain by
+    default instead.
 
-        $credentials = @{}
-        $servers = [System.Collections.Generic.Dictionary[[string], [PSWSManServer]]]::new()
-        $scenarios = [System.Collections.Generic.Dictionary[[string], [string]]]::new()
-        $scenarios["default"] = "default"
+    .PARAMETER Url
+    The url of the settings entry, used in error messages.
 
-        foreach ($cred in $settings.credentials.GetEnumerator()) {
-            $psCred = [PSCredential]::new($cred.Value.username,
-                (ConvertTo-SecureString -AsPlainText -Force -String $cred.Value.password))
-            $credentials[$cred.Key] = $psCred
-        }
+    .PARAMETER BaseDirectory
+    The directory relative paths in Cert and Key are resolved from.
 
-        foreach ($server in $settings.servers.GetEnumerator()) {
-            $credentialName = $server.Value.credential
-            if (-not $credentialName) {
-                $credentialName = 'default'
-            }
+    .PARAMETER Cert
+    A .pfx or .p12 file holding the certificate and its key, or a PEM
+    certificate whose key is in Key.
 
-            if (-not $credentials.ContainsKey($credentialName)) {
-                throw "Failed to find the test settings credential '$credentialName' in host '$($server.Key)'"
-            }
+    .PARAMETER Key
+    The PEM private key for a PEM Cert. Ignored for a PFX.
 
-            $servers[$server.Key] = [PSWSManServer]@{
-                HostName = $server.Value.hostname
-                Credential = $credentials[$credentialName]
-                Port = $server.Value.port
-            }
-        }
-
-        if (-not $servers.ContainsKey("default")) {
-            throw "No server under 'default' was set in the test configuration"
-        }
-
-        if ($settings.scenarios) {
-            foreach ($scenario in $settings.scenarios.GetEnumerator()) {
-                $scenarioName = $scenario.Key
-                $hostName = $scenario.Value
-
-                if (-not $servers.ContainsKey($hostName)) {
-                    throw "Failed to find the test settings server '$hostName' in scenario '$scenarioName'"
-                }
-                $scenarios[$scenarioName] = $hostName
-            }
-        }
-
-        $caCert = $null
-        $jeaConfiguration = $null
-        $exoConfiguration = $null
-        $clientCert = $null
-        if ($settings.data) {
-            if ($settings.data.ca_file -and (Test-Path -LiteralPath $settings.data.ca_file)) {
-                $caCert = Get-PfxCertificate -FilePath $settings.data.ca_file
-            }
-
-            if ($settings.data.client_certificate) {
-                if (-not (Test-Path -LiteralPath $settings.data.client_certificate.cert)) {
-                    throw "client_certificate.cert cannot be found"
-                }
-                if (-not (Test-Path -LiteralPath $settings.data.client_certificate.key)) {
-                    throw "client_certificate.key cannot be found"
-                }
-
-                $certPath = Resolve-Path -Path $settings.data.client_certificate.cert
-                $publicCert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($certPath)
-
-                $keyContent = Get-Content -Path $settings.data.client_certificate.key -Raw
-                $key = [System.Security.Cryptography.RSA]::Create()
-                if ($settings.data.client_certificate.password) {
-                    $key.ImportFromEncryptedPem($keyContent, $settings.data.client_certificate.password)
-                }
-                else {
-                    $key.ImportFromPem($keyContent)
-                }
-
-                $clientCert = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::CopyWithPrivateKey(
-                    $publicCert, $key)
-            }
-
-            if ($settings.data.jea_configuration) {
-                if (-not $scenarios.ContainsKey('jea')) {
-                    throw "jea_configuration set but no jea scenario set."
-                }
-
-                $jeaConfiguration = [JEAConfiguration]@{
-                    Name = $settings.data.jea_configuration.name
-                    ExpectedUserName = $settings.data.jea_configuration.username
-                }
-            }
-
-            if ($settings.data.exchange_online) {
-                if (-not (Get-Module -Name ExchangeOnlineManagement)) {
-                    $exoDepPath = [System.IO.Path]::GetFullPath(
-                        [System.IO.Path]::Combine(
-                            $PSScriptRoot,
-                            '..',
-                            'tools',
-                            'Modules',
-                            'ExchangeOnlineManagement'))
-                    if (Test-Path -LiteralPath $exoDepPath) {
-                        # Favour the local dep if present
-                        Import-Module -Name $exoDepPath
-                    }
-                    else {
-                        # Otherwise rely on it being installed somewhere. Fail if it isn't
-                        Import-Module -Name ExchangeOnlineManagement -ErrorAction Stop
-                    }
-                }
-
-                $exoCertificate = $null
-                if ($certPath = $settings.data.exchange_online.certificate_path) {
-                    $pfxParams = @{
-                        FilePath = $certPath
-                        ErrorAction = 'Stop'
-                    }
-                    if ($certPass = $settings.data.exchange_online.certificate_password) {
-                        $pfxParams.Password = ConvertTo-SecureString -AsPlainText -Force -String $certPass
-                    }
-                    $exoCertificate = Get-PfxCertificate @pfxParams
-                }
-
-                $exoConfiguration = [EXOConfiguration]@{
-                    Organization = $settings.data.exchange_online.organization
-                    AppId = $settings.data.exchange_online.app_id
-                    Certificate = $exoCertificate
-                }
-            }
-        }
-
-        $global:PSWSManSettings = [PSWSManSettings]@{
-            Servers = $servers
-            Scenarios = $scenarios
-            CACert = $caCert
-            JEAConfiguration = $jeaConfiguration
-            EXOConfiguration = $exoConfiguration
-            ClientCertificate = $clientCert
-        }
-    }
-    else {
-        $global:PSWSManSettings = [PSWSManSettings]::new()
-    }
-}
-
-Function global:Get-PSSessionSplat {
-    [OutputType([Hashtable])]
+    .PARAMETER Password
+    The PFX password, or the password of the PEM key when it is encrypted.
+    #>
+    [OutputType([X509Certificate2])]
     [CmdletBinding()]
     param (
         [Parameter(Mandatory)]
-        [PSWSManServer]$Server,
+        [string]
+        $Url,
 
-        [switch]
-        $ForBasicAuth
+        [Parameter(Mandatory)]
+        [string]
+        $BaseDirectory,
+
+        [Parameter(Mandatory)]
+        [string]
+        $Cert,
+
+        [AllowNull()]
+        [string]
+        $Key,
+
+        [AllowNull()]
+        [string]
+        $Password
     )
 
-    $params = @{
-        ComputerName = $Server.HostName
-        Credential = $Server.Credential
-    }
-    if ($Server.Port) {
-        $params.Port = $Server.Port
-    }
-    if ($ForBasicAuth) {
-        # If using Basic auth the domain/server portion needs to be stripped out
-        $newUserName = $params.Credential.UserName
-        if ($newUserName -like '*\*') {
-            $newUserName = ($newUserName -split '\\', 2)[1]
-        }
-        $params.Credential = [PSCredential]::new($newUserName, $params.Credential.Password)
-        $params.Authentication = 'Basic'
+    $certPath = [Path]::GetFullPath($Cert, $BaseDirectory)
+    if (-not (Test-Path -LiteralPath $certPath)) {
+        throw "client_certificate.cert '$certPath' for server '$Url' cannot be found"
     }
 
-    $params
+    # The X509Certificate2 constructors are obsolete since .NET 9 but the loader is not on .NET 8.
+    $useLoader = [bool]('X509CertificateLoader' -as [type])
+
+    if ([Path]::GetExtension($certPath) -in '.pfx', '.p12') {
+        # macOS does not support the EphemeralKeySet flag, so use the default key set instead.
+        $flags = if ($IsMacOS) { [X509KeyStorageFlags]::DefaultKeySet } else { [X509KeyStorageFlags]::EphemeralKeySet }
+        if ($useLoader) {
+            return [X509CertificateLoader]::LoadPkcs12FromFile($certPath, $Password, $flags)
+        }
+        else {
+            return [X509Certificate2]::new($certPath, $Password, $flags)
+        }
+    }
+
+    if (-not $Key) {
+        throw "client_certificate.key for server '$Url' is required when cert is not a .pfx or .p12 file"
+    }
+    $keyPath = [Path]::GetFullPath($Key, $BaseDirectory)
+    if (-not (Test-Path -LiteralPath $keyPath)) {
+        throw "client_certificate.key '$keyPath' for server '$Url' cannot be found"
+    }
+
+    $publicCert = if ($useLoader) {
+        [X509CertificateLoader]::LoadCertificateFromFile($certPath)
+    }
+    else {
+        [X509Certificate2]::new($certPath)
+    }
+    $rsa = [RSA]::Create()
+    $keyContent = Get-Content -LiteralPath $keyPath -Raw
+    if ($Password) {
+        $rsa.ImportFromEncryptedPem($keyContent, $Password)
+    }
+    else {
+        $rsa.ImportFromPem($keyContent)
+    }
+
+    [RSACertificateExtensions]::CopyWithPrivateKey($publicCert, $rsa)
+}
+
+Function Import-PSWSManTestSettings {
+    [OutputType([PSWSManTestServer])]
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)]
+        [string]
+        $Path,
+
+        [Parameter(Mandatory)]
+        [string]
+        $SchemaPath
+    )
+
+    $settingsJson = Get-Content -LiteralPath $Path -Raw
+    Test-Json -Json $settingsJson -SchemaFile $SchemaPath -ErrorAction Stop | Out-Null
+    $settings = ConvertFrom-Json -InputObject $settingsJson -AsHashtable
+    $settingsDir = [Path]::GetDirectoryName([Path]::GetFullPath($Path))
+
+    foreach ($entry in $settings.servers) {
+        $uri = [Uri]$entry.url
+        $auth = @($entry.auth | ForEach-Object { $_.ToLowerInvariant() })
+
+        $credential = $null
+        if ($entry.username) {
+            $credential = [PSCredential]::new(
+                $entry.username,
+                (ConvertTo-SecureString -AsPlainText -Force -String $entry.password))
+        }
+        elseif (@($auth | Where-Object { $_ -ne 'certificate' })) {
+            throw "Server '$($entry.url)' needs a username and password for the auth methods $($auth -join ', ')"
+        }
+
+        $clientCert = $null
+        if ($entry.client_certificate) {
+            $clientCert = Import-PSWSManTestClientCertificate -Url $entry.url -BaseDirectory $settingsDir `
+                -Cert $entry.client_certificate.cert -Key $entry.client_certificate.key `
+                -Password $entry.client_certificate.password
+        }
+        elseif ($auth -contains 'certificate') {
+            throw "Server '$($entry.url)' lists certificate auth but has no client_certificate"
+        }
+
+        $name = $entry.name
+        if (-not $name) {
+            $user = if ($entry.username) { $entry.username } else { 'certificate' }
+            $name = "$user $($uri.Scheme)://$($uri.Host):$($uri.Port)"
+        }
+
+        [PSWSManTestServer]@{
+            Name = $name
+            Uri = $uri
+            Credential = $credential
+            Auth = $auth
+            UntrustedCertificate = [bool]$entry.untrusted_certificate
+            ClientCertificate = $clientCert
+            JEAName = $entry.jea.name
+            JEAUserName = $entry.jea.username
+            TrustedForDelegation = [bool]$entry.trusted_for_delegation
+        }
+    }
+}
+
+if (-not $global:PSWSManTestServers) {
+    $settingsPath = [Path]::Combine($PSScriptRoot, '..', 'test.settings.json')
+    $global:PSWSManTestServers = if (Test-Path -LiteralPath $settingsPath) {
+        @(Import-PSWSManTestSettings -Path $settingsPath -SchemaPath ([Path]::Combine($PSScriptRoot, 'settings.schema.json')))
+    }
+    else {
+        @()
+    }
+}
+
+Function global:Get-PSWSManTestServer {
+    <#
+    .SYNOPSIS
+    Selects the configured test servers a test can run against.
+
+    .DESCRIPTION
+    Returns the matching PSWSManTestServer objects for use with the Pester
+    -ForEach parameter, where each is available as $_ and <_> in the test name
+    expands to its Name. When nothing matches a single placeholder without a
+    Uri is returned so the test still appears in the results, and
+    Get-PSSessionSplat marks it as skipped.
+
+    Without -Auth or -AnyAuth only servers with a username and password are
+    returned so a test that needs any server always gets a credential to use.
+
+    .PARAMETER Scheme
+    Only servers reachable over this scheme.
+
+    .PARAMETER Auth
+    Only servers whose entry lists every one of these auth methods.
+
+    .PARAMETER AnyAuth
+    Only servers whose entry lists at least one of these auth methods.
+
+    .PARAMETER JEA
+    Only servers with a JEA configuration.
+
+    .PARAMETER TrustedForDelegation
+    Only servers trusted for unconstrained delegation.
+
+    .PARAMETER First
+    Return at most one server, for tests that only need any server.
+    #>
+    [OutputType([PSWSManTestServer])]
+    [CmdletBinding()]
+    param (
+        [ValidateSet('Http', 'Https')]
+        [string]
+        $Scheme,
+
+        [ValidateSet('Basic', 'Kerberos', 'NTLM', 'CredSSP', 'Certificate')]
+        [string[]]
+        $Auth,
+
+        [ValidateSet('Basic', 'Kerberos', 'NTLM', 'CredSSP', 'Certificate')]
+        [string[]]
+        $AnyAuth,
+
+        [switch]
+        $JEA,
+
+        [switch]
+        $TrustedForDelegation,
+
+        [switch]
+        $First
+    )
+
+    $matched = foreach ($server in $global:PSWSManTestServers) {
+        if ($Scheme -and $server.Uri.Scheme -ne $Scheme) {
+            continue
+        }
+        if ($JEA -and -not $server.JEAName) {
+            continue
+        }
+        if ($TrustedForDelegation -and -not $server.TrustedForDelegation) {
+            continue
+        }
+        if (-not $Auth -and -not $AnyAuth -and -not $server.Credential) {
+            continue
+        }
+        if ($AnyAuth -and -not @($server.Auth | Where-Object { $_ -in $AnyAuth })) {
+            continue
+        }
+
+        $missingAuth = $false
+        foreach ($a in $Auth) {
+            if ($server.Auth -notcontains $a) {
+                $missingAuth = $true
+                break
+            }
+        }
+        if ($missingAuth) {
+            continue
+        }
+
+        $server
+        if ($First) {
+            break
+        }
+    }
+
+    if (-not $matched) {
+        $matched = [PSWSManTestServer]@{ Name = 'no matching server' }
+    }
+
+    $matched
+}
+
+Function global:Get-PSSessionSplat {
+    <#
+    .SYNOPSIS
+    Builds the New-PSSession/Invoke-Command parameters for a test server.
+
+    .DESCRIPTION
+    Splits the server URL into ComputerName, Port, UseSSL and ApplicationName so
+    the tests exercise the common cmdlet parameters and adds the credential when
+    the entry has one.
+
+    The SessionOption hashtable is splatted to New-PSWSManSessionOption. For a
+    server with an untrusted certificate SkipCACheck and SkipCNCheck are added
+    unless the test supplies its own TlsOption, so every test can run against it.
+    Remove the SessionOption key from the result to connect with certificate
+    validation enabled.
+
+    A Server without a Uri is the placeholder Get-PSWSManTestServer returns
+    when nothing matched, calling this with it marks the current test as
+    skipped.
+
+    .PARAMETER Server
+    A server returned by Get-PSWSManTestServer, usually piped in as $_.
+
+    .PARAMETER SessionOption
+    Parameters for New-PSWSManSessionOption. When set, or when the server has
+    an untrusted certificate, the result contains a SessionOption entry.
+    #>
+    [OutputType([Hashtable])]
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [PSWSManTestServer]
+        $Server,
+
+        [hashtable]
+        $SessionOption
+    )
+
+    process {
+        if (-not $Server.Uri) {
+            Set-ItResult -Skipped -Because 'no server in test.settings.json matches what this test needs'
+        }
+
+        $params = @{
+            ComputerName = $Server.Uri.Host
+            Port = $Server.Uri.Port
+        }
+        if ($Server.Credential) {
+            $params.Credential = $Server.Credential
+        }
+        if ($Server.Uri.Scheme -eq 'https') {
+            $params.UseSSL = $true
+        }
+
+        $appName = $Server.Uri.AbsolutePath.Trim('/')
+        if ($appName -and $appName -ne 'wsman') {
+            $params.ApplicationName = $appName
+        }
+
+        $optionParams = @{}
+        if ($SessionOption) {
+            $optionParams += $SessionOption
+        }
+        if ($Server.UntrustedCertificate -and -not $optionParams.ContainsKey('TlsOption')) {
+            $optionParams.SkipCACheck = $true
+            $optionParams.SkipCNCheck = $true
+        }
+        if ($optionParams.Count) {
+            $params.SessionOption = New-PSWSManSessionOption @optionParams
+        }
+
+        $params
+    }
 }
 
 Function global:Invoke-Kinit {

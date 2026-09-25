@@ -137,12 +137,14 @@ internal sealed class WSManPSRPSession : IDisposable
         };
 
         WSManConnectionPool pool = new(options);
+        // wsman:Locale is the language for messages and maps to the UI culture, wsmv:DataLocale is the format for
+        // data and maps to the culture. The server applies them to Get-UICulture and Get-Culture respectively.
         WSManClient client = new(
             connectionUri,
             maxEnvelopeSize,
             operationTimeout,
-            connInfo.Culture.Name,
-            dataLocale: connInfo.UICulture?.Name);
+            connInfo.UICulture?.Name ?? connInfo.Culture.Name,
+            dataLocale: connInfo.Culture.Name);
 
         // PowerShell exposes this as the number of times the native client reconnects after a network failure. Here
         // it bounds how often a lost Receive is resent on a new connection, e.g. when the remote command restarts

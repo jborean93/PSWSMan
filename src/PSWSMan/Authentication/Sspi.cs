@@ -87,8 +87,7 @@ internal sealed unsafe class SspiAuthContext : NegotiateAuthContext, IWSManEncry
 
     private SafeSspiContextHandle? _context;
     private bool _complete;
-    private uint _blockSize;
-    private uint _trailerSize;
+    private (uint Trailer, uint Block)? _sizes;
     private uint _sendSeqNo;
     private uint _recvSeqNo;
 
@@ -173,12 +172,6 @@ internal sealed unsafe class SspiAuthContext : NegotiateAuthContext, IWSManEncry
                 if (!context.MoreNeeded)
                 {
                     _complete = true;
-
-                    Helpers.SecPkgContext_Sizes sizes;
-                    _provider.QueryContextAttributes(_context, SecPkgAttribute.SECPKG_ATTR_SIZES, &sizes);
-
-                    _trailerSize = sizes.cbSecurityTrailer;
-                    _blockSize = sizes.cbBlockSize;
                 }
 
                 return outputBuffers[0].cbBuffer > 0
@@ -266,6 +259,23 @@ internal sealed unsafe class SspiAuthContext : NegotiateAuthContext, IWSManEncry
         }
     }
 
+    /// <summary>Gets the trailer and block sizes the package needs for EncryptMessage.</summary>
+    /// <remarks>
+    /// Queried on first use rather than when the context completes. CredSSP wraps with an NTLM over SPNEGO context
+    /// before the server's final token has been processed, so the context may not be complete at the first wrap.
+    /// </remarks>
+    private (uint Trailer, uint Block) GetSizes()
+    {
+        if (_sizes is null)
+        {
+            Helpers.SecPkgContext_Sizes sizes;
+            _provider.QueryContextAttributes(_context!, SecPkgAttribute.SECPKG_ATTR_SIZES, &sizes);
+            _sizes = (sizes.cbSecurityTrailer, sizes.cbBlockSize);
+        }
+
+        return _sizes.Value;
+    }
+
     /// <summary>Encrypts the data into a new block laid out as <c>[prefix][token][data][padding]</c>.</summary>
     /// <remarks>
     /// <c>cbSecurityTrailer</c> and <c>cbBlockSize</c> are upper bounds so the block reserves that much and the data
@@ -279,8 +289,9 @@ internal sealed unsafe class SspiAuthContext : NegotiateAuthContext, IWSManEncry
         if (_context is null)
             throw new InvalidOperationException("Cannot wrap without a completed context");
 
-        int reservedToken = (int)_trailerSize;
-        int reservedPadding = (int)_blockSize;
+        (uint trailerSize, uint blockSize) = GetSizes();
+        int reservedToken = (int)trailerSize;
+        int reservedPadding = (int)blockSize;
         int dataOffset = prefixLength + reservedToken;
 
         byte[] block = new byte[dataOffset + data.Length + reservedPadding];

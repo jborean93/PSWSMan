@@ -43,12 +43,6 @@ Here is a simple matrix of each options and some of the features they support:
 
 Exchange Online also offers Modern Auth (OAuth) but this just uses the Basic authentication headers to smuggle the OAuth token.
 
-This is a list of known issues with the various authentication methods and providers on PSWSMan:
-
-+ CredSSP
-
-  + Currently not supported with the `Devolutions` authentication provider - https://github.com/Devolutions/sspi-rs/issues/84
-
 # BASIC AUTH
 Basic authentication is sending the username nad password as a base64 encoded value in the HTTP headers.
 This is the simplest authentication option available but also the weakest.
@@ -332,4 +326,3 @@ Otherwise `New-PSWSManSessionOption -AuthProvider Devolutions` can be used on a 
 The `New-PSWSManSessionOption -AuthProvider ...` takes precedence over the runspace default.
 
 Support for Devolutions is limited and while things should work it is an experimental feature and mileage may vary.
-Currently `CredSSP` will not work with Devolutions due to it missing the feature https://github.com/Devolutions/sspi-rs/issues/84.

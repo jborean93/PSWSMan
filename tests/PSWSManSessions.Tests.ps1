@@ -3,313 +3,152 @@ BeforeDiscovery {
 }
 
 BeforeAll {
-    if ($PSWSManSettings.CACert -and -not $IsMacOS) {
-        $location = if ($IsWindows) {
-            [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine
-        }
-        else {
-            [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser
-        }
-        $store = [System.Security.Cryptography.X509Certificates.X509Store]::new(
-            [System.Security.Cryptography.X509Certificates.StoreName]::Root,
-            $location,
-            [System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+    Function Assert-PSWSManSession {
+        [CmdletBinding()]
+        param (
+            [Parameter(Mandatory)]
+            [hashtable]
+            $SessionParams,
+
+            [string]
+            $ConfigurationName = 'Microsoft.PowerShell'
+        )
+
+        $s = New-PSSession @SessionParams
         try {
-            $store.Add($PSWSManSettings.CACert)
+            $s.ComputerName | Should -Be $SessionParams.ComputerName
+            $s.State | Should -Be 'Opened'
+            $s.ConfigurationName | Should -Be $ConfigurationName
         }
         finally {
-            $store.Dispose()
+            $s | Remove-PSSession
         }
+
+        $s.State | Should -Be 'Closed'
     }
 }
 
-AfterAll {
-    if ($PSWSManSettings.CACert -and -not $IsMacOS) {
-        $location = if ($IsWindows) {
-            [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine
-        }
-        else {
-            [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser
-        }
-        $store = [System.Security.Cryptography.X509Certificates.X509Store]::new(
-            [System.Security.Cryptography.X509Certificates.StoreName]::Root,
-            $location,
-            [System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
-        try {
-            $store.Remove($PSWSManSettings.CACert)
-        }
-        finally {
-            $store.Dispose()
-        }
-    }
-}
+Describe "PSWSMan Connection tests" {
+    # Negotiate picks Kerberos for a domain account and NTLM for a local one.
+    It "Connects with Negotiate - <_>" -ForEach (Get-PSWSManTestServer -AnyAuth Kerberos, NTLM) {
+        $sessionParams = $_ | Get-PSSessionSplat
 
-Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServer('default')) {
-    It "Connects over HTTP with <AuthMethod>" -TestCases @(
-        @{AuthMethod = "Negotiate" }
-        # @{AuthMethod = "Ntlm" }  # NTLM through GSSAPI is not really viable outside of Windows
-        @{AuthMethod = "CredSSP" }
-    ) {
-        param ($AuthMethod)
-
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('default')
-        $sessionParams.SessionOption = New-PSWSManSessionOption -AuthMethod $AuthMethod
-
-        $s = New-PSSession @sessionParams
-        try {
-            $s.ComputerName | Should -Be $sessionParams.ComputerName
-            $s.State | Should -Be 'Opened'
-            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
-        }
-        finally {
-            $s | Remove-PSSession
-        }
-
-        $s.State | Should -Be 'Closed'
+        Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Connects over HTTP with Negotiate - Kerberos" -Skip:(-not $PSWSManSettings.GetScenarioServer('domain_auth')) {
-        param ($AuthMethod)
+    It "Connects with Kerberos - <_>" -ForEach (Get-PSWSManTestServer -Auth Kerberos) {
+        $sessionParams = $_ | Get-PSSessionSplat
+        $sessionParams.Authentication = 'Kerberos'
 
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('domain_auth')
-
-        $s = New-PSSession @sessionParams
-        try {
-            $s.ComputerName | Should -Be $sessionParams.ComputerName
-            $s.State | Should -Be 'Opened'
-            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
-        }
-        finally {
-            $s | Remove-PSSession
-        }
-
-        $s.State | Should -Be 'Closed'
+        Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Connects over HTTP with Negotiate - NTLM" -Skip:(-not $PSWSManSettings.GetScenarioServer('local_auth')) {
-        param ($AuthMethod)
+    # NTLM with the System provider needs SSPI, GSS.framework, or gss-ntlmssp with MIT krb5.
+    It "Connects with NTLM - <_>" -ForEach (Get-PSWSManTestServer -Auth NTLM) {
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ AuthMethod = 'NTLM' }
 
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('local_auth')
-
-        $s = New-PSSession @sessionParams
-        try {
-            $s.ComputerName | Should -Be $sessionParams.ComputerName
-            $s.State | Should -Be 'Opened'
-            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
-        }
-        finally {
-            $s | Remove-PSSession
-        }
-
-        $s.State | Should -Be 'Closed'
+        Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Connects over HTTP with CredSSP + Negotiate - Kerberos" -Skip:(-not $PSWSManSettings.GetScenarioServer('domain_auth')) {
-        param ($AuthMethod)
-
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('domain_auth')
+    It "Connects with CredSSP - <_>" -ForEach (Get-PSWSManTestServer -Auth CredSSP) {
+        $sessionParams = $_ | Get-PSSessionSplat
         $sessionParams.Authentication = 'Credssp'
 
-        $s = New-PSSession @sessionParams
-        try {
-            $s.ComputerName | Should -Be $sessionParams.ComputerName
-            $s.State | Should -Be 'Opened'
-            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
-        }
-        finally {
-            $s | Remove-PSSession
-        }
-
-        $s.State | Should -Be 'Closed'
+        Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Connects over HTTP with CredSSP + Keberos" -Skip:(-not $PSWSManSettings.GetScenarioServer('domain_auth')) {
-        param ($AuthMethod)
-
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('domain_auth')
-        $sessionParams.SessionOption = New-PSWSManSessionOption -AuthMethod CredSSP -CredSSPAuthMethod Kerberos
-
-        $s = New-PSSession @sessionParams
-        try {
-            $s.ComputerName | Should -Be $sessionParams.ComputerName
-            $s.State | Should -Be 'Opened'
-            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
-        }
-        finally {
-            $s | Remove-PSSession
+    It "Connects with CredSSP + Kerberos - <_>" -ForEach (Get-PSWSManTestServer -Auth CredSSP, Kerberos) {
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{
+            AuthMethod = 'CredSSP'
+            CredSSPAuthMethod = 'Kerberos'
         }
 
-        $s.State | Should -Be 'Closed'
+        Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Connects over HTTP with CredSSP + Negotiate - NTLM" -Skip:(-not $PSWSManSettings.GetScenarioServer('local_auth')) {
-        param ($AuthMethod)
+    It "Connects with CredSSP + NTLM - <_>" -ForEach (Get-PSWSManTestServer -Auth CredSSP, NTLM) {
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{
+            AuthMethod = 'CredSSP'
+            CredSSPAuthMethod = 'NTLM'
+        }
 
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('local_auth')
+        Assert-PSWSManSession -SessionParams $sessionParams
+    }
+
+    It "Connects with Devolutions Negotiate - <_>" -ForEach (Get-PSWSManTestServer -AnyAuth Kerberos, NTLM) {
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ AuthProvider = 'Devolutions' }
+
+        Assert-PSWSManSession -SessionParams $sessionParams
+    }
+
+    It "Connects with Devolutions Kerberos - <_>" -ForEach (Get-PSWSManTestServer -Auth Kerberos) {
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ AuthProvider = 'Devolutions' }
+        $sessionParams.Authentication = 'Kerberos'
+
+        Assert-PSWSManSession -SessionParams $sessionParams
+    }
+
+    It "Connects with Devolutions NTLM - <_>" -ForEach (Get-PSWSManTestServer -Auth NTLM) {
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{
+            AuthMethod = 'NTLM'
+            AuthProvider = 'Devolutions'
+        }
+
+        Assert-PSWSManSession -SessionParams $sessionParams
+    }
+
+    It "Connects with Devolutions CredSSP - <_>" -ForEach (Get-PSWSManTestServer -Auth CredSSP) {
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ AuthProvider = 'Devolutions' }
         $sessionParams.Authentication = 'Credssp'
 
-        $s = New-PSSession @sessionParams
-        try {
-            $s.ComputerName | Should -Be $sessionParams.ComputerName
-            $s.State | Should -Be 'Opened'
-            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
-        }
-        finally {
-            $s | Remove-PSSession
-        }
-
-        $s.State | Should -Be 'Closed'
+        Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Connects over HTTP with CredSSP + NTLM" -Skip:(-not $PSWSManSettings.GetScenarioServer('local_auth')) {
-        param ($AuthMethod)
-
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('local_auth')
-        $sessionParams.SessionOption = New-PSWSManSessionOption -AuthMethod CredSSP -CredSSPAuthMethod NTLM
-
-        $s = New-PSSession @sessionParams
-        try {
-            $s.ComputerName | Should -Be $sessionParams.ComputerName
-            $s.State | Should -Be 'Opened'
-            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
-        }
-        finally {
-            $s | Remove-PSSession
+    It "Connects with Devolutions CredSSP + Kerberos - <_>" -ForEach (Get-PSWSManTestServer -Auth CredSSP, Kerberos) {
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{
+            AuthMethod = 'CredSSP'
+            CredSSPAuthMethod = 'Kerberos'
+            AuthProvider = 'Devolutions'
         }
 
-        $s.State | Should -Be 'Closed'
+        Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Connects over HTTP with Devolutions <AuthMethod>" -TestCases @(
-        @{AuthMethod = "Negotiate" }
-        @{AuthMethod = "Ntlm" }
-        # @{AuthMethod = "CredSSP" }  # https://github.com/Devolutions/sspi-rs/issues/84
-    ) {
-        param ($AuthMethod)
-
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('default')
-        $sessionParams.SessionOption = New-PSWSManSessionOption -AuthMethod $AuthMethod -AuthProvider Devolutions
-
-        $s = New-PSSession @sessionParams
-        try {
-            $s.ComputerName | Should -Be $sessionParams.ComputerName
-            $s.State | Should -Be 'Opened'
-            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
-        }
-        finally {
-            $s | Remove-PSSession
+    It "Connects with Devolutions CredSSP + NTLM - <_>" -ForEach (Get-PSWSManTestServer -Auth CredSSP, NTLM) {
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{
+            AuthMethod = 'CredSSP'
+            CredSSPAuthMethod = 'NTLM'
+            AuthProvider = 'Devolutions'
         }
 
-        $s.State | Should -Be 'Closed'
+        Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Connects over HTTP with Devolutions Negotiate - Kerberos" -Skip:(-not $PSWSManSettings.GetScenarioServer('domain_auth')) {
-        param ($AuthMethod)
-
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('domain_auth')
-        $sessionParams.SessionOption = New-PSWSManSessionOption -AuthProvider Devolutions
-
-        $s = New-PSSession @sessionParams
-        try {
-            $s.ComputerName | Should -Be $sessionParams.ComputerName
-            $s.State | Should -Be 'Opened'
-            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
+    It "Connects with Basic - <_>" -ForEach (Get-PSWSManTestServer -Auth Basic) {
+        $optionParams = @{}
+        if ($_.Uri.Scheme -eq 'http') {
+            $optionParams.NoEncryption = $true
         }
-        finally {
-            $s | Remove-PSSession
-        }
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption $optionParams
+        $sessionParams.Authentication = 'Basic'
 
-        $s.State | Should -Be 'Closed'
+        Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Connects over HTTP with Devolutions Negotiate - NTLM" -Skip:(-not $PSWSManSettings.GetScenarioServer('local_auth')) {
-        param ($AuthMethod)
-
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('local_auth')
-        $sessionParams.SessionOption = New-PSWSManSessionOption -AuthProvider Devolutions
-
-        $s = New-PSSession @sessionParams
-        try {
-            $s.ComputerName | Should -Be $sessionParams.ComputerName
-            $s.State | Should -Be 'Opened'
-            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
-        }
-        finally {
-            $s | Remove-PSSession
-        }
-
-        $s.State | Should -Be 'Closed'
-    }
-
-    It "Fails to connect over HTTP with Basic without -NoEncryption" {
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('default')
-        $sessionParams.SessionOption = New-PSWSManSessionOption -AuthMethod Basic
+    It "Fails to connect over HTTP with Basic without -NoEncryption - <_>" -ForEach (Get-PSWSManTestServer -Scheme Http -First) {
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ AuthMethod = 'Basic' }
 
         { New-PSSession @sessionParams } | Should -Throw '*Cannot encrypt WSMan payload as BasicAuthContext does not support message encryption*'
     }
 
-    It "Connects over HTTP with Basic" -Skip:(-not $PSWSManSettings.GetScenarioServer('local_auth')) {
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('local_auth') -ForBasicAuth
-        $sessionParams.SessionOption = New-PSWSManSessionOption -NoEncryption
-
-        $s = New-PSSession @sessionParams
-        try {
-            $s.ComputerName | Should -Be $sessionParams.ComputerName
-            $s.State | Should -Be 'Opened'
-            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
-        }
-        finally {
-            $s | Remove-PSSession
-        }
-
-        $s.State | Should -Be 'Closed'
-    }
-
-    It "Connects over HTTP with Kerberos" -Skip:(-not $PSWSManSettings.GetScenarioServer('domain_auth')) {
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('domain_auth')
-        $sessionParams.Authentication = 'Kerberos'
-
-        $s = New-PSSession @sessionParams -Authentication Kerberos
-        try {
-            $s.ComputerName | Should -Be $sessionParams.ComputerName
-            $s.State | Should -Be 'Opened'
-            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
-        }
-        finally {
-            $s | Remove-PSSession
-        }
-
-        $s.State | Should -Be 'Closed'
-    }
-
-    It "Connects over HTTP with Devolutions Kerberos" -Skip:(-not $PSWSManSettings.GetScenarioServer('domain_auth')) {
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('domain_auth')
-        $sessionParams.Authentication = 'Kerberos'
-        $sessionParams.SessionOption = New-PSWSManSessionOption -AuthProvider Devolutions
-
-        $s = New-PSSession @sessionParams -Authentication Kerberos
-        try {
-            $s.ComputerName | Should -Be $sessionParams.ComputerName
-            $s.State | Should -Be 'Opened'
-            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
-        }
-        finally {
-            $s | Remove-PSSession
-        }
-
-        $s.State | Should -Be 'Closed'
-    }
-
-    It "Connects over CredSSP with handshake failure" {
+    It "Connects over CredSSP with handshake failure - <_>" -ForEach (Get-PSWSManTestServer -Auth CredSSP -First) {
         $tlsOption = [System.Net.Security.SslClientAuthenticationOptions]@{
-            EnabledSslProtocols = 'Ssl3'
-            TargetHost = $sessionParams.ComputerName
+            EnabledSslProtocols = 'Ssl3'  # Forces an unsupported TLS protocol
+            TargetHost = $_.Uri.Host
             RemoteCertificateValidationCallback = New-PSWSManCertValidationCallback { $true }
         }
-
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('default')
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ CredSSPTlsOption = $tlsOption }
         $sessionParams.Authentication = 'Credssp'
-        $sessionParams.SessionOption = New-PSWSManSessionOption -CredSSPTlsOption $tlsOption
 
         $out = New-PSSession @sessionParams -ErrorAction SilentlyContinue -ErrorVariable err
         $out | Should -BeNullOrEmpty
@@ -324,11 +163,10 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         [string]$err[0] | Should -BeLike "*$expected*"
     }
 
-    It "Connects with invalid credential" {
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('default')
+    It "Connects with invalid credential - <_>" -ForEach (Get-PSWSManTestServer -First) {
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ NoEncryption = $true }
         $sessionParams.Authentication = 'Basic'
         $sessionParams.Credential = [PSCredential]::new('fake', (ConvertTo-SecureString -AsPlainText -Force -String 'fake'))
-        $sessionParams.SessionOption = New-PSWSManSessionOption -NoEncryption
 
         $out = New-PSSession @sessionParams -ErrorAction SilentlyContinue -ErrorVariable err
         $out | Should -BeNullOrEmpty
@@ -336,242 +174,59 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         [string]$err[0] | Should -BeLike '*WinRM Basic authentication failure*'
     }
 
-    It "Connects with invalid hostname and timeout" {
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('default')
+    It "Connects with invalid hostname and timeout - <_>" -ForEach (Get-PSWSManTestServer -First) {
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{
+            OpenTimeout = 1
+            NoEncryption = $true
+        }
         $sessionParams.Port = 12658
-        $sessionParams.SessionOption = New-PSWSManSessionOption -OpenTimeout 1 -NoEncryption
+
         $out = New-PSSession @sessionParams -ErrorAction SilentlyContinue -ErrorVariable err
         $out | Should -BeNullOrEmpty
         $err.Count | Should -Be 1
         [string]$err[0] | Should -BeLike '*A connection could not be established within the configured ConnectTimeout*'
     }
 
-    It "Connects over HTTPS with <AuthMethod>" -Skip:(-not $PSWSManSettings.GetScenarioServer('https_trusted')) -TestCases @(
-        @{AuthMethod = "Negotiate" }
-        @{AuthMethod = "Ntlm" }
-        @{AuthMethod = "CredSSP" }
+    # Connecting by IP address makes the certificate name check fail on any HTTPS server, and on a server with an
+    # untrusted certificate the chain check fails as well. SPNHostName keeps Kerberos working against the real name.
+    It "Connects over HTTPS with invalid cert - <Method> - <Server>" -ForEach $(
+        foreach ($server in (Get-PSWSManTestServer -Scheme Https)) {
+            foreach ($method in 'Skip', 'TlsOption') {
+                @{ Server = $server; Method = $method }
+            }
+        }
     ) {
-        param ($AuthMethod)
+        $sessionParams = $Server | Get-PSSessionSplat
+        $sessionParams.ComputerName = [System.Net.Dns]::GetHostAddresses($Server.Uri.Host) |
+            Where-Object AddressFamily -eq InterNetwork |
+            Select-Object -First 1 -ExpandProperty IPAddressToString
 
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('https_trusted')
-        $sessionParams.UseSSL = $true
-        $sessionParams.SessionOption = New-PSWSManSessionOption -AuthMethod $AuthMethod
-
-        $s = New-PSSession @sessionParams
-        try {
-            $s.ComputerName | Should -Be $sessionParams.ComputerName
-            $s.State | Should -Be 'Opened'
-            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
-        }
-        finally {
-            $s | Remove-PSSession
-        }
-
-        $s.State | Should -Be 'Closed'
-    }
-
-    It "Connects over HTTPS with Devolutions <AuthMethod>" -Skip:(-not $PSWSManSettings.GetScenarioServer('https_trusted')) -TestCases @(
-        @{AuthMethod = "Negotiate" }
-        @{AuthMethod = "Ntlm" }
-        # @{AuthMethod = "CredSSP" }  # https://github.com/Devolutions/sspi-rs/issues/84
-    ) {
-        param ($AuthMethod)
-
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('https_trusted')
-        $sessionParams.UseSSL = $true
-        $sessionParams.SessionOption = New-PSWSManSessionOption -AuthMethod $AuthMethod -AuthProvider Devolutions
-
-        $s = New-PSSession @sessionParams
-        try {
-            $s.ComputerName | Should -Be $sessionParams.ComputerName
-            $s.State | Should -Be 'Opened'
-            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
-        }
-        finally {
-            $s | Remove-PSSession
-        }
-
-        $s.State | Should -Be 'Closed'
-    }
-
-    It "Connects over HTTPS with Basic" -Skip:(-not $PSWSManSettings.GetScenarioServer('https_local_auth')) {
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('https_local_auth') -ForBasicAuth
-        $sessionParams.UseSSL = $true
-
-        $s = New-PSSession @sessionParams
-        try {
-            $s.ComputerName | Should -Be $sessionParams.ComputerName
-            $s.State | Should -Be 'Opened'
-            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
-        }
-        finally {
-            $s | Remove-PSSession
-        }
-
-        $s.State | Should -Be 'Closed'
-    }
-
-    It "Connects over HTTPS with Kerberos" -Skip:(-not $PSWSManSettings.GetScenarioServer('https_domain_auth')) {
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('https_domain_auth')
-        $sessionParams.UseSSL = $true
-        $sessionParams.Authentication = 'Kerberos'
-
-        $s = New-PSSession @sessionParams -Authentication Kerberos
-        try {
-            $s.ComputerName | Should -Be $sessionParams.ComputerName
-            $s.State | Should -Be 'Opened'
-            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
-        }
-        finally {
-            $s | Remove-PSSession
-        }
-
-        $s.State | Should -Be 'Closed'
-    }
-
-    It "Connects over HTTPS with Devolutions Kerberos" -Skip:(-not $PSWSManSettings.GetScenarioServer('https_domain_auth')) {
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('https_domain_auth')
-        $sessionParams.UseSSL = $true
-        $sessionParams.Authentication = 'Kerberos'
-        $sessionParams.SessionOption = New-PSWSManSessionOption -AuthProvider Devolutions
-
-        $s = New-PSSession @sessionParams -Authentication Kerberos
-        try {
-            $s.ComputerName | Should -Be $sessionParams.ComputerName
-            $s.State | Should -Be 'Opened'
-            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
-        }
-        finally {
-            $s | Remove-PSSession
-        }
-
-        $s.State | Should -Be 'Closed'
-    }
-
-    It "Connects over HTTPS with CBT hash <HashType>" -TestCases @(
-        @{HashType = "sha1" }
-        @{HashType = "sha256" }
-        @{HashType = "sha256_pss" }
-        @{HashType = "sha384" }
-        @{HashType = "sha512" }
-        @{HashType = "sha512_pss" }
-    ) {
-        param ($HashType)
-
-        $server = $PSWSManSettings.GetScenarioServer("https_$HashType")
-        if (-not $server) {
-            Set-ItResult -Skipped -Because "scenario host for https_$HashType not defined in settings"
-        }
-
-        $sessionParams = Get-PSSessionSplat -Server $server
-        $sessionParams.UseSSL = $true
-
-        if ($IsMacOS -and $HashType -eq 'sha1') {
-            # macOS doesn't trust SHA1 signed certs now
-            $sessionParams.SessionOption = New-PSWSManSessionOption -SkipCNCheck
-        }
-        if ($IsMacOS -and $HashType.EndsWith('_pss')) {
-            # macOS doesn't trust RSA-PSS cert chains
-            $sessionParams.SessionOption = New-PSWSManSessionOption -SkipCACheck
-        }
-
-        $s = New-PSSession @sessionParams
-        try {
-            $s.ComputerName | Should -Be $sessionParams.ComputerName
-            $s.State | Should -Be 'Opened'
-            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
-        }
-        finally {
-            $s | Remove-PSSession
-        }
-
-        $s.State | Should -Be 'Closed'
-    }
-
-    It "Connects over HTTPS with invalid cert - <Method>" -Skip:(-not $PSWSManSettings.GetScenarioServer('https_untrusted')) -TestCases @(
-        @{Method = "Skip" }
-        @{Method = "TlsOption" }
-    ) {
-        param ($Method)
-
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('https_untrusted')
-        $sessionParams.UseSSL = $true
+        # Explicit SessionOption disables any certificate validation bypass on the server setting.
+        # This is done on purpose to ensure that the certificate validation bypass is not applied elsewhere.
+        $sessionParams.SessionOption = New-PSWSManSessionOption -SPNHostName $Server.Uri.Host
 
         $out = New-PSSession @sessionParams -ErrorAction SilentlyContinue -ErrorVariable err
         $out | Should -BeNullOrEmpty
         $err.Count | Should -Be 1
-        [string]$err[0] | Should -BeLike '*The remote certificate is invalid because of errors in the certificate chain: *'
+        [string]$err[0] | Should -BeLike '*The remote certificate is invalid*RemoteCertificateNameMismatch*'
 
-        $psoParams = @{}
+        $optionParams = @{ SPNHostName = $Server.Uri.Host }
         if ($Method -eq 'Skip') {
-            $psoParams.SkipCACheck = $true
-            $psoParams.SkipCNCheck = $true
+            $optionParams.SkipCNCheck = $true
         }
         else {
-            $tlsOption = [System.Net.Security.SslClientAuthenticationOptions]@{
+            $optionParams.TlsOption = [System.Net.Security.SslClientAuthenticationOptions]@{
                 TargetHost = $sessionParams.ComputerName
                 RemoteCertificateValidationCallback = New-PSWSManCertValidationCallback { $true }
             }
-            $psoParams.TlsOption = $tlsOption
         }
-        $sessionParams.SessionOption = New-PSWSManSessionOption @psoParams
+        $sessionParams.SessionOption = ($Server | Get-PSSessionSplat -SessionOption $optionParams).SessionOption
 
-        $s = New-PSSession @sessionParams
-        try {
-            $s.ComputerName | Should -Be $sessionParams.ComputerName
-            $s.State | Should -Be 'Opened'
-            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
-        }
-        finally {
-            $s | Remove-PSSession
-        }
-
-        $s.State | Should -Be 'Closed'
+        Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Connects over HTTPS with Certificate auth by thumbprint" -Skip:(
-        # macOS doesn't let you import into the My store without user interaction
-        # Cert auth is tested below on macOS through the cert object
-        $IsMacOS -or
-        -not $PSWSManSettings.GetScenarioServer('https_trusted') -or
-        -not $PSWSManSettings.ClientCertificate
-    ) {
-        if ($IsLinux -and [Environment]::Version -lt [Version]'7.0') {
-            Set-ItResult -Skipped -Because "Cert auth on Linux over TLS 1.3 only supported since dotnet 7.0"
-        }
-
-        $store = [System.Security.Cryptography.X509Certificates.X509Store]::new(
-            [System.Security.Cryptography.X509Certificates.StoreName]::My,
-            [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser,
-            [System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
-        try {
-            $store.Add($PSWSManSettings.ClientCertificate)
-
-            $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('https_trusted')
-            $sessionParams.Remove('Credential')
-            $sessionParams.UseSSL = $true
-            $sessionParams.CertificateThumbprint = $PSWSManSettings.ClientCertificate.Thumbprint
-
-            $s = New-PSSession @sessionParams
-            try {
-                $s.ComputerName | Should -Be $sessionParams.ComputerName
-                $s.State | Should -Be 'Opened'
-                $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
-            }
-            finally {
-                $s | Remove-PSSession
-            }
-
-            $s.State | Should -Be 'Closed'
-        }
-        finally {
-            $store.Remove($PSWSManSettings.ClientCertificate)
-            $store.Dispose()
-        }
-    }
-
-    It "Failed to find certificate thumbprint" {
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('default')
+    It "Failed to find certificate thumbprint - <_>" -ForEach (Get-PSWSManTestServer -First) {
+        $sessionParams = $_ | Get-PSSessionSplat
         $sessionParams.Remove('Credential')
         $sessionParams.UseSSL = $true
         $sessionParams.CertificateThumbprint = '0000000000000000000000000000000000000000'
@@ -581,80 +236,36 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         } | Should -Throw
     }
 
-    It "Connects over HTTPS with Certificate auth by cert object" -Skip:(
-        -not $PSWSManSettings.GetScenarioServer('https_trusted') -or
-        -not $PSWSManSettings.ClientCertificate
-    ) {
-        if ($IsLinux -and [Environment]::Version -lt [Version]'7.0') {
-            Set-ItResult -Skipped -Because "Cert auth on Linux over TLS 1.3 only supported since dotnet 7.0"
-        }
-
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('https_trusted')
+    It "Connects with Certificate auth by cert object - <_>" -ForEach (Get-PSWSManTestServer -Auth Certificate) {
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ ClientCertificate = $_.ClientCertificate }
         $sessionParams.Remove('Credential')
-        $sessionParams.UseSSL = $true
-        $sessionParams.SessionOption = New-PSWSManSessionOption -ClientCertificate $PSWSManSettings.ClientCertificate
 
-        $s = New-PSSession @sessionParams
-        try {
-
-            $s.ComputerName | Should -Be $sessionParams.ComputerName
-            $s.State | Should -Be 'Opened'
-            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
-        }
-        finally {
-            $s | Remove-PSSession
-        }
-
-        $s.State | Should -Be 'Closed'
+        Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Connects over HTTPS with cert auth and explicit TLS options" -Skip:(
-        -not $PSWSManSettings.GetScenarioServer('https_trusted') -or
-        -not $PSWSManSettings.ClientCertificate
-    ) {
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('https_trusted')
+    It "Connects with cert auth and explicit TLS options - <_>" -ForEach (Get-PSWSManTestServer -Auth Certificate) {
+        $sessionParams = $_ | Get-PSSessionSplat
         $sessionParams.Remove('Credential')
-        $sessionParams.UseSSL = $true
 
+        # TlsOption replaces the certificate validation the splat would set up so it can be added afterwards.
         $tlsOption = [System.Net.Security.SslClientAuthenticationOptions]@{
             TargetHost = $sessionParams.ComputerName
             RemoteCertificateValidationCallback = New-PSWSManCertValidationCallback { $true }
             ClientCertificates = [System.Security.Cryptography.X509Certificates.X509CertificateCollection]::new(
-                @($PSWSManSettings.ClientCertificate))
+                @($_.ClientCertificate))
         }
-
-        if ($IsLinux -and [Environment]::Version -lt [Version]'7.0') {
-            # Linux only supports post handshake cert auth on TLS 1.3 since dotnet 7. For older hosts restrict the
-            # protocol to TLS 1.2 in this test.
-            $tlsOption.EnabledSslProtocols = [System.Security.Authentication.SslProtocols]::Tls12
-        }
-
         $sessionParams.SessionOption = New-PSWSManSessionOption -TlsOption $tlsOption
 
-        $s = New-PSSession @sessionParams
-        try {
-
-            $s.ComputerName | Should -Be $sessionParams.ComputerName
-            $s.State | Should -Be 'Opened'
-            $s.ConfigurationName | Should -Be 'Microsoft.PowerShell'
-        }
-        finally {
-            $s | Remove-PSSession
-        }
-
-        $s.State | Should -Be 'Closed'
+        Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Connects over HTTPS with handshake failure" -Skip:(-not $PSWSManSettings.GetScenarioServer('https_trusted')) {
+    It "Connects over HTTPS with handshake failure - <_>" -ForEach (Get-PSWSManTestServer -Scheme Https -First) {
         $tlsOption = [System.Net.Security.SslClientAuthenticationOptions]@{
             EnabledSslProtocols = 'Ssl3'
-            TargetHost = $sessionParams.ComputerName
+            TargetHost = $_.Uri.Host
             RemoteCertificateValidationCallback = New-PSWSManCertValidationCallback { $true }
         }
-
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('https_trusted')
-        $sessionParams.UseSSL = $true
-        $sessionParams.SessionOption = New-PSWSManSessionOption -TlsOption $tlsOption
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ TlsOption = $tlsOption }
 
         $out = New-PSSession @sessionParams -ErrorAction SilentlyContinue -ErrorVariable err
         $out | Should -BeNullOrEmpty
@@ -674,25 +285,39 @@ Describe "PSWSMan Connection tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
             'Connection reset by peer'
         }
         else {
-            'SSL handshake failed'
+            # OpenSSL 3 rejects the protocol before the handshake starts, older versions fail the handshake itself.
+            'SSL handshake failed|no protocols available'
         }
-        $err[0].Exception.InnerException.InnerException.InnerException.Message | Should -BeLike "*$expected*"
+        $err[0].Exception.InnerException.InnerException.InnerException.Message | Should -Match $expected
     }
 }
 
-Describe "PSWSMan Kerberos tests" -Skip:(-not $PSWSManSettings.GetScenarioServer('domain_auth')) {
+Describe "PSWSMan Kerberos tests - <_>" -ForEach (Get-PSWSManTestServer -Auth Kerberos -First) {
+    BeforeAll {
+        Function Get-RemoteTicketFlags {
+            [CmdletBinding()]
+            param (
+                [Parameter(Mandatory)]
+                [hashtable]
+                $SessionParams
+            )
+
+            Invoke-Command @SessionParams {
+                C:\Windows\System32\klist.exe |
+                    Select-String -Pattern 'Ticket Flags.*->\s*(.*)' |
+                    ForEach-Object { ($_.Matches.Groups[1].Value -split '\s+') -ne '' }
+            }
+        }
+    }
+
     It "Connects with implicit credential with Linux" -Skip:$IsWindows {
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('domain_auth')
+        $sessionParams = $_ | Get-PSSessionSplat
         Invoke-Kinit -Credential $sessionParams.Credential
 
         try {
             $sessionParams.Remove('Credential')
 
-            $actual = Invoke-Command @sessionParams {
-                C:\Windows\System32\klist.exe |
-                    Select-String -Pattern 'Ticket Flags.*->\s*(.*)' |
-                    ForEach-Object { ($_.Matches.Groups[1].Value -split '\s+') -ne '' }
-            }
+            $actual = Get-RemoteTicketFlags -SessionParams $sessionParams
             $actual | Should -Not -Contain 'forwarded'
         }
         finally {
@@ -701,17 +326,13 @@ Describe "PSWSMan Kerberos tests" -Skip:(-not $PSWSManSettings.GetScenarioServer
     }
 
     It "Connects with implicit forwardable credential with Linux" -Skip:$IsWindows {
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('domain_auth')
+        $sessionParams = $_ | Get-PSSessionSplat
         Invoke-Kinit -Credential $sessionParams.Credential -Forwardable
 
         try {
             $sessionParams.Remove('Credential')
 
-            $actual = Invoke-Command @sessionParams {
-                C:\Windows\System32\klist.exe |
-                    Select-String -Pattern 'Ticket Flags.*->\s*(.*)' |
-                    ForEach-Object { ($_.Matches.Groups[1].Value -split '\s+') -ne '' }
-            }
+            $actual = Get-RemoteTicketFlags -SessionParams $sessionParams
             $actual | Should -Not -Contain 'forwarded'
         }
         finally {
@@ -720,18 +341,13 @@ Describe "PSWSMan Kerberos tests" -Skip:(-not $PSWSManSettings.GetScenarioServer
     }
 
     It "Connects with implicit forwardable credential with delegation Linux" -Skip:$IsWindows {
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('domain_auth')
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ RequestKerberosDelegate = $true }
         Invoke-Kinit -Credential $sessionParams.Credential -Forwardable
 
         try {
             $sessionParams.Remove('Credential')
-            $sessionParams.SessionOption = (New-PSWSManSessionOption -RequestKerberosDelegate)
 
-            $actual = Invoke-Command @sessionParams {
-                C:\Windows\System32\klist.exe |
-                    Select-String -Pattern 'Ticket Flags.*->\s*(.*)' |
-                    ForEach-Object { ($_.Matches.Groups[1].Value -split '\s+') -ne '' }
-            }
+            $actual = Get-RemoteTicketFlags -SessionParams $sessionParams
             $actual | Should -Contain 'forwarded'
         }
         finally {
@@ -740,91 +356,57 @@ Describe "PSWSMan Kerberos tests" -Skip:(-not $PSWSManSettings.GetScenarioServer
     }
 
     It "Connects with implicit credentials with Windows" -Skip:(-not $IsWindows) {
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('domain_auth')
+        $sessionParams = $_ | Get-PSSessionSplat
         $sessionParams.Remove('Credential')
 
-        $actual = Invoke-Command @sessionParams {
-            C:\Windows\System32\klist.exe |
-                Select-String -Pattern 'Ticket Flags.*->\s*(.*)' |
-                ForEach-Object { ($_.Matches.Groups[1].Value -split '\s+') -ne '' }
-        }
+        $actual = Get-RemoteTicketFlags -SessionParams $sessionParams
         $actual | Should -Not -Contain 'forwarded'
-    }
-
-    It "Connects with implicit credentials with Windows and delegate" -Skip:(
-        -not $IsWindows -or
-        -not $PSWSManSettings.GetScenarioServer('trusted_for_delegation')
-    ) {
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('trusted_for_delegation')
-        $sessionParams.Remove('Credential')
-        $sessionParams.SessionOption = (New-PSWSManSessionOption -RequestKerberosDelegate)
-
-        $actual = Invoke-Command @sessionParams {
-            C:\Windows\System32\klist.exe |
-                Select-String -Pattern 'Ticket Flags.*->\s*(.*)' |
-                ForEach-Object { ($_.Matches.Groups[1].Value -split '\s+') -ne '' }
-        }
-        $actual | Should -Contain 'forwarded'
     }
 
     It "Connects with explicit credentials with Windows" -Skip:(-not $IsWindows) {
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('domain_auth')
+        $sessionParams = $_ | Get-PSSessionSplat
 
-        $actual = Invoke-Command @sessionParams {
-            C:\Windows\System32\klist.exe |
-                Select-String -Pattern 'Ticket Flags.*->\s*(.*)' |
-                ForEach-Object { ($_.Matches.Groups[1].Value -split '\s+') -ne '' }
-        }
+        $actual = Get-RemoteTicketFlags -SessionParams $sessionParams
         $actual | Should -Not -Contain 'forwarded'
     }
 
-    It "Connects with explicit credentials with Windows and delegate" -Skip:(
-        -not $IsWindows -or
-        -not $PSWSManSettings.GetScenarioServer('trusted_for_delegation')
+    # Windows only delegates to a server marked as trusted for delegation.
+    It "Connects with implicit credentials with Windows and delegate - <_>" -Skip:(-not $IsWindows) -ForEach (
+        Get-PSWSManTestServer -Auth Kerberos -TrustedForDelegation -First
     ) {
-        $sessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('trusted_for_delegation')
-        $sessionParams.SessionOption = (New-PSWSManSessionOption -RequestKerberosDelegate)
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ RequestKerberosDelegate = $true }
+        $sessionParams.Remove('Credential')
 
-        $actual = Invoke-Command @sessionParams {
-            C:\Windows\System32\klist.exe |
-                Select-String -Pattern 'Ticket Flags.*->\s*(.*)' |
-                ForEach-Object { ($_.Matches.Groups[1].Value -split '\s+') -ne '' }
-        }
+        $actual = Get-RemoteTicketFlags -SessionParams $sessionParams
+        $actual | Should -Contain 'forwarded'
+    }
+
+    It "Connects with explicit credentials with Windows and delegate - <_>" -Skip:(-not $IsWindows) -ForEach (
+        Get-PSWSManTestServer -Auth Kerberos -TrustedForDelegation -First
+    ) {
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ RequestKerberosDelegate = $true }
+
+        $actual = Get-RemoteTicketFlags -SessionParams $sessionParams
         $actual | Should -Contain 'forwarded'
     }
 }
 
-Describe "PSWSMan Exchange Online tests" -Skip:(-not $PSWSManSettings.EXOConfiguration) {
-    BeforeAll {
-        $exoParams = @{
-            Organization = $PSWSManSettings.EXOConfiguration.Organization
-            AppId = $PSWSManSettings.EXOConfiguration.AppId
-            UseRPSSession = $true
-            ShowBanner = $false
-        }
-    }
-
-    It "Connects using certificate" -Skip:(-not $PSWSManSettings.EXOConfiguration.Certificate) {
-        Connect-ExchangeOnline @exoParams -Certificate $PSWSManSettings.EXOConfiguration.Certificate -CommandName Get-Mailbox
-        Get-Module -Name Get-Mailbox -ErrorAction Stop
-    }
-}
-
-Describe "PSWSMan PSRemoting tests" -Skip:(-not $PSWSManSettings.GetScenarioServer('default')) {
+Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First) {
     BeforeEach {
-        $SessionParams = Get-PSSessionSplat -Server $PSWSManSettings.GetScenarioServer('default')
+        $sessionParams = $_ | Get-PSSessionSplat
     }
 
-    It "Connects to JEA configuration" -Skip:(-not $PSWSManSettings.JEAConfiguration) {
-        $SessionParams.ConfigurationName = $PSWSManSettings.JEAConfiguration.Name
+    It "Connects to JEA configuration - <_>" -ForEach (Get-PSWSManTestServer -JEA -First) {
+        $sessionParams = $_ | Get-PSSessionSplat
+        $sessionParams.ConfigurationName = $_.JEAName
 
-        $s = New-PSSession @SessionParams
+        $s = New-PSSession @sessionParams
         try {
-            $s.ComputerName | Should -Be $SessionParams.ComputerName
+            $s.ComputerName | Should -Be $sessionParams.ComputerName
             $s.State | Should -Be 'Opened'
-            $s.ConfigurationName | Should -Be $PSWSManSettings.JEAConfiguration.Name
+            $s.ConfigurationName | Should -Be $_.JEAName
             $out = Invoke-Command -Session $s -ScriptBlock { [Environment]::UserName }
-            $out | Should -Be $PSWSManSettings.JEAConfiguration.ExpectedUserName
+            $out | Should -Be $_.JEAUserName
         }
         finally {
             $s | Remove-PSSession
@@ -836,22 +418,22 @@ Describe "PSWSMan PSRemoting tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
     It "Connects with large ApplicationArguments data" {
         $appArgs = @{Key = 'a' * 1MB }
 
-        $SessionParams.SessionOption = New-PSWSManSessionOption -ApplicationArguments $appArgs
-        $actual = Invoke-Command @sessionparams -ScriptBlock { $PSSenderInfo.ApplicationArguments }
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ ApplicationArguments = $appArgs }
+        $actual = Invoke-Command @sessionParams -ScriptBlock { $PSSenderInfo.ApplicationArguments }
 
         $actual.Key.Length | Should -Be 1MB
         $actual.Key | Should -Be ('a' * 1MB)
     }
 
     It "Runs command with large Command data" {
-        $actual = Invoke-Command @sessionparams -ScriptBlock { $args[0] } -ArgumentList ('a' * 1MB)
+        $actual = Invoke-Command @sessionParams -ScriptBlock { $args[0] } -ArgumentList ('a' * 1MB)
 
         $actual.Length | Should -Be 1MB
         $actual | Should -Be ('a' * 1MB)
     }
 
     It "Pipes data into command" {
-        $actual = ('a' * 1MB) | Invoke-Command @sessionparams -ScriptBlock { process { $_ } }
+        $actual = ('a' * 1MB) | Invoke-Command @sessionParams -ScriptBlock { process { $_ } }
 
         $actual.Length | Should -Be 1MB
         $actual | Should -Be ('a' * 1MB)
@@ -921,14 +503,14 @@ Describe "PSWSMan PSRemoting tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
     }
 
     It "Receives a CimInstance" {
-        $actual = Invoke-Command @SessionParams -ScriptBlock {
+        $actual = Invoke-Command @sessionParams -ScriptBlock {
             Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $pid"
         }
 
         $actual | Should -Not -BeNullOrEmpty
         $actual.Name | Should -Be 'wsmprovhost.exe'
         $actual.ProcessId | Should -BeOfType ([uint32])
-        $actual.PSComputerName | Should -Be $SessionParams.ComputerName
+        $actual.PSComputerName | Should -Be $sessionParams.ComputerName
         $actual.PSObject.Properties.Name | Should -Not -Contain '__ClassMetadata'
         $actual.PSObject.Properties.Name | Should -Not -Contain '__InstanceMetadata'
 
@@ -946,10 +528,10 @@ Describe "PSWSMan PSRemoting tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
 
     It "Sets max and min runspaces" {
         $connInfo = [System.Management.Automation.Runspaces.WSManConnectionInfo]@{
+            Scheme = $_.Uri.Scheme
             ComputerName = $sessionParams.ComputerName
-        }
-        if ($sessionParams.ContainsKey('Credential')) {
-            $connInfo.Credential = $sessionParams.Credential
+            Port = $sessionParams.Port
+            Credential = $sessionParams.Credential
         }
 
         $rp = [runspacefactory]::CreateRunspacePool(2, 5, $connInfo)
@@ -989,17 +571,25 @@ Describe "PSWSMan PSRemoting tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
         }
     }
 
-    It "Stops a pipeline" {
+    It "Stops a running pipeline" {
         $session = New-PSSession @sessionParams
 
         try {
             $ps = [PowerShell]::Create()
             $ps.Runspace = $session.Runspace
-            $null = $ps.AddScript('sleep 10')
+            $null = $ps.AddScript("'started'; sleep 10")
+
+            # Wait for the first output so the command is known to be running on the server before it is stopped.
+            # Even then either the local or the remote stop can be the one EndInvoke reports, depending on which
+            # completes first, so only the shared part of the message is checked.
+            $output = [System.Management.Automation.PSDataCollection[psobject]]::new()
+            $task = $ps.BeginInvoke([System.Management.Automation.PSDataCollection[psobject]]::new(), $output)
+            while ($output.Count -eq 0 -and $ps.InvocationStateInfo.State -eq 'Running') {
+                Start-Sleep -Milliseconds 50
+            }
+            $output[0] | Should -Be started
 
             $start = Get-Date
-            $task = $ps.BeginInvoke()
-
             $ps.Stop()
 
             $err = $null
@@ -1013,6 +603,8 @@ Describe "PSWSMan PSRemoting tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
             $elapsed = (Get-Date) - $start
 
             $ps.InvocationStateInfo.State | Should -Be Stopped
+            $session.State | Should -Be Opened
+            Invoke-Command -Session $session -ScriptBlock { 'still alive' } | Should -Be 'still alive'
         }
         finally {
             $session | Remove-PSSession
@@ -1020,6 +612,342 @@ Describe "PSWSMan PSRemoting tests" -Skip:(-not $PSWSManSettings.GetScenarioServ
 
         $elapsed.TotalSeconds | Should -BeLessThan 10
         $err | Should -Not -BeNullOrEmpty
-        [string]$err | Should -BeLike '*The remote pipeline has been stopped*'
+        [string]$err | Should -BeLike '*pipeline has been stopped*'
+    }
+
+    It "Stops a pipeline before it starts and keeps the session usable" {
+        $session = New-PSSession @sessionParams
+
+        try {
+            $ps = [PowerShell]::Create()
+            $ps.Runspace = $session.Runspace
+            $null = $ps.AddScript('sleep 10')
+
+            # Stopping this early races the command creation on the server. Either the local or the remote stop
+            # message is acceptable, what matters is the session can still run commands afterwards.
+            $task = $ps.BeginInvoke()
+            $ps.Stop()
+
+            $err = $null
+            try {
+                $ps.EndInvoke($task)
+            }
+            catch {
+                $err = $_
+            }
+
+            $ps.InvocationStateInfo.State | Should -Be Stopped
+            [string]$err | Should -BeLike '*pipeline has been stopped*'
+
+            $session.State | Should -Be Opened
+            Invoke-Command -Session $session -ScriptBlock { 'still alive' } | Should -Be 'still alive'
+        }
+        finally {
+            $session | Remove-PSSession
+        }
+    }
+
+    It "Runs commands concurrently on a runspace pool" {
+        $connInfo = [System.Management.Automation.Runspaces.WSManConnectionInfo]@{
+            Scheme = $_.Uri.Scheme
+            ComputerName = $sessionParams.ComputerName
+            Port = $sessionParams.Port
+            Credential = $sessionParams.Credential
+        }
+        if ($sessionParams.SessionOption) {
+            $connInfo.SetSessionOptions($sessionParams.SessionOption)
+        }
+
+        $rp = [runspacefactory]::CreateRunspacePool(1, 3, $connInfo)
+        $rp.Open()
+        try {
+            $start = Get-Date
+            $pipelines = foreach ($i in 1..3) {
+                $ps = [PowerShell]::Create()
+                $ps.RunspacePool = $rp
+                $null = $ps.AddScript("sleep 3; $i")
+                @{ PowerShell = $ps; Task = $ps.BeginInvoke() }
+            }
+            $actual = foreach ($p in $pipelines) {
+                try {
+                    $p.PowerShell.EndInvoke($p.Task)
+                }
+                finally {
+                    $p.PowerShell.Dispose()
+                }
+            }
+            $elapsed = (Get-Date) - $start
+        }
+        finally {
+            $rp.Dispose()
+        }
+
+        $actual | Should -Be @(1, 2, 3)
+        # Three serial sleeps would take at least 9 seconds.
+        $elapsed.TotalSeconds | Should -BeLessThan 8
+    }
+
+    It "Receives output from a command that outlives the operation timeout" {
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ OperationTimeout = 3000 }
+
+        $start = Get-Date
+        $actual = Invoke-Command @sessionParams -ScriptBlock { Start-Sleep -Seconds 7; 'done' }
+        $elapsed = (Get-Date) - $start
+
+        $actual | Should -Be done
+        $elapsed.TotalSeconds | Should -BeGreaterThan 6
+    }
+
+    It "Receives large output" {
+        $actual = Invoke-Command @sessionParams -ScriptBlock { 'a' * 10MB }
+        $actual.Length | Should -Be 10MB
+
+        $actual = Invoke-Command @sessionParams -ScriptBlock {
+            1..5000 | ForEach-Object { [PSCustomObject]@{ Index = $_; Data = 'x' * 100 } }
+        }
+        $actual.Count | Should -Be 5000
+        $actual[-1].Index | Should -Be 5000
+        $actual[-1].Data.Length | Should -Be 100
+    }
+
+    It "Fails when output exceeds MaximumReceivedObjectSize" {
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ MaximumReceivedObjectSize = 1MB }
+
+        {
+            Invoke-Command @sessionParams -ScriptBlock { 'a' * 2MB } -ErrorAction Stop
+        } | Should -Throw -ExpectedMessage '*exceeded the allowed maximum object size*'
+    }
+
+    It "Receives the remote streams" {
+        $session = New-PSSession @sessionParams
+
+        try {
+            $ps = [PowerShell]::Create()
+            $ps.Runspace = $session.Runspace
+            $null = $ps.AddScript({
+                    $VerbosePreference = 'Continue'
+                    $DebugPreference = 'Continue'
+                    $InformationPreference = 'Continue'
+                    $ProgressPreference = 'Continue'
+
+                    Write-Warning -Message 'warning message'
+                    Write-Verbose -Message 'verbose message'
+                    Write-Debug -Message 'debug message'
+                    Write-Information -MessageData 'information message'
+                    Write-Host 'host message'
+                    Write-Progress -Activity 'activity' -Status 'status' -PercentComplete 50 -Id 7
+                    Write-Error -Message 'error message' -ErrorId MyErrorId -TargetObject 'target'
+                    'output'
+                })
+
+            $actual = $ps.Invoke()
+
+            $actual | Should -Be output
+            $ps.Streams.Warning.Message | Should -Be 'warning message'
+            $ps.Streams.Verbose.Message | Should -Be 'verbose message'
+            $ps.Streams.Debug.Message | Should -Be 'debug message'
+
+            $information = @($ps.Streams.Information | Where-Object Tags -NotContains PSHOST)
+            $information.Count | Should -Be 1
+            $information[0].MessageData | Should -Be 'information message'
+            $hostOutput = @($ps.Streams.Information | Where-Object Tags -Contains PSHOST)
+            $hostOutput.Count | Should -Be 1
+            $hostOutput[0].MessageData | Should -Be 'host message'
+
+            # The server may add its own progress records, like preparing modules for first use.
+            $progress = @($ps.Streams.Progress | Where-Object ActivityId -eq 7)
+            $progress.Count | Should -Be 1
+            $progress[0].Activity | Should -Be activity
+            $progress[0].StatusDescription | Should -Be status
+            $progress[0].PercentComplete | Should -Be 50
+
+            $ps.Streams.Error.Count | Should -Be 1
+            $ps.Streams.Error[0].Exception | Should -BeOfType ([System.Management.Automation.RemoteException])
+            $ps.Streams.Error[0].Exception.Message | Should -Be 'error message'
+            $ps.Streams.Error[0].FullyQualifiedErrorId | Should -Be MyErrorId
+            $ps.Streams.Error[0].TargetObject | Should -Be target
+        }
+        finally {
+            $session | Remove-PSSession
+        }
+    }
+
+    It "Receives a remote terminating error" {
+        $err = $null
+        try {
+            Invoke-Command @sessionParams -ScriptBlock { throw 'remote failure' }
+        }
+        catch {
+            $err = $_
+        }
+
+        $err | Should -Not -BeNullOrEmpty
+        $err.Exception | Should -BeOfType ([System.Management.Automation.RemoteException])
+        $err.Exception.Message | Should -Be 'remote failure'
+        $err.FullyQualifiedErrorId | Should -Be 'remote failure'
+        $err.CategoryInfo.Category | Should -Be OperationStopped
+        $err.TargetObject | Should -Be 'remote failure'
+    }
+
+    It "Stops on a remote non-terminating error with ErrorAction Stop" {
+        $err = $null
+        try {
+            Invoke-Command @sessionParams -ScriptBlock { Write-Error -Message 'stop here' -ErrorId StopId } -ErrorAction Stop
+        }
+        catch {
+            $err = $_
+        }
+
+        $err | Should -Not -BeNullOrEmpty
+        $err.Exception | Should -BeOfType ([System.Management.Automation.RemoteException])
+        $err.Exception.Message | Should -Be 'stop here'
+        $err.FullyQualifiedErrorId | Should -Be 'StopId,Microsoft.PowerShell.Commands.WriteErrorCommand'
+    }
+
+    It "Round trips a host call" {
+        # Reading and writing the window title goes through the client host as PSRP host calls.
+        $originalTitle = $Host.UI.RawUI.WindowTitle
+        $expected = "PSWSMan $([Guid]::NewGuid())"
+        try {
+            $actual = Invoke-Command @sessionParams -ScriptBlock {
+                $Host.UI.RawUI.WindowTitle = $using:expected
+                $Host.UI.RawUI.WindowTitle
+                $Host.UI.RawUI.ForegroundColor
+            }
+
+            $actual[0] | Should -Be $expected
+            $Host.UI.RawUI.WindowTitle | Should -Be $expected
+            $actual[1] | Should -Be $Host.UI.RawUI.ForegroundColor
+        }
+        finally {
+            $Host.UI.RawUI.WindowTitle = $originalTitle
+        }
+    }
+
+    It "Skips the user profile with NoMachineProfile" {
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ NoMachineProfile = $true }
+
+        $actual = Invoke-Command @sessionParams -ScriptBlock { $env:USERPROFILE }
+        $actual | Should -Be 'C:\Windows\System32\config\systemprofile'
+
+        $sessionParams = $_ | Get-PSSessionSplat
+        $actual = Invoke-Command @sessionParams -ScriptBlock { $env:USERPROFILE }
+        $actual | Should -Not -Be 'C:\Windows\System32\config\systemprofile'
+    }
+
+    It "Applies the culture options" {
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{
+            Culture = 'fr-FR'
+            UICulture = 'de-DE'
+        }
+
+        $actual = Invoke-Command @sessionParams -ScriptBlock { (Get-Culture).Name; (Get-UICulture).Name }
+
+        $actual[0] | Should -Be fr-FR
+        $actual[1] | Should -Be de-DE
+    }
+
+    It "Closes a session while a command is running" {
+        $session = New-PSSession @sessionParams
+        $ps = [PowerShell]::Create()
+        $ps.Runspace = $session.Runspace
+        $null = $ps.AddScript("'started'; sleep 30")
+
+        $output = [System.Management.Automation.PSDataCollection[psobject]]::new()
+        $task = $ps.BeginInvoke([System.Management.Automation.PSDataCollection[psobject]]::new(), $output)
+        while ($output.Count -eq 0 -and $ps.InvocationStateInfo.State -eq 'Running') {
+            Start-Sleep -Milliseconds 50
+        }
+
+        $start = Get-Date
+        $session | Remove-PSSession
+        $elapsed = (Get-Date) - $start
+
+        # EndInvoke completes without an error once the session is gone, the pipeline just reports Stopped.
+        try {
+            $ps.EndInvoke($task)
+        }
+        catch {
+            # Also acceptable, the pipeline was interrupted either way.
+        }
+
+        $elapsed.TotalSeconds | Should -BeLessThan 10
+        $session.State | Should -Be Closed
+        $ps.InvocationStateInfo.State | Should -Be Stopped
+    }
+
+    It "Reports a broken session when the host process dies" {
+        $session = New-PSSession @sessionParams
+
+        try {
+            $start = Get-Date
+            {
+                Invoke-Command -Session $session -ScriptBlock { Stop-Process -Id $pid -Force; Start-Sleep -Seconds 5; 'survived' } -ErrorAction Stop
+            } | Should -Throw -ExpectedMessage '*The WSMan provider host process did not return a proper response*'
+            $elapsed = (Get-Date) - $start
+
+            $elapsed.TotalSeconds | Should -BeLessThan 10
+            $session.State | Should -Be Broken
+
+            {
+                Invoke-Command -Session $session -ScriptBlock { 1 } -ErrorAction Stop
+            } | Should -Throw -ExpectedMessage '*The session state is Broken*'
+        }
+        finally {
+            $session | Remove-PSSession -ErrorAction SilentlyContinue
+        }
+    }
+
+    It "Fails with an unknown application name" {
+        $sessionParams.ApplicationName = 'pswsman-missing'
+
+        $err = $null
+        try {
+            Invoke-Command @sessionParams -ScriptBlock { 1 } -ErrorAction Stop
+        }
+        catch {
+            $err = $_
+        }
+
+        $err | Should -Not -BeNullOrEmpty
+        $err.Exception | Should -BeOfType ([System.Management.Automation.Remoting.PSRemotingTransportException])
+        [string]$err | Should -BeLike '*404*'
+    }
+
+    It "Fails with an unknown configuration name" {
+        $sessionParams.ConfigurationName = 'pswsman-missing'
+
+        $err = $null
+        try {
+            Invoke-Command @sessionParams -ScriptBlock { 1 } -ErrorAction Stop
+        }
+        catch {
+            $err = $_
+        }
+
+        $err | Should -Not -BeNullOrEmpty
+        $err.Exception | Should -BeOfType ([System.Management.Automation.Remoting.PSRemotingTransportException])
+        [string]$err | Should -BeLike '*0x8033803B*'
+    }
+
+    It "Fails when the scheme does not match the listener" {
+        # Talk TLS to the plain listener or plain HTTP to the TLS one, the exact message depends on the platform TLS
+        # library so only the error type and that it fails promptly are checked.
+        $sessionParams.UseSSL = -not $sessionParams.UseSSL
+        $sessionParams.SessionOption = New-PSWSManSessionOption -OpenTimeout 10000 -SkipCACheck -SkipCNCheck
+
+        $start = Get-Date
+        $err = $null
+        try {
+            Invoke-Command @sessionParams -ScriptBlock { 1 } -ErrorAction Stop
+        }
+        catch {
+            $err = $_
+        }
+        $elapsed = (Get-Date) - $start
+
+        $err | Should -Not -BeNullOrEmpty
+        $err.Exception | Should -BeOfType ([System.Management.Automation.Remoting.PSRemotingTransportException])
+        $elapsed.TotalSeconds | Should -BeLessThan 10
     }
 }
