@@ -23,7 +23,6 @@ class PSWSManTestServer {
     [bool]$UntrustedCertificate
     [X509Certificate2]$ClientCertificate
     [string]$JEAName
-    [string]$JEAUserName
     [bool]$TrustedForDelegation
 
     [string] ToString() {
@@ -37,9 +36,9 @@ Function Import-PSWSManTestClientCertificate {
     Loads the client_certificate of a settings entry with its private key.
 
     .DESCRIPTION
-    A PFX key is loaded ephemerally so nothing is left in the OS key store,
-    except on macOS which rejects that flag and uses a temporary keychain by
-    default instead.
+    A PFX key is loaded with the default key set, macOS rejects the ephemeral
+    flag and SChannel on Windows cannot use an ephemeral key for TLS client
+    authentication.
 
     .PARAMETER Url
     The url of the settings entry, used in error messages.
@@ -90,13 +89,11 @@ Function Import-PSWSManTestClientCertificate {
     $useLoader = [bool]('X509CertificateLoader' -as [type])
 
     if ([Path]::GetExtension($certPath) -in '.pfx', '.p12') {
-        # macOS does not support the EphemeralKeySet flag, so use the default key set instead.
-        $flags = if ($IsMacOS) { [X509KeyStorageFlags]::DefaultKeySet } else { [X509KeyStorageFlags]::EphemeralKeySet }
         if ($useLoader) {
-            return [X509CertificateLoader]::LoadPkcs12FromFile($certPath, $Password, $flags)
+            return [X509CertificateLoader]::LoadPkcs12FromFile($certPath, $Password)
         }
         else {
-            return [X509Certificate2]::new($certPath, $Password, $flags)
+            return [X509Certificate2]::new($certPath, $Password)
         }
     }
 
@@ -181,8 +178,7 @@ Function Import-PSWSManTestSettings {
             Auth = $auth
             UntrustedCertificate = [bool]$entry.untrusted_certificate
             ClientCertificate = $clientCert
-            JEAName = $entry.jea.name
-            JEAUserName = $entry.jea.username
+            JEAName = $entry.jea
             TrustedForDelegation = [bool]$entry.trusted_for_delegation
         }
     }
