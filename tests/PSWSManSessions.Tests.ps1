@@ -837,6 +837,88 @@ Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First
         $actual[1] | Should-Be de-DE
     }
 
+    It "Reports the CustomTransport capability without disconnect support" {
+        $session = New-PSSession @sessionParams
+        try {
+            # CommandCompletion.CompleteInput skips tab completion when the capabilities are Default.
+            $caps = $session.Runspace.GetCapabilities()
+            $caps | Should-NotBe ([System.Management.Automation.Runspaces.RunspaceCapability]::Default)
+            $caps.HasFlag([System.Management.Automation.Runspaces.RunspaceCapability]::CustomTransport) | Should-BeTrue
+
+            # Disconnect is not implemented so the capability must not be advertised.
+            $caps.HasFlag([System.Management.Automation.Runspaces.RunspaceCapability]::SupportsDisconnect) | Should-BeFalse
+        }
+        finally {
+            $session | Remove-PSSession
+        }
+    }
+
+    It "Completes input through the remote runspace" {
+        $session = New-PSSession @sessionParams
+        try {
+            # A variable that only exists in the remote runspace proves the
+            # completion ran there rather than locally.
+            Invoke-Command -Session $session -ScriptBlock { $global:PSWSManCompletionTest = 1 }
+
+            $ps = [PowerShell]::Create()
+            try {
+                $ps.Runspace = $session.Runspace
+
+                $text = 'Get-ChildIte'
+                $actual = [System.Management.Automation.CommandCompletion]::CompleteInput($text, $text.Length, $null, $ps)
+                $actual.CompletionMatches.CompletionText | Should-ContainCollection 'Get-ChildItem'
+
+                $text = 'Get-ChildItem -Pat'
+                $actual = [System.Management.Automation.CommandCompletion]::CompleteInput($text, $text.Length, $null, $ps)
+                $actual.CompletionMatches.CompletionText | Should-ContainCollection '-Path'
+
+                $text = '$PSWSManCompletionTes'
+                $actual = [System.Management.Automation.CommandCompletion]::CompleteInput($text, $text.Length, $null, $ps)
+                $actual.CompletionMatches.CompletionText | Should-Be '$PSWSManCompletionTest'
+            }
+            finally {
+                $ps.Dispose()
+            }
+        }
+        finally {
+            $session | Remove-PSSession
+        }
+    }
+
+    It "Fails to disconnect a session" {
+        $session = New-PSSession @sessionParams
+        try {
+            { $session.Runspace.Disconnect() } | Should-Throw -ExceptionMessage '*disconnection operation is not supported on the remote computer*'
+            { $session.Runspace.DisconnectAsync() } | Should-Throw -ExceptionMessage '*disconnection operation is not supported on the remote computer*'
+
+            # Disconnect-PSSession only exists on Windows.
+            if (Get-Command -Name Disconnect-PSSession -ErrorAction SilentlyContinue) {
+                $err = $null
+                Disconnect-PSSession -Session $session -ErrorAction SilentlyContinue -ErrorVariable err
+                $err.Count | Should-Be 1
+                $err[0].FullyQualifiedErrorId | Should-BeLikeString 'PSSessionDisconnectFailed,*'
+                $err[0].Exception.Message | Should-BeLikeString '*disconnection operation is not supported on the remote computer*'
+            }
+
+            # The failed attempts must leave the session usable.
+            $session.State | Should-Be 'Opened'
+            $session.Availability | Should-Be 'Available'
+            Invoke-Command -Session $session -ScriptBlock { 'still connected' } | Should-Be 'still connected'
+        }
+        finally {
+            $session | Remove-PSSession
+        }
+    }
+
+    It "Fails to invoke a command in a disconnected session" {
+        {
+            Invoke-Command @sessionParams -ScriptBlock { 'never' } -InDisconnectedSession -ErrorAction Stop
+        } | Should-Throw -ExceptionMessage '*Disconnected sessions are supported only when the remote computer*'
+
+        # The failed session must not be left behind in the process.
+        Get-PSSession | Where-Object ComputerName -eq $sessionParams.ComputerName | Should-BeNull
+    }
+
     It "Closes a session while a command is running" {
         $session = New-PSSession @sessionParams
         $ps = [PowerShell]::Create()

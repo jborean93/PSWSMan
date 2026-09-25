@@ -30,9 +30,6 @@ internal static class PSWSMan_WSManClientSessionTransportManager
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "set_ConnectionInfo")]
     private static extern void SetConnectionInfo(WSManClientSessionTransportManager self, WSManConnectionInfo value);
 
-    [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "set_SupportsDisconnect")]
-    private static extern void SetSupportsDisconnect(WSManClientSessionTransportManager self, bool value);
-
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "SendOneItem")]
     private static extern void SendOneItem(WSManClientSessionTransportManager self);
 
@@ -240,12 +237,6 @@ internal static class PSWSMan_WSManClientSessionTransportManager
 
             // Satifies some Debug.Assert statements in pwsh
             ShellOperationHandle(self) = 1;
-
-            // Disconnect is not implemented, but SupportsDisconnect must be true
-            // so that RemoteRunspace.GetCapabilities() returns SupportsDisconnect
-            // instead of Default. CommandCompletion.CompleteInput treats Default
-            // as "pre-PSv3 server" and skips tab completion entirely.
-            SetSupportsDisconnect(self, true);
 
             self.RaiseCreateCompleted(new CreateCompleteEventArgs(self.ConnectionInfo.Copy()));
 
