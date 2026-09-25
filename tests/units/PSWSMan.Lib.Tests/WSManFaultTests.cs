@@ -170,6 +170,39 @@ public class WSManFaultTests
     }
 
     [Test]
+    public async Task DefaultConstructor()
+    {
+        WSManFault fault = new();
+
+        await Assert.That(fault).IsAssignableTo<WSManException>();
+        await Assert.That(fault.Message).IsNotNull();
+        await Assert.That(fault.InnerException).IsNull();
+        await Assert.That(fault.Code).IsNull();
+        await Assert.That(fault.FaultMessage).IsNull();
+    }
+
+    [Test]
+    public async Task ConstructorWithMessage()
+    {
+        WSManFault fault = new("failure");
+
+        await Assert.That(fault.Message).IsEqualTo("failure");
+        await Assert.That(fault.InnerException).IsNull();
+        await Assert.That(fault.Code).IsNull();
+    }
+
+    [Test]
+    public async Task ConstructorWithMessageAndInnerException()
+    {
+        InvalidOperationException inner = new("inner");
+        WSManFault fault = new("failure", inner);
+
+        await Assert.That(fault.Message).IsEqualTo("failure");
+        await Assert.That(fault.InnerException).IsSameReferenceAs(inner);
+        await Assert.That(fault.Code).IsNull();
+    }
+
+    [Test]
     public async Task FaultCanBeCaughtAsBaseException()
     {
         byte[] data = TestHelpers.Response(WSManAction.Fault, null, TestHelpers.Fault(reason: "x"));

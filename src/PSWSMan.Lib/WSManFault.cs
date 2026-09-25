@@ -80,7 +80,11 @@ public class WSManFault : WSManException
         // The fault message can either contain just the string or an unknown structure. Try to set the raw string
         // if that's the case otherwise serialize the XML value for the complex scenario.
         XElement? faultMessage = wsmanFault?.Elements(WSManNamespace.wsmanfault + "Message").FirstOrDefault();
-        string? faultMsgStr = faultMessage?.HasElements == true ? faultMessage?.ToString() : faultMessage?.Value;
+        string? faultMsgStr = null;
+        if (faultMessage is not null)
+        {
+            faultMsgStr = faultMessage.HasElements ? faultMessage.ToString() : faultMessage.Value;
+        }
 
         List<string> msgDetails = new();
         if (!string.IsNullOrWhiteSpace(codeValue))

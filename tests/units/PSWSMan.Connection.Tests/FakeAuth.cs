@@ -20,12 +20,18 @@ internal sealed class FakeEncryptor : IWSManEncryptionContext
 
     private readonly byte _key;
 
-    public string EncryptionProtocol => Protocol;
+    public string EncryptionProtocol { get; init; } = Protocol;
 
     public int MaxEncryptionChunkSize { get; }
 
     /// <summary>Whether a trailer follows the data and the length prefix is the trailer length.</summary>
     public bool TrailerMode { get; init; }
+
+    /// <summary>The padding length reported for every wrapped chunk, it is never part of the block.</summary>
+    public int PaddingLength { get; init; }
+
+    /// <summary>Whether the wrapped block is returned as a slice of a larger buffer with junk after it.</summary>
+    public bool OversizedBuffer { get; init; }
 
     public int Wraps { get; private set; }
 
@@ -40,7 +46,8 @@ internal sealed class FakeEncryptor : IWSManEncryptionContext
     public ReadOnlyMemory<byte> WrapWinRM(ReadOnlySpan<byte> data, out int paddingLength)
     {
         Wraps++;
-        byte[] block = new byte[4 + Header.Length + data.Length + TrailerLength];
+        int blockLength = 4 + Header.Length + data.Length + TrailerLength;
+        byte[] block = new byte[OversizedBuffer ? blockLength + 16 : blockLength];
         BinaryPrimitives.WriteInt32LittleEndian(block, TrailerMode ? TrailerLength : Header.Length);
         Header.CopyTo(block, 4);
         for (int i = 0; i < data.Length; i++)
@@ -49,11 +56,15 @@ internal sealed class FakeEncryptor : IWSManEncryptionContext
         }
         if (TrailerMode)
         {
-            Trailer.CopyTo(block, block.Length - Trailer.Length);
+            Trailer.CopyTo(block, blockLength - Trailer.Length);
+        }
+        if (OversizedBuffer)
+        {
+            block.AsSpan(blockLength).Fill((byte)'?');
         }
 
-        paddingLength = 0;
-        return block;
+        paddingLength = PaddingLength;
+        return block.AsMemory(0, blockLength);
     }
 
     public Span<byte> UnwrapWinRM(Span<byte> block)
