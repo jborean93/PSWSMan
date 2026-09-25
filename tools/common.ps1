@@ -32,6 +32,7 @@ class Manifest {
     [string]$DotnetProject
     [Hashtable[]]$BuildRequirements
     [Hashtable[]]$TestRequirements
+    [string]$PesterVersion
     [string[]]$PythonRequirements
     [Version]$PowerShellVersion
     [Architecture]$PowerShellArch
@@ -92,6 +93,7 @@ class Manifest {
             $pesterReq
             $raw.TestRequirements
         )
+        $this.PesterVersion = $raw.PesterVersion
         $this.PythonRequirements = @($raw.PythonRequirements)
 
         if ($PowerShellVersion.Major -lt 6) {

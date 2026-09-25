@@ -26,7 +26,7 @@
     //-------- PowerShell configuration --------
     // Binary modules cannot be unloaded so running in separate processes solves that problem
     //"powershell.debugging.createTemporaryIntegratedConsole": true,
-    // We use Pester v5 so we don't need the legacy code lens
+    // We use Pester v6 so we do not need the legacy code lens
     "powershell.pester.codeLens": true,
     "powershell.pester.useLegacyCodeLens": false,
     "powershell.debugging.createTemporaryIntegratedConsole": true,

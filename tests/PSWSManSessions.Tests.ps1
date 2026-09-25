@@ -16,15 +16,15 @@ BeforeAll {
 
         $s = New-PSSession @SessionParams
         try {
-            $s.ComputerName | Should -Be $SessionParams.ComputerName
-            $s.State | Should -Be 'Opened'
-            $s.ConfigurationName | Should -Be $ConfigurationName
+            $s.ComputerName | Should-Be $SessionParams.ComputerName
+            $s.State | Should-Be 'Opened'
+            $s.ConfigurationName | Should-Be $ConfigurationName
         }
         finally {
             $s | Remove-PSSession
         }
 
-        $s.State | Should -Be 'Closed'
+        $s.State | Should-Be 'Closed'
     }
 }
 
@@ -99,6 +99,7 @@ Describe "PSWSMan Connection tests" {
 
     It "Connects with Devolutions CredSSP - <_>" -ForEach (Get-PSWSManTestServer -Auth CredSSP) {
         if ($IsWindows) {
+            # https://github.com/Devolutions/sspi-rs/issues/752
             Set-ItResult -Skipped -Because 'Devolutions CredSSP using NTLM through Negotiate does not work, will need upstream fix'
         }
         $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ AuthProvider = 'Devolutions' }
@@ -141,7 +142,7 @@ Describe "PSWSMan Connection tests" {
     It "Fails to connect over HTTP with Basic without -NoEncryption - <_>" -ForEach (Get-PSWSManTestServer -Scheme Http -First) {
         $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ AuthMethod = 'Basic' }
 
-        { New-PSSession @sessionParams } | Should -Throw '*Cannot encrypt WSMan payload as BasicAuthContext does not support message encryption*'
+        { New-PSSession @sessionParams } | Should-Throw -ExceptionMessage '*Cannot encrypt WSMan payload as BasicAuthContext does not support message encryption*'
     }
 
     It "Connects over CredSSP with handshake failure - <_>" -ForEach (Get-PSWSManTestServer -Auth CredSSP -First) {
@@ -154,11 +155,11 @@ Describe "PSWSMan Connection tests" {
         $sessionParams.Authentication = 'Credssp'
 
         $out = New-PSSession @sessionParams -ErrorAction SilentlyContinue -ErrorVariable err
-        $out | Should -BeNullOrEmpty
-        $err.Count | Should -Be 1
+        $out | Should-BeNull
+        $err.Count | Should-Be 1
 
         $expected = 'TLS handshake failure:'
-        [string]$err[0] | Should -BeLike "*$expected*"
+        [string]$err[0] | Should-BeLikeString "*$expected*"
     }
 
     It "Connects with invalid credential - <_>" -ForEach (Get-PSWSManTestServer -First) {
@@ -167,9 +168,9 @@ Describe "PSWSMan Connection tests" {
         $sessionParams.Credential = [PSCredential]::new('fake', (ConvertTo-SecureString -AsPlainText -Force -String 'fake'))
 
         $out = New-PSSession @sessionParams -ErrorAction SilentlyContinue -ErrorVariable err
-        $out | Should -BeNullOrEmpty
-        $err.Count | Should -Be 1
-        [string]$err[0] | Should -BeLike '*WinRM Basic authentication failure*'
+        $out | Should-BeNull
+        $err.Count | Should-Be 1
+        [string]$err[0] | Should-BeLikeString '*WinRM Basic authentication failure*'
     }
 
     # A remote host with a firewall drops the packets and the connect times out, a server on the local machine
@@ -182,9 +183,9 @@ Describe "PSWSMan Connection tests" {
         $sessionParams.Port = 12658
 
         $out = New-PSSession @sessionParams -ErrorAction SilentlyContinue -ErrorVariable err
-        $out | Should -BeNullOrEmpty
-        $err.Count | Should -Be 1
-        [string]$err[0] | Should -Match 'A connection could not be established within the configured ConnectTimeout|actively refused|Connection refused'
+        $out | Should-BeNull
+        $err.Count | Should-Be 1
+        [string]$err[0] | Should-MatchString 'A connection could not be established within the configured ConnectTimeout|actively refused|Connection refused'
     }
 
     # Connecting by IP address makes the certificate name check fail on any HTTPS server, and on a server with an
@@ -206,9 +207,9 @@ Describe "PSWSMan Connection tests" {
         $sessionParams.SessionOption = New-PSWSManSessionOption -SPNHostName $Server.Uri.Host
 
         $out = New-PSSession @sessionParams -ErrorAction SilentlyContinue -ErrorVariable err
-        $out | Should -BeNullOrEmpty
-        $err.Count | Should -Be 1
-        [string]$err[0] | Should -BeLike '*The remote certificate is invalid*RemoteCertificateNameMismatch*'
+        $out | Should-BeNull
+        $err.Count | Should-Be 1
+        [string]$err[0] | Should-BeLikeString '*The remote certificate is invalid*RemoteCertificateNameMismatch*'
 
         $optionParams = @{ SPNHostName = $Server.Uri.Host }
         if ($Method -eq 'Skip') {
@@ -233,7 +234,7 @@ Describe "PSWSMan Connection tests" {
 
         {
             New-PSSession @sessionParams
-        } | Should -Throw
+        } | Should-Throw
     }
 
     It "Connects with Certificate auth by cert object - <_>" -ForEach (Get-PSWSManTestServer -Auth Certificate) {
@@ -268,13 +269,13 @@ Describe "PSWSMan Connection tests" {
         $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ TlsOption = $tlsOption }
 
         $out = New-PSSession @sessionParams -ErrorAction SilentlyContinue -ErrorVariable err
-        $out | Should -BeNullOrEmpty
-        $err.Count | Should -Be 1
+        $out | Should-BeNull
+        $err.Count | Should-Be 1
         if ($IsMacOS) {
-            [string]$err[0] | Should -BeLike '*Connection reset by peer*'
+            [string]$err[0] | Should-BeLikeString '*Connection reset by peer*'
         }
         else {
-            [string]$err[0] | Should -BeLike '*Authentication failed, see inner exception*'
+            [string]$err[0] | Should-BeLikeString '*Authentication failed, see inner exception*'
         }
     }
 }
@@ -305,7 +306,7 @@ Describe "PSWSMan Kerberos tests - <_>" -ForEach (Get-PSWSManTestServer -Auth Ke
             $sessionParams.Remove('Credential')
 
             $actual = Get-RemoteTicketFlags -SessionParams $sessionParams
-            $actual | Should -Not -Contain 'forwarded'
+            $actual | Should-NotContainCollection 'forwarded'
         }
         finally {
             kdestroy
@@ -320,7 +321,7 @@ Describe "PSWSMan Kerberos tests - <_>" -ForEach (Get-PSWSManTestServer -Auth Ke
             $sessionParams.Remove('Credential')
 
             $actual = Get-RemoteTicketFlags -SessionParams $sessionParams
-            $actual | Should -Not -Contain 'forwarded'
+            $actual | Should-NotContainCollection 'forwarded'
         }
         finally {
             kdestroy
@@ -335,7 +336,7 @@ Describe "PSWSMan Kerberos tests - <_>" -ForEach (Get-PSWSManTestServer -Auth Ke
             $sessionParams.Remove('Credential')
 
             $actual = Get-RemoteTicketFlags -SessionParams $sessionParams
-            $actual | Should -Contain 'forwarded'
+            $actual | Should-ContainCollection 'forwarded'
         }
         finally {
             kdestroy
@@ -347,14 +348,14 @@ Describe "PSWSMan Kerberos tests - <_>" -ForEach (Get-PSWSManTestServer -Auth Ke
         $sessionParams.Remove('Credential')
 
         $actual = Get-RemoteTicketFlags -SessionParams $sessionParams
-        $actual | Should -Not -Contain 'forwarded'
+        $actual | Should-NotContainCollection 'forwarded'
     }
 
     It "Connects with explicit credentials with Windows" -Skip:(-not $IsWindows) {
         $sessionParams = $_ | Get-PSSessionSplat
 
         $actual = Get-RemoteTicketFlags -SessionParams $sessionParams
-        $actual | Should -Not -Contain 'forwarded'
+        $actual | Should-NotContainCollection 'forwarded'
     }
 
     # Windows only delegates to a server marked as trusted for delegation.
@@ -365,7 +366,7 @@ Describe "PSWSMan Kerberos tests - <_>" -ForEach (Get-PSWSManTestServer -Auth Ke
         $sessionParams.Remove('Credential')
 
         $actual = Get-RemoteTicketFlags -SessionParams $sessionParams
-        $actual | Should -Contain 'forwarded'
+        $actual | Should-ContainCollection 'forwarded'
     }
 
     It "Connects with explicit credentials with Windows and delegate - <_>" -Skip:(-not $IsWindows) -ForEach (
@@ -374,7 +375,7 @@ Describe "PSWSMan Kerberos tests - <_>" -ForEach (Get-PSWSManTestServer -Auth Ke
         $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ RequestKerberosDelegate = $true }
 
         $actual = Get-RemoteTicketFlags -SessionParams $sessionParams
-        $actual | Should -Contain 'forwarded'
+        $actual | Should-ContainCollection 'forwarded'
     }
 }
 
@@ -389,19 +390,19 @@ Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First
 
         $s = New-PSSession @sessionParams
         try {
-            $s.ComputerName | Should -Be $sessionParams.ComputerName
-            $s.State | Should -Be 'Opened'
-            $s.ConfigurationName | Should -Be $_.JEAName
+            $s.ComputerName | Should-Be $sessionParams.ComputerName
+            $s.State | Should-Be 'Opened'
+            $s.ConfigurationName | Should-Be $_.JEAName
             # A JEA session is NoLanguage so only a bare command can run, the role exposes this function.
             # The virtual account name contains a per session counter so only the prefix is checked.
             $out = Invoke-Command -Session $s -ScriptBlock { Get-PSWSManJeaUserName }
-            $out | Should -BeLike 'WinRM VA_*'
+            $out | Should-BeLikeString 'WinRM VA_*'
         }
         finally {
             $s | Remove-PSSession
         }
 
-        $s.State | Should -Be 'Closed'
+        $s.State | Should-Be 'Closed'
     }
 
     It "Connects with large ApplicationArguments data" {
@@ -410,22 +411,22 @@ Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First
         $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ ApplicationArguments = $appArgs }
         $actual = Invoke-Command @sessionParams -ScriptBlock { $PSSenderInfo.ApplicationArguments }
 
-        $actual.Key.Length | Should -Be 1MB
-        $actual.Key | Should -Be ('a' * 1MB)
+        $actual.Key.Length | Should-Be 1MB
+        $actual.Key | Should-Be ('a' * 1MB)
     }
 
     It "Runs command with large Command data" {
         $actual = Invoke-Command @sessionParams -ScriptBlock { $args[0] } -ArgumentList ('a' * 1MB)
 
-        $actual.Length | Should -Be 1MB
-        $actual | Should -Be ('a' * 1MB)
+        $actual.Length | Should-Be 1MB
+        $actual | Should-Be ('a' * 1MB)
     }
 
     It "Pipes data into command" {
         $actual = ('a' * 1MB) | Invoke-Command @sessionParams -ScriptBlock { process { $_ } }
 
-        $actual.Length | Should -Be 1MB
-        $actual | Should -Be ('a' * 1MB)
+        $actual.Length | Should-Be 1MB
+        $actual | Should-Be ('a' * 1MB)
     }
 
     It "Responds to user events" {
@@ -463,19 +464,19 @@ Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First
             $session | Remove-PSSession
         }
 
-        $actual | Should -Not -BeNullOrEmpty
-        $actual.Sender.ComputerName | Should -Be $session.ComputerName
-        $actual.SourceIdentifier | Should -Be PSWSMan.UserEvent
-        $actual.SourceArgs[0] | Should -Be sender
-        $actual.SourceArgs[1].RunspaceId | Should -Be $session.Runspace.InstanceId
-        $actual.SourceArgs[1].SourceArgs | Should -Be @('my', 'args')
+        $actual | Should-NotBeNull
+        $actual.Sender.ComputerName | Should-Be $session.ComputerName
+        $actual.SourceIdentifier | Should-Be PSWSMan.UserEvent
+        $actual.SourceArgs[0] | Should-Be sender
+        $actual.SourceArgs[1].RunspaceId | Should-Be $session.Runspace.InstanceId
+        $actual.SourceArgs[1].SourceArgs | Should-BeCollection @('my', 'args')
     }
 
     It "Receives a SecureString" {
         $actual = Invoke-Command @sessionParams -ScriptBlock { ConvertTo-SecureString -AsPlainText -Force -String secret }
 
-        $actual.Length | Should -Be 6
-        [PSCredential]::new('dummy', $actual).GetNetworkCredential().Password | Should -Be secret
+        $actual.Length | Should-Be 6
+        [PSCredential]::new('dummy', $actual).GetNetworkCredential().Password | Should-Be secret
     }
 
     It "Sends a SecureString" {
@@ -487,8 +488,8 @@ Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First
             [PSCredential]::new('dummy', $obj).GetNetworkCredential().Password
         } -ArgumentList $ss
 
-        $actual[0] | Should -Be System.Security.SecureString
-        $actual[1] | Should -Be secret
+        $actual[0] | Should-Be System.Security.SecureString
+        $actual[1] | Should-Be secret
     }
 
     It "Receives a CimInstance" {
@@ -496,22 +497,22 @@ Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First
             Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $pid"
         }
 
-        $actual | Should -Not -BeNullOrEmpty
-        $actual.Name | Should -Be 'wsmprovhost.exe'
-        $actual.ProcessId | Should -BeOfType ([uint32])
-        $actual.PSComputerName | Should -Be $sessionParams.ComputerName
-        $actual.PSObject.Properties.Name | Should -Not -Contain '__ClassMetadata'
-        $actual.PSObject.Properties.Name | Should -Not -Contain '__InstanceMetadata'
+        $actual | Should-NotBeNull
+        $actual.Name | Should-Be 'wsmprovhost.exe'
+        $actual.ProcessId | Should-HaveType ([uint32])
+        $actual.PSComputerName | Should-Be $sessionParams.ComputerName
+        $actual.PSObject.Properties.Name | Should-NotContainCollection '__ClassMetadata'
+        $actual.PSObject.Properties.Name | Should-NotContainCollection '__InstanceMetadata'
 
         if ($IsWindows) {
             # The OS provides the MI library so PowerShell rehydrates a live CimInstance
-            $actual.PSObject.BaseObject | Should -BeOfType ([Microsoft.Management.Infrastructure.CimInstance])
-            $actual.PSTypeNames[0] | Should -Be 'Microsoft.Management.Infrastructure.CimInstance#root/cimv2/Win32_Process'
+            $actual.PSObject.BaseObject | Should-HaveType ([Microsoft.Management.Infrastructure.CimInstance])
+            $actual.PSTypeNames[0] | Should-Be 'Microsoft.Management.Infrastructure.CimInstance#root/cimv2/Win32_Process'
         }
         else {
             # PSWSMan skips the libmi based rehydration and keeps the deserialized property bag
-            $actual.PSObject.BaseObject | Should -BeOfType ([System.Management.Automation.PSCustomObject])
-            $actual.PSTypeNames[0] | Should -Be 'Deserialized.Microsoft.Management.Infrastructure.CimInstance#root/cimv2/Win32_Process'
+            $actual.PSObject.BaseObject | Should-HaveType ([System.Management.Automation.PSCustomObject])
+            $actual.PSTypeNames[0] | Should-Be 'Deserialized.Microsoft.Management.Infrastructure.CimInstance#root/cimv2/Win32_Process'
         }
     }
 
@@ -526,15 +527,15 @@ Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First
         $rp = [runspacefactory]::CreateRunspacePool(2, 5, $connInfo)
         $rp.Open()
         try {
-            $rp.SetMaxRunspaces(1) | Should -BeFalse
-            $rp.SetMaxRunspaces(5) | Should -BeFalse
-            $rp.SetMaxRunspaces(4) | Should -BeTrue
+            $rp.SetMaxRunspaces(1) | Should-BeFalse
+            $rp.SetMaxRunspaces(5) | Should-BeFalse
+            $rp.SetMaxRunspaces(4) | Should-BeTrue
 
-            $rp.SetMinRunspaces(6) | Should -BeFalse
-            $rp.SetMinRunspaces(2) | Should -BeFalse
-            $rp.SetMinRunspaces(1) | Should -BeTrue
+            $rp.SetMinRunspaces(6) | Should-BeFalse
+            $rp.SetMinRunspaces(2) | Should-BeFalse
+            $rp.SetMinRunspaces(1) | Should-BeTrue
 
-            $rp.GetAvailableRunspaces() | Should -Be 4
+            $rp.GetAvailableRunspaces() | Should-Be 4
         }
         finally {
             $rp.Dispose()
@@ -548,12 +549,12 @@ Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First
             Invoke-Command -Session $session -ScriptBlock { $global:test = 'foo' }
 
             $out = Invoke-Command -Session $session -ScriptBlock { $global:test }
-            $out | Should -Be foo
+            $out | Should-Be foo
 
             $session.Runspace.ResetRunspaceState()
 
             $out = Invoke-Command -Session $session -ScriptBlock { $global:test }
-            $out | Should -BeNullOrEmpty
+            $out | Should-BeNull
         }
         finally {
             $session | Remove-PSSession
@@ -576,7 +577,7 @@ Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First
             while ($output.Count -eq 0 -and $ps.InvocationStateInfo.State -eq 'Running') {
                 Start-Sleep -Milliseconds 50
             }
-            $output[0] | Should -Be started
+            $output[0] | Should-Be started
 
             $start = Get-Date
             $ps.Stop()
@@ -591,17 +592,17 @@ Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First
 
             $elapsed = (Get-Date) - $start
 
-            $ps.InvocationStateInfo.State | Should -Be Stopped
-            $session.State | Should -Be Opened
-            Invoke-Command -Session $session -ScriptBlock { 'still alive' } | Should -Be 'still alive'
+            $ps.InvocationStateInfo.State | Should-Be Stopped
+            $session.State | Should-Be Opened
+            Invoke-Command -Session $session -ScriptBlock { 'still alive' } | Should-Be 'still alive'
         }
         finally {
             $session | Remove-PSSession
         }
 
-        $elapsed.TotalSeconds | Should -BeLessThan 10
-        $err | Should -Not -BeNullOrEmpty
-        [string]$err | Should -BeLike '*pipeline has been stopped*'
+        $elapsed.TotalSeconds | Should-BeLessThan 10
+        $err | Should-NotBeNull
+        [string]$err | Should-BeLikeString '*pipeline has been stopped*'
     }
 
     It "Stops a pipeline before it starts and keeps the session usable" {
@@ -625,11 +626,11 @@ Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First
                 $err = $_
             }
 
-            $ps.InvocationStateInfo.State | Should -Be Stopped
-            [string]$err | Should -BeLike '*pipeline has been stopped*'
+            $ps.InvocationStateInfo.State | Should-Be Stopped
+            [string]$err | Should-BeLikeString '*pipeline has been stopped*'
 
-            $session.State | Should -Be Opened
-            Invoke-Command -Session $session -ScriptBlock { 'still alive' } | Should -Be 'still alive'
+            $session.State | Should-Be Opened
+            Invoke-Command -Session $session -ScriptBlock { 'still alive' } | Should-Be 'still alive'
         }
         finally {
             $session | Remove-PSSession
@@ -671,9 +672,9 @@ Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First
             $rp.Dispose()
         }
 
-        $actual | Should -Be @(1, 2, 3)
+        $actual | Should-BeCollection @(1, 2, 3)
         # Three serial sleeps would take at least 9 seconds.
-        $elapsed.TotalSeconds | Should -BeLessThan 8
+        $elapsed.TotalSeconds | Should-BeLessThan 8
     }
 
     It "Receives output from a command that outlives the operation timeout" {
@@ -683,20 +684,20 @@ Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First
         $actual = Invoke-Command @sessionParams -ScriptBlock { Start-Sleep -Seconds 7; 'done' }
         $elapsed = (Get-Date) - $start
 
-        $actual | Should -Be done
-        $elapsed.TotalSeconds | Should -BeGreaterThan 6
+        $actual | Should-Be done
+        $elapsed.TotalSeconds | Should-BeGreaterThan 6
     }
 
     It "Receives large output" {
         $actual = Invoke-Command @sessionParams -ScriptBlock { 'a' * 10MB }
-        $actual.Length | Should -Be 10MB
+        $actual.Length | Should-Be 10MB
 
         $actual = Invoke-Command @sessionParams -ScriptBlock {
             1..5000 | ForEach-Object { [PSCustomObject]@{ Index = $_; Data = 'x' * 100 } }
         }
-        $actual.Count | Should -Be 5000
-        $actual[-1].Index | Should -Be 5000
-        $actual[-1].Data.Length | Should -Be 100
+        $actual.Count | Should-Be 5000
+        $actual[-1].Index | Should-Be 5000
+        $actual[-1].Data.Length | Should-Be 100
     }
 
     It "Fails when output exceeds MaximumReceivedObjectSize" {
@@ -704,7 +705,7 @@ Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First
 
         {
             Invoke-Command @sessionParams -ScriptBlock { 'a' * 2MB } -ErrorAction Stop
-        } | Should -Throw -ExpectedMessage '*exceeded the allowed maximum object size*'
+        } | Should-Throw -ExceptionMessage '*exceeded the allowed maximum object size*'
     }
 
     It "Receives the remote streams" {
@@ -731,30 +732,30 @@ Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First
 
             $actual = $ps.Invoke()
 
-            $actual | Should -Be output
-            $ps.Streams.Warning.Message | Should -Be 'warning message'
-            $ps.Streams.Verbose.Message | Should -Be 'verbose message'
-            $ps.Streams.Debug.Message | Should -Be 'debug message'
+            $actual | Should-Be output
+            $ps.Streams.Warning.Message | Should-Be 'warning message'
+            $ps.Streams.Verbose.Message | Should-Be 'verbose message'
+            $ps.Streams.Debug.Message | Should-Be 'debug message'
 
             $information = @($ps.Streams.Information | Where-Object Tags -NotContains PSHOST)
-            $information.Count | Should -Be 1
-            $information[0].MessageData | Should -Be 'information message'
+            $information.Count | Should-Be 1
+            $information[0].MessageData | Should-Be 'information message'
             $hostOutput = @($ps.Streams.Information | Where-Object Tags -Contains PSHOST)
-            $hostOutput.Count | Should -Be 1
-            $hostOutput[0].MessageData | Should -Be 'host message'
+            $hostOutput.Count | Should-Be 1
+            $hostOutput[0].MessageData | Should-Be 'host message'
 
             # The server may add its own progress records, like preparing modules for first use.
             $progress = @($ps.Streams.Progress | Where-Object ActivityId -eq 7)
-            $progress.Count | Should -Be 1
-            $progress[0].Activity | Should -Be activity
-            $progress[0].StatusDescription | Should -Be status
-            $progress[0].PercentComplete | Should -Be 50
+            $progress.Count | Should-Be 1
+            $progress[0].Activity | Should-Be activity
+            $progress[0].StatusDescription | Should-Be status
+            $progress[0].PercentComplete | Should-Be 50
 
-            $ps.Streams.Error.Count | Should -Be 1
-            $ps.Streams.Error[0].Exception | Should -BeOfType ([System.Management.Automation.RemoteException])
-            $ps.Streams.Error[0].Exception.Message | Should -Be 'error message'
-            $ps.Streams.Error[0].FullyQualifiedErrorId | Should -Be MyErrorId
-            $ps.Streams.Error[0].TargetObject | Should -Be target
+            $ps.Streams.Error.Count | Should-Be 1
+            $ps.Streams.Error[0].Exception | Should-HaveType ([System.Management.Automation.RemoteException])
+            $ps.Streams.Error[0].Exception.Message | Should-Be 'error message'
+            $ps.Streams.Error[0].FullyQualifiedErrorId | Should-Be MyErrorId
+            $ps.Streams.Error[0].TargetObject | Should-Be target
         }
         finally {
             $session | Remove-PSSession
@@ -770,12 +771,12 @@ Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First
             $err = $_
         }
 
-        $err | Should -Not -BeNullOrEmpty
-        $err.Exception | Should -BeOfType ([System.Management.Automation.RemoteException])
-        $err.Exception.Message | Should -Be 'remote failure'
-        $err.FullyQualifiedErrorId | Should -Be 'remote failure'
-        $err.CategoryInfo.Category | Should -Be OperationStopped
-        $err.TargetObject | Should -Be 'remote failure'
+        $err | Should-NotBeNull
+        $err.Exception | Should-HaveType ([System.Management.Automation.RemoteException])
+        $err.Exception.Message | Should-Be 'remote failure'
+        $err.FullyQualifiedErrorId | Should-Be 'remote failure'
+        $err.CategoryInfo.Category | Should-Be OperationStopped
+        $err.TargetObject | Should-Be 'remote failure'
     }
 
     It "Stops on a remote non-terminating error with ErrorAction Stop" {
@@ -787,10 +788,10 @@ Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First
             $err = $_
         }
 
-        $err | Should -Not -BeNullOrEmpty
-        $err.Exception | Should -BeOfType ([System.Management.Automation.RemoteException])
-        $err.Exception.Message | Should -Be 'stop here'
-        $err.FullyQualifiedErrorId | Should -Be 'StopId,Microsoft.PowerShell.Commands.WriteErrorCommand'
+        $err | Should-NotBeNull
+        $err.Exception | Should-HaveType ([System.Management.Automation.RemoteException])
+        $err.Exception.Message | Should-Be 'stop here'
+        $err.FullyQualifiedErrorId | Should-Be 'StopId,Microsoft.PowerShell.Commands.WriteErrorCommand'
     }
 
     It "Round trips a host call" {
@@ -804,9 +805,9 @@ Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First
                 $Host.UI.RawUI.ForegroundColor
             }
 
-            $actual[0] | Should -Be $expected
-            $Host.UI.RawUI.WindowTitle | Should -Be $expected
-            $actual[1] | Should -Be $Host.UI.RawUI.ForegroundColor
+            $actual[0] | Should-Be $expected
+            $Host.UI.RawUI.WindowTitle | Should-Be $expected
+            $actual[1] | Should-Be $Host.UI.RawUI.ForegroundColor
         }
         finally {
             $Host.UI.RawUI.WindowTitle = $originalTitle
@@ -817,11 +818,11 @@ Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First
         $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ NoMachineProfile = $true }
 
         $actual = Invoke-Command @sessionParams -ScriptBlock { $env:USERPROFILE }
-        $actual | Should -Be 'C:\Windows\System32\config\systemprofile'
+        $actual | Should-Be 'C:\Windows\System32\config\systemprofile'
 
         $sessionParams = $_ | Get-PSSessionSplat
         $actual = Invoke-Command @sessionParams -ScriptBlock { $env:USERPROFILE }
-        $actual | Should -Not -Be 'C:\Windows\System32\config\systemprofile'
+        $actual | Should-NotBe 'C:\Windows\System32\config\systemprofile'
     }
 
     It "Applies the culture options" {
@@ -832,8 +833,8 @@ Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First
 
         $actual = Invoke-Command @sessionParams -ScriptBlock { (Get-Culture).Name; (Get-UICulture).Name }
 
-        $actual[0] | Should -Be fr-FR
-        $actual[1] | Should -Be de-DE
+        $actual[0] | Should-Be fr-FR
+        $actual[1] | Should-Be de-DE
     }
 
     It "Closes a session while a command is running" {
@@ -860,9 +861,9 @@ Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First
             # Also acceptable, the pipeline was interrupted either way.
         }
 
-        $elapsed.TotalSeconds | Should -BeLessThan 10
-        $session.State | Should -Be Closed
-        $ps.InvocationStateInfo.State | Should -Be Stopped
+        $elapsed.TotalSeconds | Should-BeLessThan 10
+        $session.State | Should-Be Closed
+        $ps.InvocationStateInfo.State | Should-Be Stopped
     }
 
     It "Reports a broken session when the host process dies" {
@@ -872,15 +873,15 @@ Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First
             $start = Get-Date
             {
                 Invoke-Command -Session $session -ScriptBlock { Stop-Process -Id $pid -Force; Start-Sleep -Seconds 5; 'survived' } -ErrorAction Stop
-            } | Should -Throw -ExpectedMessage '*The WSMan provider host process did not return a proper response*'
+            } | Should-Throw -ExceptionMessage '*The WSMan provider host process did not return a proper response*'
             $elapsed = (Get-Date) - $start
 
-            $elapsed.TotalSeconds | Should -BeLessThan 10
-            $session.State | Should -Be Broken
+            $elapsed.TotalSeconds | Should-BeLessThan 10
+            $session.State | Should-Be Broken
 
             {
                 Invoke-Command -Session $session -ScriptBlock { 1 } -ErrorAction Stop
-            } | Should -Throw -ExpectedMessage '*The session state is Broken*'
+            } | Should-Throw -ExceptionMessage '*The session state is Broken*'
         }
         finally {
             $session | Remove-PSSession -ErrorAction SilentlyContinue
@@ -898,9 +899,9 @@ Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First
             $err = $_
         }
 
-        $err | Should -Not -BeNullOrEmpty
-        $err.Exception | Should -BeOfType ([System.Management.Automation.Remoting.PSRemotingTransportException])
-        [string]$err | Should -BeLike '*404*'
+        $err | Should-NotBeNull
+        $err.Exception | Should-HaveType ([System.Management.Automation.Remoting.PSRemotingTransportException])
+        [string]$err | Should-BeLikeString '*404*'
     }
 
     It "Fails with an unknown configuration name" {
@@ -914,9 +915,9 @@ Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First
             $err = $_
         }
 
-        $err | Should -Not -BeNullOrEmpty
-        $err.Exception | Should -BeOfType ([System.Management.Automation.Remoting.PSRemotingTransportException])
-        [string]$err | Should -BeLike '*0x8033803B*'
+        $err | Should-NotBeNull
+        $err.Exception | Should-HaveType ([System.Management.Automation.Remoting.PSRemotingTransportException])
+        [string]$err | Should-BeLikeString '*0x8033803B*'
     }
 
     It "Fails when the scheme does not match the listener" {
@@ -935,8 +936,8 @@ Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First
         }
         $elapsed = (Get-Date) - $start
 
-        $err | Should -Not -BeNullOrEmpty
-        $err.Exception | Should -BeOfType ([System.Management.Automation.Remoting.PSRemotingTransportException])
-        $elapsed.TotalSeconds | Should -BeLessThan 10
+        $err | Should-NotBeNull
+        $err.Exception | Should-HaveType ([System.Management.Automation.Remoting.PSRemotingTransportException])
+        $elapsed.TotalSeconds | Should-BeLessThan 10
     }
 }

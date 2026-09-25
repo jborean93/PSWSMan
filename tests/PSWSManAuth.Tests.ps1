@@ -31,51 +31,51 @@ BeforeDiscovery {
 Describe "Get and Set-PSWSManAuth" -ForEach @(@{ GssapiLib = $gssapiLib; SystemAvailable = $systemAvailable }) {
     It "Gets the default auth settings" {
         $actual = Get-PSWSManAuth
-        $actual | Should -BeOfType ([PSWSMan.Commands.PSWSManAuthSettings])
-        $actual.DefaultAuthProvider | Should -Be ([PSWSMan.AuthenticationProvider]::System)
-        $actual.GssapiLib | Should -Be 'Default'
+        $actual | Should-HaveType ([PSWSMan.Commands.PSWSManAuthSettings])
+        $actual.DefaultAuthProvider | Should-Be ([PSWSMan.AuthenticationProvider]::System)
+        $actual.GssapiLib | Should-Be 'Default'
     }
 
     It "Sets the auth settings with WhatIf" {
         Set-PSWSManAuth -AuthProvider Devolutions -WhatIf
         $actual = Get-PSWSManAuth
-        $actual.DefaultAuthProvider | Should -Be ([PSWSMan.AuthenticationProvider]::System)
-        $actual.GssapiLib | Should -Be 'Default'
+        $actual.DefaultAuthProvider | Should-Be ([PSWSMan.AuthenticationProvider]::System)
+        $actual.GssapiLib | Should-Be 'Default'
     }
 
     It "Sets the default auth provider" -Skip:(-not $SystemAvailable) {
         Set-PSWSManAuth -AuthProvider Devolutions
         try {
             $actual = Get-PSWSManAuth
-            $actual.DefaultAuthProvider | Should -Be ([PSWSMan.AuthenticationProvider]::Devolutions)
+            $actual.DefaultAuthProvider | Should-Be ([PSWSMan.AuthenticationProvider]::Devolutions)
         }
         finally {
             Set-PSWSManAuth -AuthProvider System
         }
 
         $actual = Get-PSWSManAuth
-        $actual.DefaultAuthProvider | Should -Be ([PSWSMan.AuthenticationProvider]::System)
+        $actual.DefaultAuthProvider | Should-Be ([PSWSMan.AuthenticationProvider]::System)
     }
 
     It "Fails to set the default auth provider to Default" {
         $out = Set-PSWSManAuth -AuthProvider Default -ErrorAction SilentlyContinue -ErrorVariable err
-        $out | Should -BeNullOrEmpty
-        $err.Count | Should -Be 1
-        [string]$err[0] | Should -BeLike '*AuthProvider cannot be set to Default, must be System or Devolutions*'
+        $out | Should-BeNull
+        $err.Count | Should-Be 1
+        [string]$err[0] | Should-BeLikeString '*AuthProvider cannot be set to Default, must be System or Devolutions*'
     }
 
     It "Sets a custom GSSAPI library" -Skip:(-not $GssapiLib) {
         Set-PSWSManAuth -GssapiLib $GssapiLib
         try {
             $actual = Get-PSWSManAuth
-            $actual.GssapiLib | Should -Be $GssapiLib
+            $actual.GssapiLib | Should-Be $GssapiLib
         }
         finally {
             Set-PSWSManAuth -GssapiLib Default
         }
 
         $actual = Get-PSWSManAuth
-        $actual.GssapiLib | Should -Be 'Default'
+        $actual.GssapiLib | Should-Be 'Default'
     }
 
     It "Normalises the GSSAPI library Default value <Value>" -Skip:(-not $GssapiLib) -TestCases @(
@@ -86,20 +86,20 @@ Describe "Get and Set-PSWSManAuth" -ForEach @(@{ GssapiLib = $gssapiLib; SystemA
 
         Set-PSWSManAuth -GssapiLib $Value
         $actual = Get-PSWSManAuth
-        $actual.GssapiLib | Should -BeExactly 'Default'
+        $actual.GssapiLib | Should-BeString 'Default' -CaseSensitive
     }
 
     It "Fails to set a GSSAPI library that cannot be loaded" -Skip:$IsWindows {
         $missing = [IO.Path]::Combine([IO.Path]::GetTempPath(), 'PSWSManMissing', 'libgssapi.so')
         $out = Set-PSWSManAuth -GssapiLib $missing -ErrorAction SilentlyContinue -ErrorVariable err
-        $out | Should -BeNullOrEmpty
-        $err.Count | Should -Be 1
-        [string]$err[0] | Should -BeLike "*Failed to load GSSAPI library '$missing': *"
-        [string]$err[0] | Should -BeLike "*no such file*"
-        $err[0].FullyQualifiedErrorId | Should -BeLike 'GssapiLibNotAvailable,*'
+        $out | Should-BeNull
+        $err.Count | Should-Be 1
+        [string]$err[0] | Should-BeLikeString "*Failed to load GSSAPI library '$missing': *"
+        [string]$err[0] | Should-BeLikeString "*no such file*"
+        $err[0].FullyQualifiedErrorId | Should-BeLikeString 'GssapiLibNotAvailable,*'
 
         $actual = Get-PSWSManAuth
-        $actual.GssapiLib | Should -Be 'Default'
+        $actual.GssapiLib | Should-Be 'Default'
     }
 
     It "Reports the loader reason for a file that is not a library" -Skip:$IsWindows {
@@ -107,12 +107,12 @@ Describe "Get and Set-PSWSManAuth" -ForEach @(@{ GssapiLib = $gssapiLib; SystemA
         Set-Content -LiteralPath $notALib -Value 'not a shared library'
 
         $out = Set-PSWSManAuth -GssapiLib $notALib -ErrorAction SilentlyContinue -ErrorVariable err
-        $out | Should -BeNullOrEmpty
-        $err.Count | Should -Be 1
+        $out | Should-BeNull
+        $err.Count | Should-Be 1
         # The loader wording differs per platform, macOS dyld lists every
         # path it tried, so only check a reason follows the library name.
         $prefix = "Failed to load GSSAPI library '$notALib': "
-        [string]$err[0] | Should -BeLike "${prefix}?*"
+        [string]$err[0] | Should-BeLikeString "${prefix}?*"
     }
 
     It "Reports the missing export for a library that is not GSSAPI" -Skip:$IsWindows {
@@ -120,41 +120,41 @@ Describe "Get and Set-PSWSManAuth" -ForEach @(@{ GssapiLib = $gssapiLib; SystemA
         $notGssapi = if ($IsMacOS) { '/usr/lib/libSystem.B.dylib' } else { 'libc.so.6' }
 
         $out = Set-PSWSManAuth -GssapiLib $notGssapi -ErrorAction SilentlyContinue -ErrorVariable err
-        $out | Should -BeNullOrEmpty
-        $err.Count | Should -Be 1
-        [string]$err[0] | Should -BeLike "*GSSAPI library '$notGssapi' is missing a required export: *gss_*"
+        $out | Should-BeNull
+        $err.Count | Should-Be 1
+        [string]$err[0] | Should-BeLikeString "*GSSAPI library '$notGssapi' is missing a required export: *gss_*"
 
         $actual = Get-PSWSManAuth
-        $actual.GssapiLib | Should -Be 'Default'
+        $actual.GssapiLib | Should-Be 'Default'
     }
 
     It "Changes nothing when any requested setting is invalid" -Skip:$IsWindows {
         $missing = [IO.Path]::Combine([IO.Path]::GetTempPath(), 'PSWSManMissing', 'libgssapi.so')
         $out = Set-PSWSManAuth -AuthProvider Devolutions -GssapiLib $missing -ErrorAction SilentlyContinue -ErrorVariable err
-        $out | Should -BeNullOrEmpty
-        $err.Count | Should -Be 1
+        $out | Should-BeNull
+        $err.Count | Should-Be 1
 
         $actual = Get-PSWSManAuth
-        $actual.DefaultAuthProvider | Should -Be ([PSWSMan.AuthenticationProvider]::System)
-        $actual.GssapiLib | Should -Be 'Default'
+        $actual.DefaultAuthProvider | Should-Be ([PSWSMan.AuthenticationProvider]::System)
+        $actual.GssapiLib | Should-Be 'Default'
     }
 
     It "Fails to set the GSSAPI library on Windows" -Skip:(-not $IsWindows) {
         $out = Set-PSWSManAuth -GssapiLib Default -ErrorAction SilentlyContinue -ErrorVariable err
-        $out | Should -BeNullOrEmpty
-        $err.Count | Should -Be 1
-        [string]$err[0] | Should -BeLike '*GssapiLib cannot be set on Windows, SSPI is always used*'
-        $err[0].FullyQualifiedErrorId | Should -BeLike 'GssapiLibNotSupported,*'
+        $out | Should-BeNull
+        $err.Count | Should-Be 1
+        [string]$err[0] | Should-BeLikeString '*GssapiLib cannot be set on Windows, SSPI is always used*'
+        $err[0].FullyQualifiedErrorId | Should-BeLikeString 'GssapiLibNotSupported,*'
 
         $actual = Get-PSWSManAuth
-        $actual.GssapiLib | Should -Be 'Default'
+        $actual.GssapiLib | Should-Be 'Default'
     }
 
     It "Fails to set the System provider when no GSSAPI library is available" -Skip:$SystemAvailable {
         $out = Set-PSWSManAuth -AuthProvider System -ErrorAction SilentlyContinue -ErrorVariable err
-        $out | Should -BeNullOrEmpty
-        $err.Count | Should -Be 1
-        [string]$err[0] | Should -BeLike '*Failed to find a system GSSAPI library*'
+        $out | Should-BeNull
+        $err.Count | Should-Be 1
+        [string]$err[0] | Should-BeLikeString '*Failed to find a system GSSAPI library*'
     }
 
     It "Uses the default settings when opened from a thread with no runspace" {
@@ -199,7 +199,7 @@ public static class BackgroundOpen
         $connInfo.OpenTimeout = 5000
 
         $err = [PSWSManTest.BackgroundOpen]::Run($connInfo)
-        $err | Should -Not -BeNullOrEmpty
-        $err | Should -BeOfType ([System.Management.Automation.Remoting.PSRemotingTransportException])
+        $err | Should-NotBeNull
+        $err | Should-HaveType ([System.Management.Automation.Remoting.PSRemotingTransportException])
     }
 }

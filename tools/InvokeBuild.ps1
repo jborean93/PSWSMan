@@ -267,6 +267,7 @@ task PesterTests {
         '-File', $pesterScript
         '-TestPath', $Manifest.TestPath
         '-OutputFile', $resultsFile
+        '-PesterVersion', $Manifest.PesterVersion
     )
 
     $watchFolder = [Path]::Combine($Manifest.ReleasePath, 'bin', $Manifest.TestFramework)
