@@ -1,6 +1,6 @@
 @{
     InvokeBuildVersion = '5.14.23'
-    PesterVersion = '5.9.1'
+    PesterVersion = '6.2.0'
     BuildRequirements = @(
         @{
             ModuleName = 'Microsoft.PowerShell.PSResourceGet'

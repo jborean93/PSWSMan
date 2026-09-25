@@ -155,9 +155,9 @@ PSWSMAN_TEST_PYTHON=$PWD/output/python-venv/bin/python dotnet test --project tes
 ```
 
 Pester tests need a built module. Run them in a fresh process so a stale
-assembly is never picked up. Pester 5.9.1 is installed into `output/Modules`
-by the `Test` task; import it from there if it is not already on your module
-path.
+assembly is never picked up. The Pester version pinned in `manifest.psd1` is
+installed into `output/Modules` by the `Test` task; import it from there so
+the pinned version is the one that runs.
 
 ```powershell
 pwsh -NoProfile -Command {
@@ -191,6 +191,8 @@ pwsh -File ./tools/CoverageReport.ps1 -Path ./output/TestResults/Coverage.cobert
 - `test.settings.json` is git-ignored and contains credentials. Never commit
   it or copy its contents into other files.
 - Every Pester file must start with `BeforeDiscovery { . ([IO.Path]::Combine($PSScriptRoot, 'common.ps1')) }`.
+- Assertions use the Pester 6 `Should-*` commands (`Should-Be`, `Should-Throw -ExceptionMessage`, ...). The
+  classic `Should -Be` form is disabled in the test run and fails.
 - New .NET unit test projects go in `tests/units/<Name>/` using TUnit, with
   `<OutputType>Exe</OutputType>` and the shared `Directory.*.props` in
   `tests/units/`. Prefer referencing `PSWSMan.Lib`. `PSWSMan.Connection.Tests`

@@ -62,7 +62,7 @@ Describe "New-PSWSManCertValidationCallback" {
     It "Creates a RemoteCertificateValidationCallback" {
         $actual = New-PSWSManCertValidationCallback -ScriptBlock { $true }
 
-        $actual | Should -BeOfType ([RemoteCertificateValidationCallback])
+        $actual | Should-HaveType ([RemoteCertificateValidationCallback])
     }
 
     It "Passes the arguments to the script block with <SslPolicyErrors>" -TestCases @(
@@ -82,14 +82,14 @@ Describe "New-PSWSManCertValidationCallback" {
 
         $actual = Invoke-CertValidationCallback -Callback $callback -SslPolicyErrors $SslPolicyErrors
 
-        $actual | Should -BeTrue
-        $state['args'].Count | Should -Be 4
-        $state['args'][0] | Should -Be 'sender'
-        $state['args'][1] | Should -BeOfType ([X509Certificate])
-        $state['args'][1].Thumbprint | Should -Be $cert.Thumbprint
-        $state['args'][2] | Should -BeOfType ([X509Chain])
-        $state['args'][2].ChainStatus.Status | Should -Contain ([X509ChainStatusFlags]::UntrustedRoot)
-        $state['args'][3] | Should -Be $SslPolicyErrors
+        $actual | Should-BeTrue
+        $state['args'].Count | Should-Be 4
+        $state['args'][0] | Should-Be 'sender'
+        $state['args'][1] | Should-HaveType ([X509Certificate])
+        $state['args'][1].Thumbprint | Should-Be $cert.Thumbprint
+        $state['args'][2] | Should-HaveType ([X509Chain])
+        $state['args'][2].ChainStatus.Status | Should-ContainCollection ([X509ChainStatusFlags]::UntrustedRoot)
+        $state['args'][3] | Should-Be $SslPolicyErrors
     }
 
     It "Runs on a thread without a default runspace" {
@@ -107,9 +107,9 @@ Describe "New-PSWSManCertValidationCallback" {
 
         $actual = Invoke-CertValidationCallback -Callback $callback
 
-        $actual | Should -BeTrue
-        $state['runspace'] | Should -Not -Be $testRunspace
-        $state['thread'] | Should -Not -Be $testThread
+        $actual | Should-BeTrue
+        $state['runspace'] | Should-NotBe $testRunspace
+        $state['thread'] | Should-NotBe $testThread
     }
 
     It "Uses a value captured with using" {
@@ -120,8 +120,8 @@ Describe "New-PSWSManCertValidationCallback" {
             $SslPolicyErrors -eq $using:expected
         }
 
-        Invoke-CertValidationCallback -Callback $callback -SslPolicyErrors $expected | Should -BeTrue
-        Invoke-CertValidationCallback -Callback $callback -SslPolicyErrors None | Should -BeFalse
+        Invoke-CertValidationCallback -Callback $callback -SslPolicyErrors $expected | Should-BeTrue
+        Invoke-CertValidationCallback -Callback $callback -SslPolicyErrors None | Should-BeFalse
     }
 
     It "Returns <Expected> when the script block outputs <Expected>" -TestCases @(
@@ -130,13 +130,13 @@ Describe "New-PSWSManCertValidationCallback" {
     ) {
         $callback = New-PSWSManCertValidationCallback -ScriptBlock { $using:Expected }
 
-        Invoke-CertValidationCallback -Callback $callback | Should -Be $Expected
+        Invoke-CertValidationCallback -Callback $callback | Should-Be $Expected
     }
 
     It "Treats no output as a failed check" {
         $callback = New-PSWSManCertValidationCallback -ScriptBlock { }
 
-        Invoke-CertValidationCallback -Callback $callback | Should -BeFalse
+        Invoke-CertValidationCallback -Callback $callback | Should-BeFalse
     }
 
     It "Uses only the last output" {
@@ -145,7 +145,7 @@ Describe "New-PSWSManCertValidationCallback" {
             $true
         }
 
-        Invoke-CertValidationCallback -Callback $callback | Should -BeTrue
+        Invoke-CertValidationCallback -Callback $callback | Should-BeTrue
     }
 
     It "Treats a last output that is not a bool as a failed check" {
@@ -154,7 +154,7 @@ Describe "New-PSWSManCertValidationCallback" {
             'will fail'
         }
 
-        Invoke-CertValidationCallback -Callback $callback | Should -BeFalse
+        Invoke-CertValidationCallback -Callback $callback | Should-BeFalse
     }
 
     It "Invokes a function provided through the function drive" {
@@ -173,9 +173,9 @@ Describe "New-PSWSManCertValidationCallback" {
 
         $actual = Invoke-CertValidationCallback -Callback $callback -SslPolicyErrors RemoteCertificateChainErrors
 
-        $actual | Should -BeTrue
-        $state['thumbprint'] | Should -Be $cert.Thumbprint
-        $state['file'] | Should -Be $PSCommandPath
+        $actual | Should-BeTrue
+        $state['thumbprint'] | Should-Be $cert.Thumbprint
+        $state['file'] | Should-Be $PSCommandPath
     }
 
     It "Preserves the script block source location" {
@@ -190,22 +190,22 @@ Describe "New-PSWSManCertValidationCallback" {
 
         $actual = Invoke-CertValidationCallback -Callback $callback
 
-        $actual | Should -BeTrue
-        $state['extent'].File | Should -Be $PSCommandPath
-        $state['extent'].StartLineNumber | Should -Be $scriptBlock.Ast.Extent.StartLineNumber
-        $state['extent'].StartColumnNumber | Should -Be $scriptBlock.Ast.Extent.StartColumnNumber
-        $state['extent'].Text | Should -Be $scriptBlock.Ast.Extent.Text
+        $actual | Should-BeTrue
+        $state['extent'].File | Should-Be $PSCommandPath
+        $state['extent'].StartLineNumber | Should-Be $scriptBlock.Ast.Extent.StartLineNumber
+        $state['extent'].StartColumnNumber | Should-Be $scriptBlock.Ast.Extent.StartColumnNumber
+        $state['extent'].Text | Should-Be $scriptBlock.Ast.Extent.Text
     }
 
     It "Invokes a script block created from a string" {
         $callback = New-PSWSManCertValidationCallback -ScriptBlock ([scriptblock]::Create('$args[3] -eq "None"'))
 
-        Invoke-CertValidationCallback -Callback $callback | Should -BeTrue
+        Invoke-CertValidationCallback -Callback $callback | Should-BeTrue
     }
 
     It "Raises a script block error to the caller" {
         $callback = New-PSWSManCertValidationCallback -ScriptBlock { throw 'validation error' }
 
-        { Invoke-CertValidationCallback -Callback $callback } | Should -Throw '*validation error*'
+        { Invoke-CertValidationCallback -Callback $callback } | Should-Throw -ExceptionMessage '*validation error*'
     }
 }
