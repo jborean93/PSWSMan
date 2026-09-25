@@ -48,6 +48,7 @@ This script will ensure all dependencies are installed before running the test s
 The tests that connect to a real WinRM server read the servers to use from `test.settings.json` in the repository root.
 They are skipped when that file does not exist or no entry matches what a test needs.
 The file is git-ignored because it holds credentials, and `tests/settings.schema.json` describes it for editor completion.
+The format only exists for the test suite and can change at any time without notice, check the schema after updating.
 
 Each entry in `servers` is one way to connect: an endpoint URL, a credential, and facts about that endpoint.
 The tests pick the entries they can use by those facts, so a single domain account entry is enough to run most of the suite.
@@ -61,7 +62,7 @@ The tests pick the entries they can use by those facts, so a single domain accou
             "username": "user@DOMAIN.TEST",
             "password": "Password01",
             "auth": ["kerberos", "ntlm", "credssp"],
-            "jea": { "name": "JEA", "username": "gmsa$" },
+            "jea": "JEA",
             "trusted_for_delegation": true
         },
         {
@@ -102,7 +103,7 @@ The tests pick the entries they can use by those facts, so a single domain accou
 | `auth` | Which of `basic`, `kerberos`, `ntlm`, `credssp` and `certificate` work for this endpoint and credential. Tests only run the methods listed. |
 | `untrusted_certificate` | The HTTPS certificate is not trusted by this machine. The tests disable certificate validation when connecting to the entry. |
 | `client_certificate` | The client certificate for `certificate` auth. `cert` is either a `.pfx`/`.p12` file unlocked by `password`, or a PEM certificate with its PEM private key in `key` and the key `password` if encrypted. Relative paths are resolved from the directory containing the settings file. |
-| `jea` | A JEA session configuration on the endpoint. `name` is the session configuration name to connect to and `username` is the value of `[Environment]::UserName` inside it, such as the gMSA it runs as. Enables the JEA test. |
+| `jea` | The name of a JEA session configuration on the endpoint. It must run as a virtual account and its role capability must expose a `Get-PSWSManJeaUserName` function returning `[Environment]::UserName`, `tools/SetupWinCI.ps1` shows how. Enables the JEA test. |
 | `trusted_for_delegation` | The server is trusted for unconstrained delegation. Enables the delegation tests. |
 | `name` | Optional label used in the test names. |
 

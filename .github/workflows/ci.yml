@@ -114,6 +114,11 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y gss-ntlmssp
 
+    - name: Setup WinRM and JEA on Windows
+      if: runner.os == 'Windows'
+      run: |
+        powershell -NoProfile -NonInteractive -File ./tools/SetupWinCI.ps1
+
     - name: Run Tests
       shell: pwsh
       run: |

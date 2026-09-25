@@ -84,23 +84,8 @@
                         }
                     },
                     "jea": {
-                        "type": "object",
-                        "description": "A Just Enough Administration session configuration on this endpoint. Enables the JEA test for this entry.",
-                        "required": [
-                            "name",
-                            "username"
-                        ],
-                        "additionalProperties": false,
-                        "properties": {
-                            "name": {
-                                "type": "string",
-                                "description": "The session configuration name to connect to."
-                            },
-                            "username": {
-                                "type": "string",
-                                "description": "The value of [Environment]::UserName inside that configuration, for example the gMSA it runs as."
-                            }
-                        }
+                        "type": "string",
+                        "description": "The name of a Just Enough Administration session configuration on this endpoint that runs as a virtual account and exposes a Get-PSWSManJeaUserName function returning [Environment]::UserName, see tools/SetupWinCI.ps1. Enables the JEA test for this entry."
                     },
                     "trusted_for_delegation": {
                         "type": "boolean",
