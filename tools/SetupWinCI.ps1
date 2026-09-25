@@ -314,15 +314,18 @@ if (-not (Test-Path -Path $CertPath)) {
     New-Item -Path $CertPath -ItemType Directory | Out-Null
 }
 
+# We use rmdir because PowerShell has trouble with certain permissions while cmd
+# does not care.
 Write-Information -MessageData "Removing extra modules to speed up PowerShell startup due to slow WinRM issue"
 'AWSPowerShell', 'DockerMsftProvider', 'ImageHelpers', 'MarkdownPS', 'Microsoft.*', 'PSWindowsUpdate', 'SqlServer', 'VSSetup' | ForEach-Object {
     $path = "C:\Program Files\WindowsPowerShell\Modules\$_"
     if (Test-Path -Path $path) {
-        Remove-Item -Path $path -Recurse -Force
+        cmd.exe /c rmdir /s /q $path
     }
 }
-if (Test-Path "C:\Modules") {
-    Remove-Item -Path "C:\Modules\*" -Recurse -Force
+
+Get-ChildItem -Path C:\Modules -ErrorAction Ignore | ForEach-Object {
+    cmd.exe /c rmdir /s /q $_.FullName
 }
 
 $caParams = @{
