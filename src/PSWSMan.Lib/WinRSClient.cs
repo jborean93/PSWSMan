@@ -9,8 +9,6 @@ public class WinRSClient
 {
     private readonly WSManClient _wsman;
 
-    internal WSManClient WSMan => _wsman;
-
     /// <summary>The resource URI of the shell.</summary>
     public string ResourceUri { get; private set; }
 

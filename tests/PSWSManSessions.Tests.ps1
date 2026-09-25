@@ -128,6 +128,34 @@ Describe "PSWSMan Connection tests" {
         Assert-PSWSManSession -SessionParams $sessionParams
     }
 
+    # The scheme, host, port and application name all come from the URI rather than the separate parameters.
+    It "Connects with ConnectionUri - <_>" -ForEach (Get-PSWSManTestServer) {
+        $splat = $_ | Get-PSSessionSplat
+        $sessionParams = @{
+            ConnectionUri = $_.Uri
+            Credential = $splat.Credential
+        }
+        if ($splat.SessionOption) {
+            $sessionParams.SessionOption = $splat.SessionOption
+        }
+
+        $s = New-PSSession @sessionParams
+        try {
+            $s.ComputerName | Should-Be $_.Uri.Host
+            $s.State | Should-Be 'Opened'
+            $s.Runspace.ConnectionInfo.ConnectionUri | Should-Be $_.Uri
+            $s.Runspace.ConnectionInfo.Port | Should-Be $_.Uri.Port
+            $s.Runspace.ConnectionInfo.Scheme | Should-Be $_.Uri.Scheme
+
+            Invoke-Command -Session $s -ScriptBlock { 'ok' } | Should-Be 'ok'
+        }
+        finally {
+            $s | Remove-PSSession
+        }
+
+        $s.State | Should-Be 'Closed'
+    }
+
     It "Connects with Basic - <_>" -ForEach (Get-PSWSManTestServer -Auth Basic) {
         $optionParams = @{}
         if ($_.Uri.Scheme -eq 'http') {
@@ -223,6 +251,26 @@ Describe "PSWSMan Connection tests" {
         }
         $sessionParams.SessionOption = ($Server | Get-PSSessionSplat -SessionOption $optionParams).SessionOption
 
+        Assert-PSWSManSession -SessionParams $sessionParams
+    }
+
+    It "Connects over HTTPS by IP with skip checks - <_>" -ForEach (Get-PSWSManTestServer -Scheme Https) {
+        $sessionParams = $_ | Get-PSSessionSplat
+
+        # Connecting by IP is enough to trigger a validation error. We cannot
+        # guarantee that the CA is trusted or untrusted so we assume it isn't.
+        $sessionParams.ComputerName = [System.Net.Dns]::GetHostAddresses($_.Uri.Host) |
+            Where-Object AddressFamily -eq InterNetwork |
+            Select-Object -First 1 -ExpandProperty IPAddressToString
+
+        # SPNHostName keeps Kerberos working against the real name while connecting to the IP.
+        $sessionParams.SessionOption = New-PSWSManSessionOption -SPNHostName $_.Uri.Host
+        $out = New-PSSession @sessionParams -ErrorAction SilentlyContinue -ErrorVariable err
+        $out | Should-BeNull
+        $err.Count | Should-Be 1
+        [string]$err[0] | Should-BeLikeString '*The remote certificate is invalid*RemoteCertificateNameMismatch*'
+
+        $sessionParams.SessionOption = New-PSWSManSessionOption -SPNHostName $_.Uri.Host -SkipCACheck -SkipCNCheck
         Assert-PSWSManSession -SessionParams $sessionParams
     }
 

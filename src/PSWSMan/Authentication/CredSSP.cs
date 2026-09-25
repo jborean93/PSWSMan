@@ -15,7 +15,7 @@ namespace PSWSMan.Authentication;
 /// <summary>Base class used for CredSSP ASN.1 Structures.</summary>
 internal abstract class CredSSPStructure
 {
-    public virtual void ToBytes(AsnWriter writer) => throw new NotImplementedException();
+    public abstract void ToBytes(AsnWriter writer);
 }
 
 /// <summary>TSRequest Payload</summary>
@@ -125,7 +125,10 @@ internal class TSRequest : CredSSPStructure
         {
             Asn1Tag nextTag = Asn1Tag.Decode(data, out var _);
             int consumed;
-            switch (nextTag.TagValue)
+
+            // Only context specific tags are fields, an element of any other class is skipped like an unknown field.
+            int field = nextTag.TagClass == TagClass.ContextSpecific ? nextTag.TagValue : -1;
+            switch (field)
             {
                 case 0:
                     AsnDecoder.ReadSequence(data, ruleSet, out contentOffset, out contentLength, out consumed,

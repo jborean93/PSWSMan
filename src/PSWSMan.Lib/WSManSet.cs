@@ -45,16 +45,6 @@ public abstract class WSManSet
         }
     }
 
-    /// <summary>Creates a copy of an existing set.</summary>
-    /// <param name="fromCopy">The set to copy.</param>
-    protected WSManSet(WSManSet fromCopy) : this(fromCopy._label, fromCopy._valueLabel, fromCopy._mustUnderstand)
-    {
-        foreach ((string name, string value, Dictionary<string, string> attributes) in fromCopy._entries)
-        {
-            Add(name, value, new(attributes));
-        }
-    }
-
     /// <summary>Adds a named value to the set.</summary>
     /// <param name="name">The name of the value.</param>
     /// <param name="value">The value to add.</param>
@@ -97,9 +87,6 @@ public sealed class SelectorSet : WSManSet
     public SelectorSet() : base("SelectorSet", "Selector", false)
     { }
 
-    internal SelectorSet(SelectorSet fromCopy) : base(fromCopy)
-    { }
-
     internal SelectorSet(XElement raw) : base(raw, "Selector", false)
     { }
 }
@@ -109,11 +96,5 @@ public sealed class OptionSet : WSManSet
 {
     /// <summary>Creates an empty option set.</summary>
     public OptionSet() : base("OptionSet", "Option", true)
-    { }
-
-    internal OptionSet(OptionSet fromCopy) : base(fromCopy)
-    { }
-
-    internal OptionSet(XElement raw) : base(raw, "Option", true)
     { }
 }
