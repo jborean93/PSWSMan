@@ -275,7 +275,8 @@ Function New-JEAConfiguration {
     Description = 'A test JEA role used in the functional tests for PSWSMan'
     CompanyName = 'N/A'
     Copyright = '(c) 2026 Jordan Borean'
-    VisibleFunctions = @{
+    VisibleFunctions = 'Get-PSWSManJeaUserName'
+    FunctionDefinitions = @{
         Name = 'Get-PSWSManJeaUserName'
         ScriptBlock = { [Environment]::UserName }
     }
