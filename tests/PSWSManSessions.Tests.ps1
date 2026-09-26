@@ -36,9 +36,8 @@ Describe "PSWSMan Connection tests" {
     }
 
     It "Connects with Negotiate (NTLM) - <_.Name>" -ForEach (Get-PSWSManTestServer -Auth NTLM) {
-        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{
-            SPNHostName = 'Unknown'  # Invalid SPN will stop Kerberos
-        }
+        # Connecting by IP address stops Negotiate from using Kerberos.
+        $sessionParams = $_ | Get-PSSessionSplat -UseIPAddress
 
         Assert-PSWSManSession -SessionParams $sessionParams
     }
@@ -65,9 +64,8 @@ Describe "PSWSMan Connection tests" {
     }
 
     It "Connects with CredSSP + Negotiate (NTLM) - <_.Name>" -ForEach (Get-PSWSManTestServer -Auth CredSSP, NTLM) {
-        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{
-            SPNHostName = 'Unknown'  # Invalid SPN will stop Kerberos
-        }
+        # Connecting by IP address stops Negotiate from using Kerberos.
+        $sessionParams = $_ | Get-PSSessionSplat -UseIPAddress
         $sessionParams.Authentication = 'Credssp'
 
         Assert-PSWSManSession -SessionParams $sessionParams
@@ -100,9 +98,9 @@ Describe "PSWSMan Connection tests" {
     }
 
     It "Connects with Devolutions Negotiate (NTLM) - <_.Name>" -ForEach (Get-PSWSManTestServer -Auth NTLM) {
-        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{
+        # Connecting by IP address stops Negotiate from using Kerberos.
+        $sessionParams = $_ | Get-PSSessionSplat -UseIPAddress -SessionOption @{
             AuthProvider = 'Devolutions'
-            SPNHostName = 'Unknown'  # Invalid SPN will stop Kerberos
         }
 
         Assert-PSWSManSession -SessionParams $sessionParams
@@ -135,9 +133,9 @@ Describe "PSWSMan Connection tests" {
         # https://github.com/Devolutions/sspi-rs/issues/752
         Set-ItResult -Skipped -Because 'Devolutions CredSSP using NTLM through Negotiate does not work, will need upstream fix'
 
-        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{
+        # Connecting by IP address stops Negotiate from using Kerberos.
+        $sessionParams = $_ | Get-PSSessionSplat -UseIPAddress -SessionOption @{
             AuthProvider = 'Devolutions'
-            SPNHostName = 'Unknown'  # Invalid SPN will stop Kerberos
         }
         $sessionParams.Authentication = 'Credssp'
 
@@ -254,17 +252,14 @@ Describe "PSWSMan Connection tests" {
 
     # Connecting by IP address makes the certificate name check fail on any HTTPS server, and on a server with an
     # untrusted certificate the chain check fails as well. SPNHostName keeps Kerberos working against the real name.
-    It "Connects over HTTPS with invalid cert - <Method> - <Server>" -ForEach $(
+    It "Connects over HTTPS with invalid cert - <Method> - <Server.Name>" -ForEach $(
         foreach ($server in (Get-PSWSManTestServer -Scheme Https)) {
             foreach ($method in 'Skip', 'TlsOption') {
                 @{ Server = $server; Method = $method }
             }
         }
     ) {
-        $sessionParams = $Server | Get-PSSessionSplat
-        $sessionParams.ComputerName = [System.Net.Dns]::GetHostAddresses($Server.Uri.Host) |
-            Where-Object AddressFamily -eq InterNetwork |
-            Select-Object -First 1 -ExpandProperty IPAddressToString
+        $sessionParams = $Server | Get-PSSessionSplat -UseIPAddress
 
         # Explicit SessionOption disables any certificate validation bypass on the server setting.
         # This is done on purpose to ensure that the certificate validation bypass is not applied elsewhere.
@@ -291,13 +286,9 @@ Describe "PSWSMan Connection tests" {
     }
 
     It "Connects over HTTPS by IP with skip checks - <_.Name>" -ForEach (Get-PSWSManTestServer -Scheme Https) {
-        $sessionParams = $_ | Get-PSSessionSplat
-
         # Connecting by IP is enough to trigger a validation error. We cannot
         # guarantee that the CA is trusted or untrusted so we assume it isn't.
-        $sessionParams.ComputerName = [System.Net.Dns]::GetHostAddresses($_.Uri.Host) |
-            Where-Object AddressFamily -eq InterNetwork |
-            Select-Object -First 1 -ExpandProperty IPAddressToString
+        $sessionParams = $_ | Get-PSSessionSplat -UseIPAddress
 
         # SPNHostName keeps Kerberos working against the real name while connecting to the IP.
         $sessionParams.SessionOption = New-PSWSManSessionOption -SPNHostName $_.Uri.Host

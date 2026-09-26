@@ -299,6 +299,12 @@ Function global:Get-PSSessionSplat {
     Remove the SessionOption key from the result to connect with certificate
     validation enabled.
 
+    With -UseIPAddress the ComputerName is the server's IPv4 address instead of
+    its host name. Negotiate cannot build a Kerberos SPN for an IP address so it
+    falls back to NTLM, which is how the NTLM tests force that path without
+    tampering with the SPN. The address never matches the certificate so
+    SkipCNCheck is added over HTTPS, again unless the test supplies a TlsOption.
+
     A Server without a Uri is the placeholder Get-PSWSManTestServer returns
     when nothing matched, calling this with it marks the current test as
     skipped.
@@ -309,6 +315,9 @@ Function global:Get-PSSessionSplat {
     .PARAMETER SessionOption
     Parameters for New-PSWSManSessionOption. When set, or when the server has
     an untrusted certificate, the result contains a SessionOption entry.
+
+    .PARAMETER UseIPAddress
+    Connect to the server's IPv4 address rather than its host name.
     #>
     [OutputType([Hashtable])]
     [CmdletBinding()]
@@ -318,7 +327,10 @@ Function global:Get-PSSessionSplat {
         $Server,
 
         [hashtable]
-        $SessionOption
+        $SessionOption,
+
+        [switch]
+        $UseIPAddress
     )
 
     process {
@@ -326,8 +338,15 @@ Function global:Get-PSSessionSplat {
             Set-ItResult -Skipped -Because 'no server in test.settings.json matches what this test needs'
         }
 
+        $computerName = $Server.Uri.Host
+        if ($UseIPAddress) {
+            $computerName = [System.Net.Dns]::GetHostAddresses($Server.Uri.Host) |
+                Where-Object AddressFamily -eq InterNetwork |
+                Select-Object -First 1 -ExpandProperty IPAddressToString
+        }
+
         $params = @{
-            ComputerName = $Server.Uri.Host
+            ComputerName = $computerName
             Port = $Server.Uri.Port
         }
         if ($Server.Credential) {
@@ -346,9 +365,14 @@ Function global:Get-PSSessionSplat {
         if ($SessionOption) {
             $optionParams += $SessionOption
         }
-        if ($Server.UntrustedCertificate -and -not $optionParams.ContainsKey('TlsOption')) {
-            $optionParams.SkipCACheck = $true
-            $optionParams.SkipCNCheck = $true
+        if (-not $optionParams.ContainsKey('TlsOption')) {
+            if ($Server.UntrustedCertificate) {
+                $optionParams.SkipCACheck = $true
+                $optionParams.SkipCNCheck = $true
+            }
+            if ($UseIPAddress -and $Server.Uri.Scheme -eq 'https') {
+                $optionParams.SkipCNCheck = $true
+            }
         }
         if ($optionParams.Count) {
             $params.SessionOption = New-PSWSManSessionOption @optionParams
