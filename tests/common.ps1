@@ -201,22 +201,19 @@ Function global:Get-PSWSManTestServer {
 
     .DESCRIPTION
     Returns the matching PSWSManTestServer objects for use with the Pester
-    -ForEach parameter, where each is available as $_ and <_> in the test name
+    -ForEach parameter, where each is available as $_ and <_.Name> in the test name
     expands to its Name. When nothing matches a single placeholder without a
     Uri is returned so the test still appears in the results, and
     Get-PSSessionSplat marks it as skipped.
 
-    Without -Auth or -AnyAuth only servers with a username and password are
-    returned so a test that needs any server always gets a credential to use.
+    Without -Auth only servers with a username and password are returned so a
+    test that needs any server always gets a credential to use.
 
     .PARAMETER Scheme
     Only servers reachable over this scheme.
 
     .PARAMETER Auth
     Only servers whose entry lists every one of these auth methods.
-
-    .PARAMETER AnyAuth
-    Only servers whose entry lists at least one of these auth methods.
 
     .PARAMETER JEA
     Only servers with a JEA configuration.
@@ -238,10 +235,6 @@ Function global:Get-PSWSManTestServer {
         [string[]]
         $Auth,
 
-        [ValidateSet('Basic', 'Kerberos', 'NTLM', 'CredSSP', 'Certificate')]
-        [string[]]
-        $AnyAuth,
-
         [switch]
         $JEA,
 
@@ -262,10 +255,7 @@ Function global:Get-PSWSManTestServer {
         if ($TrustedForDelegation -and -not $server.TrustedForDelegation) {
             continue
         }
-        if (-not $Auth -and -not $AnyAuth -and -not $server.Credential) {
-            continue
-        }
-        if ($AnyAuth -and -not @($server.Auth | Where-Object { $_ -in $AnyAuth })) {
+        if (-not $Auth -and -not $server.Credential) {
             continue
         }
 
