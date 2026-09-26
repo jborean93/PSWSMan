@@ -29,14 +29,20 @@ BeforeAll {
 }
 
 Describe "PSWSMan Connection tests" {
-    # Negotiate picks Kerberos for a domain account and NTLM for a local one.
-    It "Connects with Negotiate - <_>" -ForEach (Get-PSWSManTestServer -AnyAuth Kerberos, NTLM) {
+    It "Connects with Negotiate (Kerberos) - <_.Name>" -ForEach (Get-PSWSManTestServer -Auth Kerberos) {
         $sessionParams = $_ | Get-PSSessionSplat
 
         Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Connects with Kerberos - <_>" -ForEach (Get-PSWSManTestServer -Auth Kerberos) {
+    It "Connects with Negotiate (NTLM) - <_.Name>" -ForEach (Get-PSWSManTestServer -Auth NTLM) {
+        # Connecting by IP address stops Negotiate from using Kerberos.
+        $sessionParams = $_ | Get-PSSessionSplat -UseIPAddress
+
+        Assert-PSWSManSession -SessionParams $sessionParams
+    }
+
+    It "Connects with Kerberos - <_.Name>" -ForEach (Get-PSWSManTestServer -Auth Kerberos) {
         $sessionParams = $_ | Get-PSSessionSplat
         $sessionParams.Authentication = 'Kerberos'
 
@@ -44,20 +50,28 @@ Describe "PSWSMan Connection tests" {
     }
 
     # NTLM with the System provider needs SSPI, GSS.framework, or gss-ntlmssp with MIT krb5.
-    It "Connects with NTLM - <_>" -ForEach (Get-PSWSManTestServer -Auth NTLM) {
+    It "Connects with NTLM - <_.Name>" -ForEach (Get-PSWSManTestServer -Auth NTLM) {
         $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ AuthMethod = 'NTLM' }
 
         Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Connects with CredSSP - <_>" -ForEach (Get-PSWSManTestServer -Auth CredSSP) {
+    It "Connects with CredSSP + Negotiate (Kerberos) - <_.Name>" -ForEach (Get-PSWSManTestServer -Auth CredSSP, Kerberos) {
         $sessionParams = $_ | Get-PSSessionSplat
         $sessionParams.Authentication = 'Credssp'
 
         Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Connects with CredSSP + Kerberos - <_>" -ForEach (Get-PSWSManTestServer -Auth CredSSP, Kerberos) {
+    It "Connects with CredSSP + Negotiate (NTLM) - <_.Name>" -ForEach (Get-PSWSManTestServer -Auth CredSSP, NTLM) {
+        # Connecting by IP address stops Negotiate from using Kerberos.
+        $sessionParams = $_ | Get-PSSessionSplat -UseIPAddress
+        $sessionParams.Authentication = 'Credssp'
+
+        Assert-PSWSManSession -SessionParams $sessionParams
+    }
+
+    It "Connects with CredSSP + Kerberos - <_.Name>" -ForEach (Get-PSWSManTestServer -Auth CredSSP, Kerberos) {
         $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{
             AuthMethod = 'CredSSP'
             CredSSPAuthMethod = 'Kerberos'
@@ -66,7 +80,7 @@ Describe "PSWSMan Connection tests" {
         Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Connects with CredSSP + NTLM - <_>" -ForEach (Get-PSWSManTestServer -Auth CredSSP, NTLM) {
+    It "Connects with CredSSP + NTLM - <_.Name>" -ForEach (Get-PSWSManTestServer -Auth CredSSP, NTLM) {
         $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{
             AuthMethod = 'CredSSP'
             CredSSPAuthMethod = 'NTLM'
@@ -75,20 +89,31 @@ Describe "PSWSMan Connection tests" {
         Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Connects with Devolutions Negotiate - <_>" -ForEach (Get-PSWSManTestServer -AnyAuth Kerberos, NTLM) {
-        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ AuthProvider = 'Devolutions' }
+    It "Connects with Devolutions Negotiate (Kerberos) - <_.Name>" -ForEach (Get-PSWSManTestServer -Auth Kerberos) {
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{
+            AuthProvider = 'Devolutions'
+        }
 
         Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Connects with Devolutions Kerberos - <_>" -ForEach (Get-PSWSManTestServer -Auth Kerberos) {
+    It "Connects with Devolutions Negotiate (NTLM) - <_.Name>" -ForEach (Get-PSWSManTestServer -Auth NTLM) {
+        # Connecting by IP address stops Negotiate from using Kerberos.
+        $sessionParams = $_ | Get-PSSessionSplat -UseIPAddress -SessionOption @{
+            AuthProvider = 'Devolutions'
+        }
+
+        Assert-PSWSManSession -SessionParams $sessionParams
+    }
+
+    It "Connects with Devolutions Kerberos - <_.Name>" -ForEach (Get-PSWSManTestServer -Auth Kerberos) {
         $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ AuthProvider = 'Devolutions' }
         $sessionParams.Authentication = 'Kerberos'
 
         Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Connects with Devolutions NTLM - <_>" -ForEach (Get-PSWSManTestServer -Auth NTLM) {
+    It "Connects with Devolutions NTLM - <_.Name>" -ForEach (Get-PSWSManTestServer -Auth NTLM) {
         $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{
             AuthMethod = 'NTLM'
             AuthProvider = 'Devolutions'
@@ -97,18 +122,27 @@ Describe "PSWSMan Connection tests" {
         Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Connects with Devolutions CredSSP - <_>" -ForEach (Get-PSWSManTestServer -Auth CredSSP) {
-        if ($IsWindows) {
-            # https://github.com/Devolutions/sspi-rs/issues/752
-            Set-ItResult -Skipped -Because 'Devolutions CredSSP using NTLM through Negotiate does not work, will need upstream fix'
-        }
+    It "Connects with Devolutions CredSSP + Negotiate (Kerberos) - <_.Name>" -ForEach (Get-PSWSManTestServer -Auth CredSSP, Kerberos) {
         $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ AuthProvider = 'Devolutions' }
         $sessionParams.Authentication = 'Credssp'
 
         Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Connects with Devolutions CredSSP + Kerberos - <_>" -ForEach (Get-PSWSManTestServer -Auth CredSSP, Kerberos) {
+    It "Connects with Devolutions CredSSP + Negotiate (NTLM) - <_.Name>" -ForEach (Get-PSWSManTestServer -Auth CredSSP, NTLM) {
+        # https://github.com/Devolutions/sspi-rs/issues/752
+        Set-ItResult -Skipped -Because 'Devolutions CredSSP using NTLM through Negotiate does not work, will need upstream fix'
+
+        # Connecting by IP address stops Negotiate from using Kerberos.
+        $sessionParams = $_ | Get-PSSessionSplat -UseIPAddress -SessionOption @{
+            AuthProvider = 'Devolutions'
+        }
+        $sessionParams.Authentication = 'Credssp'
+
+        Assert-PSWSManSession -SessionParams $sessionParams
+    }
+
+    It "Connects with Devolutions CredSSP + Kerberos - <_.Name>" -ForEach (Get-PSWSManTestServer -Auth CredSSP, Kerberos) {
         $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{
             AuthMethod = 'CredSSP'
             CredSSPAuthMethod = 'Kerberos'
@@ -118,7 +152,7 @@ Describe "PSWSMan Connection tests" {
         Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Connects with Devolutions CredSSP + NTLM - <_>" -ForEach (Get-PSWSManTestServer -Auth CredSSP, NTLM) {
+    It "Connects with Devolutions CredSSP + NTLM - <_.Name>" -ForEach (Get-PSWSManTestServer -Auth CredSSP, NTLM) {
         $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{
             AuthMethod = 'CredSSP'
             CredSSPAuthMethod = 'NTLM'
@@ -129,7 +163,7 @@ Describe "PSWSMan Connection tests" {
     }
 
     # The scheme, host, port and application name all come from the URI rather than the separate parameters.
-    It "Connects with ConnectionUri - <_>" -ForEach (Get-PSWSManTestServer) {
+    It "Connects with ConnectionUri - <_.Name>" -ForEach (Get-PSWSManTestServer) {
         $splat = $_ | Get-PSSessionSplat
         $sessionParams = @{
             ConnectionUri = $_.Uri
@@ -156,7 +190,7 @@ Describe "PSWSMan Connection tests" {
         $s.State | Should-Be 'Closed'
     }
 
-    It "Connects with Basic - <_>" -ForEach (Get-PSWSManTestServer -Auth Basic) {
+    It "Connects with Basic - <_.Name>" -ForEach (Get-PSWSManTestServer -Auth Basic) {
         $optionParams = @{}
         if ($_.Uri.Scheme -eq 'http') {
             $optionParams.NoEncryption = $true
@@ -167,13 +201,13 @@ Describe "PSWSMan Connection tests" {
         Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Fails to connect over HTTP with Basic without -NoEncryption - <_>" -ForEach (Get-PSWSManTestServer -Scheme Http -First) {
+    It "Fails to connect over HTTP with Basic without -NoEncryption - <_.Name>" -ForEach (Get-PSWSManTestServer -Scheme Http -First) {
         $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ AuthMethod = 'Basic' }
 
         { New-PSSession @sessionParams } | Should-Throw -ExceptionMessage '*Cannot encrypt WSMan payload as BasicAuthContext does not support message encryption*'
     }
 
-    It "Connects over CredSSP with handshake failure - <_>" -ForEach (Get-PSWSManTestServer -Auth CredSSP -First) {
+    It "Connects over CredSSP with handshake failure - <_.Name>" -ForEach (Get-PSWSManTestServer -Auth CredSSP -First) {
         $tlsOption = [System.Net.Security.SslClientAuthenticationOptions]@{
             EnabledSslProtocols = 'Ssl3'  # Forces an unsupported TLS protocol
             TargetHost = $_.Uri.Host
@@ -190,7 +224,7 @@ Describe "PSWSMan Connection tests" {
         [string]$err[0] | Should-BeLikeString "*$expected*"
     }
 
-    It "Connects with invalid credential - <_>" -ForEach (Get-PSWSManTestServer -First) {
+    It "Connects with invalid credential - <_.Name>" -ForEach (Get-PSWSManTestServer -First) {
         $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ NoEncryption = $true }
         $sessionParams.Authentication = 'Basic'
         $sessionParams.Credential = [PSCredential]::new('fake', (ConvertTo-SecureString -AsPlainText -Force -String 'fake'))
@@ -203,7 +237,7 @@ Describe "PSWSMan Connection tests" {
 
     # A remote host with a firewall drops the packets and the connect times out, a server on the local machine
     # refuses the connection straight away instead. Both are reported as a connection failure.
-    It "Connects with invalid port and timeout - <_>" -ForEach (Get-PSWSManTestServer -First) {
+    It "Connects with invalid port and timeout - <_.Name>" -ForEach (Get-PSWSManTestServer -First) {
         $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{
             OpenTimeout = 1
             NoEncryption = $true
@@ -218,17 +252,14 @@ Describe "PSWSMan Connection tests" {
 
     # Connecting by IP address makes the certificate name check fail on any HTTPS server, and on a server with an
     # untrusted certificate the chain check fails as well. SPNHostName keeps Kerberos working against the real name.
-    It "Connects over HTTPS with invalid cert - <Method> - <Server>" -ForEach $(
+    It "Connects over HTTPS with invalid cert - <Method> - <Server.Name>" -ForEach $(
         foreach ($server in (Get-PSWSManTestServer -Scheme Https)) {
             foreach ($method in 'Skip', 'TlsOption') {
                 @{ Server = $server; Method = $method }
             }
         }
     ) {
-        $sessionParams = $Server | Get-PSSessionSplat
-        $sessionParams.ComputerName = [System.Net.Dns]::GetHostAddresses($Server.Uri.Host) |
-            Where-Object AddressFamily -eq InterNetwork |
-            Select-Object -First 1 -ExpandProperty IPAddressToString
+        $sessionParams = $Server | Get-PSSessionSplat -UseIPAddress
 
         # Explicit SessionOption disables any certificate validation bypass on the server setting.
         # This is done on purpose to ensure that the certificate validation bypass is not applied elsewhere.
@@ -254,14 +285,10 @@ Describe "PSWSMan Connection tests" {
         Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Connects over HTTPS by IP with skip checks - <_>" -ForEach (Get-PSWSManTestServer -Scheme Https) {
-        $sessionParams = $_ | Get-PSSessionSplat
-
+    It "Connects over HTTPS by IP with skip checks - <_.Name>" -ForEach (Get-PSWSManTestServer -Scheme Https) {
         # Connecting by IP is enough to trigger a validation error. We cannot
         # guarantee that the CA is trusted or untrusted so we assume it isn't.
-        $sessionParams.ComputerName = [System.Net.Dns]::GetHostAddresses($_.Uri.Host) |
-            Where-Object AddressFamily -eq InterNetwork |
-            Select-Object -First 1 -ExpandProperty IPAddressToString
+        $sessionParams = $_ | Get-PSSessionSplat -UseIPAddress
 
         # SPNHostName keeps Kerberos working against the real name while connecting to the IP.
         $sessionParams.SessionOption = New-PSWSManSessionOption -SPNHostName $_.Uri.Host
@@ -274,7 +301,7 @@ Describe "PSWSMan Connection tests" {
         Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Failed to find certificate thumbprint - <_>" -ForEach (Get-PSWSManTestServer -First) {
+    It "Failed to find certificate thumbprint - <_.Name>" -ForEach (Get-PSWSManTestServer -First) {
         $sessionParams = $_ | Get-PSSessionSplat
         $sessionParams.Remove('Credential')
         $sessionParams.UseSSL = $true
@@ -285,14 +312,14 @@ Describe "PSWSMan Connection tests" {
         } | Should-Throw
     }
 
-    It "Connects with Certificate auth by cert object - <_>" -ForEach (Get-PSWSManTestServer -Auth Certificate) {
+    It "Connects with Certificate auth by cert object - <_.Name>" -ForEach (Get-PSWSManTestServer -Auth Certificate) {
         $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ ClientCertificate = $_.ClientCertificate }
         $sessionParams.Remove('Credential')
 
         Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Connects with cert auth and explicit TLS options - <_>" -ForEach (Get-PSWSManTestServer -Auth Certificate) {
+    It "Connects with cert auth and explicit TLS options - <_.Name>" -ForEach (Get-PSWSManTestServer -Auth Certificate) {
         $sessionParams = $_ | Get-PSSessionSplat
         $sessionParams.Remove('Credential')
 
@@ -308,7 +335,7 @@ Describe "PSWSMan Connection tests" {
         Assert-PSWSManSession -SessionParams $sessionParams
     }
 
-    It "Connects over HTTPS with handshake failure - <_>" -ForEach (Get-PSWSManTestServer -Scheme Https -First) {
+    It "Connects over HTTPS with handshake failure - <_.Name>" -ForEach (Get-PSWSManTestServer -Scheme Https -First) {
         $tlsOption = [System.Net.Security.SslClientAuthenticationOptions]@{
             EnabledSslProtocols = 'Ssl3'
             TargetHost = $_.Uri.Host
@@ -328,7 +355,7 @@ Describe "PSWSMan Connection tests" {
     }
 }
 
-Describe "PSWSMan Kerberos tests - <_>" -ForEach (Get-PSWSManTestServer -Auth Kerberos -First) {
+Describe "PSWSMan Kerberos tests - <_.Name>" -ForEach (Get-PSWSManTestServer -Auth Kerberos -First) {
     BeforeAll {
         Function Get-RemoteTicketFlags {
             [CmdletBinding()]
@@ -407,7 +434,7 @@ Describe "PSWSMan Kerberos tests - <_>" -ForEach (Get-PSWSManTestServer -Auth Ke
     }
 
     # Windows only delegates to a server marked as trusted for delegation.
-    It "Connects with implicit credentials with Windows and delegate - <_>" -Skip:(-not $IsWindows) -ForEach (
+    It "Connects with implicit credentials with Windows and delegate - <_.Name>" -Skip:(-not $IsWindows) -ForEach (
         Get-PSWSManTestServer -Auth Kerberos -TrustedForDelegation -First
     ) {
         $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ RequestKerberosDelegate = $true }
@@ -417,7 +444,7 @@ Describe "PSWSMan Kerberos tests - <_>" -ForEach (Get-PSWSManTestServer -Auth Ke
         $actual | Should-ContainCollection 'forwarded'
     }
 
-    It "Connects with explicit credentials with Windows and delegate - <_>" -Skip:(-not $IsWindows) -ForEach (
+    It "Connects with explicit credentials with Windows and delegate - <_.Name>" -Skip:(-not $IsWindows) -ForEach (
         Get-PSWSManTestServer -Auth Kerberos -TrustedForDelegation -First
     ) {
         $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ RequestKerberosDelegate = $true }
@@ -427,12 +454,12 @@ Describe "PSWSMan Kerberos tests - <_>" -ForEach (Get-PSWSManTestServer -Auth Ke
     }
 }
 
-Describe "PSWSMan PSRemoting tests - <_>" -ForEach (Get-PSWSManTestServer -First) {
+Describe "PSWSMan PSRemoting tests - <_.Name>" -ForEach (Get-PSWSManTestServer -First) {
     BeforeEach {
         $sessionParams = $_ | Get-PSSessionSplat
     }
 
-    It "Connects to JEA configuration - <_>" -ForEach (Get-PSWSManTestServer -JEA -First) {
+    It "Connects to JEA configuration - <_.Name>" -ForEach (Get-PSWSManTestServer -JEA -First) {
         $sessionParams = $_ | Get-PSSessionSplat
         $sessionParams.ConfigurationName = $_.JEAName
 
