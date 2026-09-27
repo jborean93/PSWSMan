@@ -9,4 +9,8 @@
     <ProjectReference Include="../../../src/PSWSMan.Lib/PSWSMan.Lib.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="../../data/WinRSCommandLine.json" Link="WinRSCommandLine.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

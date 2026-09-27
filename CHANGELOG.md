@@ -62,6 +62,7 @@ The following cmdlets have been added:
 + [New-PSWSManSessionOption](./docs/en-US/New-PSWSManSessionOption.md) - exposes more session options that can be applied to `-SessionOption` on the builtin cmdlets
 + [Set-PSWSManAuth](./docs/en-US/Set-PSWSManAuth.md) - changes the default authentication provider and GSSAPI library
 + [Invoke-WinRSCommand](./docs/en-US/Invoke-WinRSCommand.md) runs a command line through `cmd.exe` on a remote host with a WinRS shell, without a PowerShell session on the other side, pipeline input is written to its stdin, alias `iwcm`
++ [ConvertTo-WinRSCommandLine](./docs/en-US/ConvertTo-WinRSCommandLine.md) builds an `Invoke-WinRSCommand` command line from an executable and a list of arguments, escaping them for `cmd.exe` so the process receives them exactly as given
 
 ## 2.3.1 - 2022-11-28
 

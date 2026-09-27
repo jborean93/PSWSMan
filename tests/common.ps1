@@ -389,11 +389,8 @@ Function global:Get-RawOutputCommand {
 
     .DESCRIPTION
     cmd.exe cannot write arbitrary bytes, so the bytes are embedded in a
-    PowerShell script that writes them straight to the standard stream. The
-    script is passed to powershell.exe as UTF-8 base64 that a short -Command
-    decodes and runs with Invoke-Expression. Base64 has no characters cmd.exe
-    interprets and UTF-8 keeps it about half the size of -EncodedCommand,
-    which takes UTF-16. The result is used as the -Command of
+    PowerShell script that writes them straight to the standard stream, run
+    through Get-PowerShellCommand. The result is used as the -Command of
     Invoke-WinRSCommand.
 
     The whole command line has to fit in the 8191 characters cmd.exe accepts,
@@ -443,10 +440,36 @@ Function global:Get-RawOutputCommand {
 `$s.Flush()
 exit $ExitCode
 "@
-    $encoded = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($script))
+    Get-PowerShellCommand -Script $script
+}
+
+Function global:Get-PowerShellCommand {
+    <#
+    .SYNOPSIS
+    Builds a command line that runs a script with Windows PowerShell.
+
+    .DESCRIPTION
+    The script is passed to powershell.exe as UTF-8 base64 that a short
+    -Command decodes and runs with Invoke-Expression. Base64 has no characters
+    cmd.exe interprets and UTF-8 keeps it about half the size of
+    -EncodedCommand, which takes UTF-16. The result is used as the -Command of
+    Invoke-WinRSCommand and has to fit in the 8191 characters cmd.exe accepts.
+
+    .PARAMETER Script
+    The PowerShell script to run.
+    #>
+    [OutputType([string])]
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)]
+        [string]
+        $Script
+    )
+
+    $encoded = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($Script))
     $command = "powershell.exe -NoProfile -NonInteractive -Command `"iex ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$encoded')))`""
     if ($command.Length -gt 8191) {
-        throw "The command for $($data.Length) bytes is $($command.Length) characters, cmd.exe accepts at most 8191"
+        throw "The command is $($command.Length) characters, cmd.exe accepts at most 8191"
     }
 
     $command
