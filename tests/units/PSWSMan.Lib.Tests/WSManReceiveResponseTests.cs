@@ -28,9 +28,9 @@ public class WSManReceiveResponseTests
 
         await Assert.That(response.State).IsEqualTo(CommandState.Running);
         await Assert.That(response.ExitCode).IsNull();
-        await Assert.That(response.Streams.Keys).IsEquivalentTo(new[] { "stdout" });
-        await Assert.That(response.Streams["stdout"].Length).IsEqualTo(1);
-        await Assert.That(response.Streams["stdout"][0]).IsEquivalentTo(chunk);
+        await Assert.That(response.Chunks.Count).IsEqualTo(1);
+        await Assert.That(response.Chunks[0].Name).IsEqualTo("stdout");
+        await Assert.That(response.Chunks[0].Data).IsEquivalentTo(chunk);
     }
 
     [Test]
@@ -46,9 +46,8 @@ public class WSManReceiveResponseTests
 
         await Assert.That(response.State).IsEqualTo(CommandState.Done);
         await Assert.That(response.ExitCode).IsEqualTo((int?)0);
-        await Assert.That(response.Streams.Count).IsEqualTo(2);
-        await Assert.That(response.Streams["stdout"][0].Length).IsEqualTo(0);
-        await Assert.That(response.Streams["stderr"][0].Length).IsEqualTo(0);
+        await Assert.That(string.Join(",", response.Chunks.Select(c => $"{c.Name}:{c.Data.Length}")))
+            .IsEqualTo("stdout:0,stderr:0");
     }
 
     [Test]
@@ -104,7 +103,7 @@ public class WSManReceiveResponseTests
     }
 
     [Test]
-    public async Task Parse_MultipleChunksPreserveOrderPerStream()
+    public async Task Parse_ChunksKeepOrderAcrossStreams()
     {
         byte[] data = ReceiveResponse(null,
             TestHelpers.Stream("stdout", new byte[] { 1 }),
@@ -115,8 +114,8 @@ public class WSManReceiveResponseTests
 
         WSManReceiveResponse response = WSManReceiveResponse.Parse(data);
 
-        await Assert.That(response.Streams["stdout"].Select(c => c[0])).IsEquivalentTo(new byte[] { 1, 3, 4 });
-        await Assert.That(response.Streams["stderr"].Select(c => c[0])).IsEquivalentTo(new byte[] { 2, 5 });
+        string actual = string.Join(",", response.Chunks.Select(c => $"{c.Name}:{c.Data[0]}"));
+        await Assert.That(actual).IsEqualTo("stdout:1,stderr:2,stdout:3,stdout:4,stderr:5");
     }
 
     [Test]
@@ -128,7 +127,7 @@ public class WSManReceiveResponseTests
 
         WSManReceiveResponse response = WSManReceiveResponse.Parse(data);
 
-        await Assert.That(response.Streams["stdout"][0]).IsEquivalentTo(chunk);
+        await Assert.That(response.Chunks[0].Data).IsEquivalentTo(chunk);
     }
 
     [Test]
@@ -140,7 +139,7 @@ public class WSManReceiveResponseTests
 
         WSManReceiveResponse response = WSManReceiveResponse.Parse(data);
 
-        await Assert.That(Encoding.UTF8.GetString(response.Streams["stdout"][0])).IsEqualTo("hello");
+        await Assert.That(Encoding.UTF8.GetString(response.Chunks[0].Data)).IsEqualTo("hello");
     }
 
     [Test]
@@ -152,7 +151,7 @@ public class WSManReceiveResponseTests
 
         await Assert.That(response.State).IsNull();
         await Assert.That(response.ExitCode).IsNull();
-        await Assert.That(response.Streams.Count).IsEqualTo(0);
+        await Assert.That(response.Chunks.Count).IsEqualTo(0);
     }
 
     [Test]
@@ -164,7 +163,7 @@ public class WSManReceiveResponseTests
 
         WSManReceiveResponse response = WSManReceiveResponse.Parse(data);
 
-        await Assert.That(response.Streams.Count).IsEqualTo(2);
+        await Assert.That(string.Join(",", response.Chunks.Select(c => c.Name))).IsEqualTo("stdout,StdOut");
     }
 
     [Test]

@@ -382,6 +382,76 @@ Function global:Get-PSSessionSplat {
     }
 }
 
+Function global:Get-RawOutputCommand {
+    <#
+    .SYNOPSIS
+    Builds a command line that writes exact bytes to stdout or stderr.
+
+    .DESCRIPTION
+    cmd.exe cannot write arbitrary bytes, so the bytes are embedded in a
+    PowerShell script that writes them straight to the standard stream. The
+    script is passed to powershell.exe as UTF-8 base64 that a short -Command
+    decodes and runs with Invoke-Expression. Base64 has no characters cmd.exe
+    interprets and UTF-8 keeps it about half the size of -EncodedCommand,
+    which takes UTF-16. The result is used as the -Command of
+    Invoke-WinRSCommand.
+
+    The whole command line has to fit in the 8191 characters cmd.exe accepts,
+    which allows roughly 4KB of data.
+
+    .PARAMETER Hex
+    The bytes as a hex string, whitespace is ignored.
+
+    .PARAMETER Bytes
+    The bytes to write.
+
+    .PARAMETER Stream
+    The stream to write the bytes to.
+
+    .PARAMETER ExitCode
+    The exit code of the process.
+    #>
+    [OutputType([string])]
+    [CmdletBinding(DefaultParameterSetName = 'Hex')]
+    param (
+        [Parameter(Mandatory, ParameterSetName = 'Hex')]
+        [string]
+        $Hex,
+
+        [Parameter(Mandatory, ParameterSetName = 'Bytes')]
+        [byte[]]
+        $Bytes,
+
+        [ValidateSet('Stdout', 'Stderr')]
+        [string]
+        $Stream = 'Stdout',
+
+        [int]
+        $ExitCode = 0
+    )
+
+    $data = switch ($PSCmdlet.ParameterSetName) {
+        Hex { [Convert]::FromHexString(($Hex -replace '\s', '')) }
+        Bytes { $Bytes }
+    }
+
+    # Nothing here loads a module, which would make powershell.exe write progress records to stderr.
+    $script = @"
+`$b = [Convert]::FromBase64String('$([Convert]::ToBase64String($data))')
+`$s = [Console]::$(if ($Stream -eq 'Stdout') { 'OpenStandardOutput' } else { 'OpenStandardError' })()
+`$s.Write(`$b, 0, `$b.Length)
+`$s.Flush()
+exit $ExitCode
+"@
+    $encoded = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($script))
+    $command = "powershell.exe -NoProfile -NonInteractive -Command `"iex ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$encoded')))`""
+    if ($command.Length -gt 8191) {
+        throw "The command for $($data.Length) bytes is $($command.Length) characters, cmd.exe accepts at most 8191"
+    }
+
+    $command
+}
+
 Function global:Invoke-Kinit {
     [CmdletBinding()]
     param (
