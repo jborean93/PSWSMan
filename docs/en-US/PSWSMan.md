@@ -11,6 +11,9 @@ Locale: en-US
 PowerShell module that adds support of WSMan on Linux, macOS, and Windows.
 
 ## PSWSMan Cmdlets
+### [ConvertTo-WinRSCommandLine](ConvertTo-WinRSCommandLine.md)
+Builds a command line for `Invoke-WinRSCommand` that runs an executable with an exact list of arguments.
+
 ### [Enable-PSWSMan](Enable-PSWSMan.md)
 Enables PSWSMan as the transport method for WSMan based transports in PowerShell.
 

@@ -30,6 +30,7 @@ client once `Enable-PSWSMan -Force` has been run.
 | `module/` | The `.psd1` manifest and `.psm1` loader script copied verbatim into the built module. `ModuleVersion` here is the single source of truth for the version. |
 | `docs/en-US/` | platyPS markdown help. Compiled to MAML at build time. Edit these when cmdlet parameters or behaviour change. |
 | `tests/*.Tests.ps1` | Pester tests that run against the built module. Most connection tests need a real WinRM server and skip without one. |
+| `tests/data/` | Files the tests share. `WinRSCommandLine.json` holds the `ConvertTo-WinRSCommandLine` cases that both the `PSWSMan.Lib` unit tests and `tests/ConvertTo-WinRSCommandLine.Tests.ps1` run, and `print_argv.cs` is the argv printer the Pester test compiles on the WinRM host, at the relative `file_path` of the cases under the shell's working directory, to run each expected line verbatim. |
 | `tests/common.ps1` | Dot-sourced by every Pester file. Imports the built module and runs `Enable-PSWSMan -Force`. |
 | `tests/units/<Project>/` | .NET unit test projects (TUnit). Each directory is discovered and run automatically by the `Test` task. |
 | `tests/units/PSWSMan.Authentication.Tests/` | Drives the module's authentication contexts (GSSAPI, Windows SSPI, Devolutions) against an independent acceptor, the pyspnego library, over stdin/stdout. `acceptor.py` is the Python side. These tests skip when Python with pyspnego is not available. |

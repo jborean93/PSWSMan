@@ -38,6 +38,11 @@ This also means the `/C` quoting rule of `cmd.exe` applies, a command line that 
 Wrap the whole line in one more pair of double quotes when it starts with a quoted path, for example `""C:\Program Files\App\app.exe" -arg"`.
 You can use single quotes in PowerShell to write the command line so nothing is expanded on the client first.
 
+Use `ConvertTo-WinRSCommandLine` to build the command line from an executable and a list of arguments, it quotes and escapes them so the process receives each argument exactly as given.
+Prefer it over putting values into the command line yourself, especially values from variables or user input.
+A value interpolated into `-Command` is interpreted by `cmd.exe`, so a `%VAR%` in it is expanded, a quote in it changes how the rest of the line is split, and an `&` or `|` in it runs another command on the remote host.
+See `ConvertTo-WinRSCommandLine` for the escaping rules and the few cases it cannot cover, like batch files and delayed expansion.
+
 The output is written the same way PowerShell writes the output of a local native command.
 Each line the process writes to stdout is written to the output stream as a string and each line written to stderr is written to the error stream as a `NativeCommandError` record, which is displayed as plain text.
 When the process exits its exit code is stored in `$LASTEXITCODE`.
@@ -125,15 +130,26 @@ PS C:\> Invoke-WinRSCommand Server01 '""C:\Program Files\7-Zip\7z.exe" l "C:\tem
 The executable path and the archive path both contain spaces so each is quoted.
 The line starts with a quote so it is also wrapped in an extra pair of double quotes, `cmd.exe /C` removes that outer pair and runs `"C:\Program Files\7-Zip\7z.exe" l "C:\temp\my archive.zip"`.
 Without the extra pair `cmd.exe` would remove the quote before `C:\Program Files` and the one after `my archive.zip`, and fail to find `C:\Program`.
+`ConvertTo-WinRSCommandLine` builds an equivalent line without having to work out the quoting, see the next example.
 
-### Example 7: Run a program that writes in the OEM code page
+### Example 7: Build the command line from an executable and its arguments
+```powershell
+PS C:\> $archive = 'C:\temp\100% done & (final).zip'
+PS C:\> $cmd = ConvertTo-WinRSCommandLine 'C:\Program Files\7-Zip\7z.exe' l $archive
+PS C:\> Invoke-WinRSCommand Server01 $cmd
+```
+
+`ConvertTo-WinRSCommandLine` escapes the executable path and each argument for `cmd.exe`, so `7z.exe` receives `l` and the value of `$archive` as its two arguments.
+The `%`, `&`, spaces and parentheses in the value are passed through as they are, where writing the line by hand would need them escaped in ways that differ inside and outside of quotes.
+
+### Example 8: Run a program that writes in the OEM code page
 ```powershell
 PS C:\> Invoke-WinRSCommand Server01 'legacy.exe /report' -ConsoleEncoding 437
 ```
 
 Creates the remote shell with code page 437 and decodes the output with it, for a program that ignores the UTF-8 code page and writes in the OEM code page of a US English system.
 
-### Example 8: Copy a binary file from the remote host
+### Example 9: Copy a binary file from the remote host
 ```powershell
 PS C:\> Invoke-WinRSCommand Server01 'type C:\temp\archive.zip' -AsByteStream |
 >>     Set-Content -Path ./archive.zip -AsByteStream
@@ -141,7 +157,7 @@ PS C:\> Invoke-WinRSCommand Server01 'type C:\temp\archive.zip' -AsByteStream |
 
 Outputs the raw bytes `type` writes as `byte[]` chunks and writes them unchanged to a local file.
 
-### Example 9: Send input to the process
+### Example 10: Send input to the process
 ```powershell
 PS C:\> 'apple', 'banana', 'cherry' | Invoke-WinRSCommand Server01 'findstr an'
 banana
@@ -151,7 +167,7 @@ PS C:\> Get-Content -Path ./archive.zip -AsByteStream -Raw | Invoke-WinRSCommand
 The first command writes each string as a line to the stdin of `findstr` and outputs the line that matched.
 The second sends the raw bytes of a file to a process reading its stdin.
 
-### Example 10: Connect over HTTPS with NTLM
+### Example 11: Connect over HTTPS with NTLM
 ```powershell
 PS C:\> $so = New-PSWSManSessionOption -SkipCACheck -SkipCNCheck
 PS C:\> Invoke-WinRSCommand Server01 hostname -UseSSL -Credential $cred -Authentication NTLM -SessionOption $so
@@ -159,14 +175,14 @@ PS C:\> Invoke-WinRSCommand Server01 hostname -UseSSL -Credential $cred -Authent
 
 Connects to port 5986 over HTTPS without validating the certificate of the server and authenticates with NTLM.
 
-### Example 11: Connect with a connection URI
+### Example 12: Connect with a connection URI
 ```powershell
 PS C:\> Invoke-WinRSCommand -ConnectionUri https://Server01:5986/custom -Command hostname -Credential $cred
 ```
 
 Connects to a listener on a non-standard port and application name without having to specify `-Port`, `-UseSSL` and `-ApplicationName` separately.
 
-### Example 12: Connect with a client certificate
+### Example 13: Connect with a client certificate
 ```powershell
 PS C:\> Invoke-WinRSCommand Server01 whoami -UseSSL -CertificateThumbprint 'E54E20C7E7D2B7D82B3F71B0CB4E4D6A4E5C0A62'
 ```
@@ -246,6 +262,7 @@ Accept wildcard characters: False
 The command line to run on the remote host.
 It is passed as is to the WinRS service which runs it as `cmd.exe /C $Command`, so it is written and quoted the way `cmd.exe` expects rather than the way PowerShell or `Start-Process` would split arguments.
 See the description for how `cmd.exe` interprets it.
+Use `ConvertTo-WinRSCommandLine` to build it from an executable and a list of arguments.
 
 ```yaml
 Type: String
@@ -428,5 +445,7 @@ The exit code of the process is stored in `$LASTEXITCODE`.
 This cmdlet has the alias `iwcm`.
 
 ## RELATED LINKS
+
+[ConvertTo-WinRSCommandLine](./ConvertTo-WinRSCommandLine.md)
 
 [MS-WSMV WinRS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wsmv/)

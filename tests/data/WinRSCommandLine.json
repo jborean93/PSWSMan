@@ -1,0 +1,348 @@
+{
+  "file_path": "PSWSMan argv %OS% 100% & (x86) ^;,=\\print_argv.exe",
+  "cases": [
+    {
+      "name": "no arguments",
+      "arguments": [],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\"\""
+    },
+    {
+      "name": "plain arguments",
+      "arguments": [
+        "a",
+        "b"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" a b\""
+    },
+    {
+      "name": "empty argument",
+      "arguments": [
+        ""
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^\"^\"\""
+    },
+    {
+      "name": "multiple empty arguments",
+      "arguments": [
+        "",
+        ""
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^\"^\" ^\"^\"\""
+    },
+    {
+      "name": "space",
+      "arguments": [
+        "a b"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^\"a b^\"\""
+    },
+    {
+      "name": "only spaces",
+      "arguments": [
+        " ",
+        "  "
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^\" ^\" ^\"  ^\"\""
+    },
+    {
+      "name": "tab",
+      "arguments": [
+        "a\tb"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^\"a\tb^\"\""
+    },
+    {
+      "name": "quote",
+      "arguments": [
+        "a\"b"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^\"a\\^\"b^\"\""
+    },
+    {
+      "name": "lone quote",
+      "arguments": [
+        "\""
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^\"\\^\"^\"\""
+    },
+    {
+      "name": "two quotes",
+      "arguments": [
+        "\"\""
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^\"\\^\"\\^\"^\"\""
+    },
+    {
+      "name": "unbalanced quotes",
+      "arguments": [
+        "\"a",
+        "a\"",
+        "a\"b\"c\"d"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^\"\\^\"a^\" ^\"a\\^\"^\" ^\"a\\^\"b\\^\"c\\^\"d^\"\""
+    },
+    {
+      "name": "quoted words",
+      "arguments": [
+        "\"a b\" c",
+        "a \"b c\" d"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^\"\\^\"a b\\^\" c^\" ^\"a \\^\"b c\\^\" d^\"\""
+    },
+    {
+      "name": "backslashes without quotes",
+      "arguments": [
+        "a\\b",
+        "a\\\\b",
+        "\\\\server\\share"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" a\\b a\\\\b \\\\server\\share\""
+    },
+    {
+      "name": "trailing backslash",
+      "arguments": [
+        "a\\",
+        "C:\\temp\\"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" a\\ C:\\temp\\\""
+    },
+    {
+      "name": "trailing backslashes in quoted argument",
+      "arguments": [
+        "a b\\",
+        "a b\\\\",
+        "C:\\Program Files\\"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^\"a b\\\\^\" ^\"a b\\\\\\\\^\" ^\"C:\\Program Files\\\\^\"\""
+    },
+    {
+      "name": "backslashes before a quote",
+      "arguments": [
+        "a\\\"b",
+        "a\\\\\"b",
+        "a\\\\\\\"b",
+        "\\\""
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^\"a\\\\\\^\"b^\" ^\"a\\\\\\\\\\^\"b^\" ^\"a\\\\\\\\\\\\\\^\"b^\" ^\"\\\\\\^\"^\"\""
+    },
+    {
+      "name": "variable",
+      "arguments": [
+        "%PATH%"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^%^PATH^%\""
+    },
+    {
+      "name": "variable with text",
+      "arguments": [
+        "%SystemRoot%\\foo"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^%^SystemRoot^%^\\foo\""
+    },
+    {
+      "name": "lone percent",
+      "arguments": [
+        "%"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^%\""
+    },
+    {
+      "name": "percent at end of line",
+      "arguments": [
+        "a",
+        "%"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" a ^%\""
+    },
+    {
+      "name": "double percent",
+      "arguments": [
+        "%%",
+        "%%PATH%%"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^%^%^ ^%^%^PATH^%^%\""
+    },
+    {
+      "name": "unpaired percent",
+      "arguments": [
+        "%PATH",
+        "PATH%"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^%^PATH PATH^%\""
+    },
+    {
+      "name": "percent pair across arguments",
+      "arguments": [
+        "a%",
+        "SystemRoot%"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" a^%^ SystemRoot^%\""
+    },
+    {
+      "name": "batch only percent syntax",
+      "arguments": [
+        "%~dp0",
+        "%*",
+        "%1"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^%^~dp0 ^%^* ^%^1\""
+    },
+    {
+      "name": "dynamic variables",
+      "arguments": [
+        "%CD%",
+        "%=C:%",
+        "%RANDOM%"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^%^CD^%^ ^%^=C:^%^ ^%^RANDOM^%\""
+    },
+    {
+      "name": "variable substring",
+      "arguments": [
+        "%PATH:~0,5%",
+        "%PATH:a=b%"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^%^PATH:~0,5^%^ ^%^PATH:a=b^%\""
+    },
+    {
+      "name": "percent before caret",
+      "arguments": [
+        "%^PATH%"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^%^^PATH^%\""
+    },
+    {
+      "name": "caret",
+      "arguments": [
+        "^",
+        "^^",
+        "a^",
+        "a^b"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^^ ^^^^ a^^ a^^b\""
+    },
+    {
+      "name": "caret and quote",
+      "arguments": [
+        "^\"",
+        "\"^"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^\"^^\\^\"^\" ^\"\\^\"^^^\"\""
+    },
+    {
+      "name": "ampersand",
+      "arguments": [
+        "&whoami",
+        "&&",
+        "a&b"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^&whoami ^&^& a^&b\""
+    },
+    {
+      "name": "pipe",
+      "arguments": [
+        "|",
+        "||",
+        "a|b"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^| ^|^| a^|b\""
+    },
+    {
+      "name": "redirection",
+      "arguments": [
+        "<",
+        ">",
+        ">>",
+        "2>&1",
+        "a>b"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^< ^> ^>^> 2^>^&1 a^>b\""
+    },
+    {
+      "name": "parentheses",
+      "arguments": [
+        "(",
+        ")",
+        "()",
+        "(a b)"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^( ^) ^(^) ^\"^(a b^)^\"\""
+    },
+    {
+      "name": "exclamation",
+      "arguments": [
+        "!",
+        "!PATH!",
+        "^!"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ! !PATH! ^^!\""
+    },
+    {
+      "name": "cmd delimiters",
+      "arguments": [
+        ",",
+        ";",
+        "=",
+        ",;="
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" , ; = ,;=\""
+    },
+    {
+      "name": "other symbols",
+      "arguments": [
+        "@a",
+        "*",
+        "?",
+        "~",
+        "#",
+        "$a",
+        "'a'",
+        "`"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" @a * ? ~ # $a 'a' `\""
+    },
+    {
+      "name": "switches",
+      "arguments": [
+        "-",
+        "/?",
+        "/c",
+        "--%"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" - /? /c --^%\""
+    },
+    {
+      "name": "unicode",
+      "arguments": [
+        "café",
+        "日本語",
+        "😀"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" café 日本語 😀\""
+    },
+    {
+      "name": "quote exposing an operator",
+      "arguments": [
+        "\"&whoami\"",
+        "a\\\"&whoami",
+        "\\\"&echo x\\\""
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^\"\\^\"^&whoami\\^\"^\" ^\"a\\\\\\^\"^&whoami^\" ^\"\\\\\\^\"^&echo x\\\\\\^\"^\"\""
+    },
+    {
+      "name": "quote argument before operator argument",
+      "arguments": [
+        "\"",
+        "&whoami"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^\"\\^\"^\" ^&whoami\""
+    },
+    {
+      "name": "everything",
+      "arguments": [
+        "%PATH%&\"^ ! <>|()\\"
+      ],
+      "expected": "\"^\"PSWSMan^ argv^ ^%^OS^%^ 100^%^ ^&^ ^(x86^)^ ^^^;^,^=\\print_argv.exe^\" ^\"^%^PATH^%^&\\^\"^^ ! ^<^>^|^(^)\\\\^\"\""
+    }
+  ]
+}
