@@ -1,5 +1,3 @@
-using PSWSMan.Authentication;
-using PSWSMan.Authentication.Native;
 using PSWSMan.Connection;
 using PSWSMan.Lib;
 using System;
@@ -8,9 +6,6 @@ using System.Management.Automation;
 using System.Management.Automation.Remoting;
 using System.Management.Automation.Remoting.Client;
 using System.Management.Automation.Runspaces;
-using System.Net.Security;
-using System.Security.Authentication;
-using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Xml.Linq;
 
@@ -25,9 +20,6 @@ namespace PSWSMan;
 internal sealed class WSManPSRPSession : IDisposable
 {
     internal const int DefaultMaxEnvelopeSize = 153600;
-
-    // Extra time on top of the server side operation timeout before a request is considered lost.
-    private static readonly TimeSpan s_requestTimeoutGrace = TimeSpan.FromSeconds(30);
 
     private readonly WSManConnectionPool _pool;
     private readonly WSManClient _client;
@@ -68,90 +60,16 @@ internal sealed class WSManPSRPSession : IDisposable
         int maxEnvelopeSize,
         PSTraceSource tracer)
     {
-        SslClientAuthenticationOptions? tlsOptions = null;
-        if (connectionUri.Scheme == Uri.UriSchemeHttps)
-        {
-            tlsOptions = extraConnInfo?.TlsOption ?? BuildTlsOptions(connectionUri, connInfo, extraConnInfo);
-
-            // If using client certificates, disable TLS session resumption to ensure the certificate exchange occurs
-            // on every new connection.
-            if ((tlsOptions.ClientCertificates?.Count ?? 0) > 0)
-            {
-                tlsOptions.AllowTlsResume = false;
-            }
-        }
-
-        // Use the extra options auth method if set, otherwise map the builtin methods to our known enum.
-        AuthenticationMethod authMethod = extraConnInfo?.AuthMethod ?? AuthenticationMethod.Default;
-        if (authMethod == AuthenticationMethod.Default)
-        {
-            authMethod = connInfo.AuthenticationMechanism switch
-            {
-                AuthenticationMechanism.Basic => AuthenticationMethod.Basic,
-                AuthenticationMechanism.Credssp => AuthenticationMethod.CredSSP,
-                AuthenticationMechanism.Kerberos => AuthenticationMethod.Kerberos,
-                AuthenticationMechanism.Negotiate => AuthenticationMethod.Negotiate,
-                AuthenticationMechanism.NegotiateWithImplicitCredential => AuthenticationMethod.Negotiate,
-                _ => AuthenticationMethod.Default,
-            };
-        }
-
-        NegotiateOptions negoOptions = new()
-        {
-            Flags = NegotiateRequestFlags.Default,
-            SPNHostName = extraConnInfo?.SPNHostName ?? connectionUri.DnsSafeHost,
-            SPNService = extraConnInfo?.SPNService,
-        };
-        if (extraConnInfo?.RequestKerberosDelegate == true)
-        {
-            negoOptions.Flags |= NegotiateRequestFlags.Delegate;
-        }
-
-        WSManCredential credential = GenerateWSManCredential(
-            authMethod,
-            extraConnInfo?.AuthProvider ?? AuthenticationProvider.Default,
-            connInfo.Credential?.UserName,
-            connInfo.Credential?.GetNetworkCredential()?.Password,
-            tlsOptions,
-            extraConnInfo?.CredSSPTlsOption,
-            extraConnInfo?.CredSSPAuthMethod ?? AuthenticationMethod.Default,
-            negoOptions
-        );
-
-        // The PowerShell timeouts are in milliseconds, 0 means the default.
-        TimeSpan connectTimeout = connInfo.OpenTimeout > 0
-            ? TimeSpan.FromMilliseconds(connInfo.OpenTimeout)
-            : TimeSpan.FromSeconds(10);
-        TimeSpan operationTimeout = connInfo.OperationTimeout > 0
-            ? TimeSpan.FromMilliseconds(connInfo.OperationTimeout)
-            : TimeSpan.FromSeconds(180);
-
-        bool encrypt = !(connectionUri.Scheme == Uri.UriSchemeHttps || connInfo.NoEncryption);
-        WSManConnectionOptions options = new(connectionUri, credential)
-        {
-            TlsOptions = tlsOptions,
-            Encrypt = encrypt,
-            ConnectTimeout = connectTimeout,
-            RequestTimeout = operationTimeout + s_requestTimeoutGrace,
-            Trace = tracer.WriteLine,
-        };
-
-        WSManConnectionPool pool = new(options);
-        // wsman:Locale is the language for messages and maps to the UI culture, wsmv:DataLocale is the format for
-        // data and maps to the culture. The server applies them to Get-UICulture and Get-Culture respectively.
-        WSManClient client = new(
-            connectionUri,
-            maxEnvelopeSize,
-            operationTimeout,
-            connInfo.UICulture?.Name ?? connInfo.Culture.Name,
-            dataLocale: connInfo.Culture.Name);
+        WSManTransport transport = WSManTransportFactory.Create(connectionUri, connInfo, extraConnInfo,
+            maxEnvelopeSize, tracer.WriteLine);
 
         // PowerShell exposes this as the number of times the native client reconnects after a network failure. Here
         // it bounds how often a lost Receive is resent on a new connection, e.g. when the remote command restarts
         // the network adapter. A negative value is treated as no retries.
         int receiveRetries = Math.Max(connInfo.MaxConnectionRetryCount, 0);
 
-        return new(pool, client, runspacePoolId, connInfo.ShellUri, connInfo.NoMachineProfile, receiveRetries, tracer);
+        return new(transport.Pool, transport.Client, runspacePoolId, connInfo.ShellUri, connInfo.NoMachineProfile,
+            receiveRetries, tracer);
     }
 
     public void SetMaxEnvelopeSize(int size) => _client.UpdateMaxEnvelopeSize(size);
@@ -202,168 +120,6 @@ internal sealed class WSManPSRPSession : IDisposable
     {
         _shell.Dispose();
         _pool.Dispose();
-    }
-
-    private static SslClientAuthenticationOptions BuildTlsOptions(Uri connectionUri, WSManConnectionInfo connInfo,
-        PSWSManSessionOption? extraConnInfo)
-    {
-        SslClientAuthenticationOptions tlsOptions = new()
-        {
-            TargetHost = connectionUri.DnsSafeHost,
-        };
-
-        if (connInfo.SkipCACheck || connInfo.SkipCNCheck)
-        {
-            tlsOptions.RemoteCertificateValidationCallback = ((_1, _2, _3, sslPolicyErrors) =>
-            {
-                if (connInfo.SkipCACheck)
-                {
-                    sslPolicyErrors &= ~SslPolicyErrors.RemoteCertificateChainErrors;
-                }
-                if (connInfo.SkipCNCheck)
-                {
-                    sslPolicyErrors &= ~SslPolicyErrors.RemoteCertificateNameMismatch;
-                }
-
-                return sslPolicyErrors == SslPolicyErrors.None;
-            });
-        }
-
-        if (!string.IsNullOrWhiteSpace(connInfo.CertificateThumbprint))
-        {
-            bool found = false;
-            foreach (StoreLocation location in new[] { StoreLocation.CurrentUser, StoreLocation.LocalMachine })
-            {
-                using X509Store store = new(StoreName.My, location, OpenFlags.ReadOnly);
-                foreach (X509Certificate2 cert in store.Certificates)
-                {
-                    if (string.Equals(cert.Thumbprint, connInfo.CertificateThumbprint,
-                        StringComparison.InvariantCultureIgnoreCase))
-                    {
-                        tlsOptions.ClientCertificates = new(new[] { cert });
-                        found = true;
-                        break;
-                    }
-                }
-            }
-
-            if (!found)
-            {
-                string errMsg = $"WinRM failed to find certificate with the thumbprint requested '{connInfo.CertificateThumbprint}'";
-                throw new AuthenticationException(errMsg);
-            }
-        }
-        else if (extraConnInfo?.ClientCertificate != null)
-        {
-            tlsOptions.ClientCertificates = new(new[] { extraConnInfo.ClientCertificate });
-        }
-
-        return tlsOptions;
-    }
-
-    private static WSManCredential GenerateWSManCredential(AuthenticationMethod authMethod,
-        AuthenticationProvider authProvider, string? userName, string? password,
-        SslClientAuthenticationOptions? tlsOptions, SslClientAuthenticationOptions? credSSPTlsOptions,
-        AuthenticationMethod credSSPAuthMethod, NegotiateOptions negoOptions)
-    {
-        if (authMethod == AuthenticationMethod.Default)
-        {
-            if ((tlsOptions?.ClientCertificates?.Count ?? 0) > 0)
-            {
-                return new CertificateCredential();
-            }
-
-            authMethod = AuthenticationMethod.Negotiate;
-        }
-
-        if (authMethod == AuthenticationMethod.Basic)
-        {
-            return new BasicCredential(userName, password);
-        }
-
-        if (authMethod == AuthenticationMethod.CredSSP)
-        {
-            if (userName is null || password is null)
-            {
-                throw new ArgumentException("Username and password must be set for CredSSP authentication");
-            }
-
-            WSManCredential negoCredential = GetNegotiateCredential(credSSPAuthMethod, authProvider, userName,
-                password, negoOptions);
-
-            string domainName = "";
-            string username = userName;
-            if (username.Contains('\\'))
-            {
-                string[] stringSplit = username.Split('\\', 2);
-                domainName = stringSplit[0];
-                username = stringSplit[1];
-            }
-            TSPasswordCreds credSSPCreds = new(domainName, username, password);
-            return new CredSSPCredential(credSSPCreds, negoCredential, credSSPTlsOptions);
-        }
-        else
-        {
-            return GetNegotiateCredential(authMethod, authProvider, userName, password, negoOptions);
-        }
-    }
-
-    private static WSManCredential GetNegotiateCredential(AuthenticationMethod method, AuthenticationProvider provider,
-        string? userName, string? password, NegotiateOptions negoOptions)
-    {
-        NegotiateMethod negoMethod = method switch
-        {
-            AuthenticationMethod.NTLM => NegotiateMethod.NTLM,
-            AuthenticationMethod.Kerberos => NegotiateMethod.Kerberos,
-            _ => NegotiateMethod.Negotiate,
-        };
-
-        if (provider == AuthenticationProvider.Default)
-        {
-            provider = ModuleSettings.GetFromTLS().DefaultAuthProvider;
-        }
-
-        if (provider == AuthenticationProvider.Devolutions)
-        {
-            if (!ProviderLibs.TryGetDevolutionsSspi(out SspiProvider? devolutionsProvider, out Exception? devolutionsError))
-            {
-                throw new ArgumentException(devolutionsError.Message, devolutionsError);
-            }
-
-            return new SspiCredential(devolutionsProvider, userName, password, negoMethod, negoOptions);
-        }
-
-        // This is set when running on Windows
-        SspiProvider? systemProvider = ProviderLibs.GetSystemSspi();
-        if (systemProvider is not null)
-        {
-            return new SspiCredential(systemProvider, userName, password, negoMethod, negoOptions);
-        }
-
-        GssapiProvider gssapiProvider = LoadGssapiProvider(ModuleSettings.GetFromTLS());
-        return new GssapiCredential(gssapiProvider, userName, password, negoMethod, negoOptions);
-    }
-
-    /// <summary>Loads the GSSAPI library configured by Set-PSWSManAuth, or the system one when none is set.</summary>
-    private static GssapiProvider LoadGssapiProvider(ModuleSettings moduleSettings)
-    {
-        if (moduleSettings.GssapiLib != ModuleSettings.DefaultGssapiLib)
-        {
-            if (!ProviderLibs.TryGetGssapi(moduleSettings.GssapiLib, out GssapiProvider? customProvider,
-                out Exception? customError))
-            {
-                throw new ArgumentException(customError.Message, customError);
-            }
-
-            return customProvider;
-        }
-
-        if (!ProviderLibs.TryGetSystemGssapi(out GssapiProvider? systemProvider, out Exception? systemError))
-        {
-            throw new ArgumentException(systemError.Message, systemError);
-        }
-
-        return systemProvider;
     }
 
     /// <summary>Delivers pumped output to a transport manager and reports pump failures as transport errors.</summary>

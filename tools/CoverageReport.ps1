@@ -27,17 +27,26 @@ Powershell, use a single string with patterns separated by commas, e.g.
 .PARAMETER Detailed
 Show detailed report with missing lines/branches grouped by file and method.
 
-.EXAMPLE
-./CoverageReport.ps1 -Path ./output/TestResults/Coverage.xml
+.PARAMETER SortBy
+The order the files are listed in. Coverage lists the least covered files
+first, by line then branch coverage, and Name lists them alphabetically by
+path. Defaults to Coverage for the summary report and Name for the detailed
+report.
 
 .EXAMPLE
-./CoverageReport.ps1 -Path ./output/TestResults/Coverage.xml -Detailed
+./CoverageReport.ps1 -Path ./output/TestResults/Coverage.cobertura.xml
 
 .EXAMPLE
-./CoverageReport.ps1 -Path ./output/TestResults/Coverage.xml -FileFilter '*.g.cs','*Test*.cs'
+./CoverageReport.ps1 -Path ./output/TestResults/Coverage.cobertura.xml -Detailed
 
 .EXAMPLE
-./CoverageReport.ps1 -Path ./output/TestResults/Coverage.xml -FileFilter @()
+./CoverageReport.ps1 -Path ./output/TestResults/Coverage.cobertura.xml -SortBy Name
+
+.EXAMPLE
+./CoverageReport.ps1 -Path ./output/TestResults/Coverage.cobertura.xml -FileFilter '*.g.cs','*Test*.cs'
+
+.EXAMPLE
+./CoverageReport.ps1 -Path ./output/TestResults/Coverage.cobertura.xml -FileFilter @()
 #>
 
 [CmdletBinding()]
@@ -53,7 +62,12 @@ param(
 
     [Parameter()]
     [switch]
-    $Detailed
+    $Detailed,
+
+    [Parameter()]
+    [ValidateSet('Coverage', 'Name')]
+    [string]
+    $SortBy
 )
 
 $ErrorActionPreference = 'Stop'
@@ -329,11 +343,26 @@ function Get-CoverageData {
     }
 }
 
+function Get-SortProperty {
+    [OutputType([string[]])]
+    param([string]$SortBy)
+
+    switch ($SortBy) {
+        'Name' { , @('Name') }
+        # Name breaks ties so files with the same coverage are always listed in the same order.
+        'Coverage' { , @('LineCoverage', 'BranchCoverage', 'Name') }
+    }
+}
+
 function Show-SummaryReport {
     param(
         [Parameter(Mandatory)]
         [CoverageReport]
-        $Report
+        $Report,
+
+        [Parameter()]
+        [string]
+        $SortBy = 'Coverage'
     )
 
     Write-Host ""
@@ -363,7 +392,7 @@ function Show-SummaryReport {
             Missing = ($missingLineRanges -join ', ')
             BranchLines = (($_.PartialBranchLines | Sort-Object) -join ', ')
         }
-    } | Sort-Object LineCoverage, BranchCoverage
+    } | Sort-Object -Property (Get-SortProperty $SortBy)
 
     if ($fileData.Count -eq 0) {
         Write-Host "$($PSStyle.Foreground.Green)All files have 100% coverage!$($PSStyle.Reset)"
@@ -462,7 +491,11 @@ function Show-DetailedReport {
     param(
         [Parameter(Mandatory)]
         [CoverageReport]
-        $Report
+        $Report,
+
+        [Parameter()]
+        [string]
+        $SortBy = 'Name'
     )
 
     Write-Host ""
@@ -474,8 +507,7 @@ function Show-DetailedReport {
     Write-Host "  Branch Coverage: $(Format-Percentage $Report.BranchCoverage) ($($Report.CoveredBranches) of $($Report.TotalBranches))"
     Write-Host ""
 
-    # Process each file (sorted by name)
-    foreach ($file in ($Report.Files | Sort-Object Name)) {
+    foreach ($file in ($Report.Files | Sort-Object -Property (Get-SortProperty $SortBy))) {
         # Skip files with 100% coverage
         if ($file.LineCoverage -eq 100 -and ($file.TotalBranches -eq 0 -or $file.BranchCoverage -eq 100)) {
             continue
@@ -548,9 +580,14 @@ $FileFilter = @(
 
 $report = Get-CoverageData -Path $Path -FileFilter $FileFilter
 
+$showParams = @{ Report = $report }
+if ($SortBy) {
+    $showParams.SortBy = $SortBy
+}
+
 if ($Detailed) {
-    Show-DetailedReport -Report $report
+    Show-DetailedReport @showParams
 }
 else {
-    Show-SummaryReport -Report $report
+    Show-SummaryReport @showParams
 }

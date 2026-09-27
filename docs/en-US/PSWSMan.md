@@ -17,6 +17,9 @@ Enables PSWSMan as the transport method for WSMan based transports in PowerShell
 ### [Get-PSWSManAuth](Get-PSWSManAuth.md)
 Gets the authentication settings used by PSWSMan.
 
+### [Invoke-WinRSCommand](Invoke-WinRSCommand.md)
+Runs a process on a remote host through a WinRS shell and outputs its stdout and stderr.
+
 ### [New-PSWSManCertValidationCallback](New-PSWSManCertValidationCallback.md)
 Create a scriptblock delegate to validate certificates.
 
@@ -25,3 +28,4 @@ Creates an object that specifies custom connection options for a WSMan PSSession
 
 ### [Set-PSWSManAuth](Set-PSWSManAuth.md)
 Sets the authentication settings used by PSWSMan.
+

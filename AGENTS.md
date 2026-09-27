@@ -33,7 +33,7 @@ client once `Enable-PSWSMan -Force` has been run.
 | `tests/common.ps1` | Dot-sourced by every Pester file. Imports the built module and runs `Enable-PSWSMan -Force`. |
 | `tests/units/<Project>/` | .NET unit test projects (TUnit). Each directory is discovered and run automatically by the `Test` task. |
 | `tests/units/PSWSMan.Authentication.Tests/` | Drives the module's authentication contexts (GSSAPI, Windows SSPI, Devolutions) against an independent acceptor, the pyspnego library, over stdin/stdout. `acceptor.py` is the Python side. These tests skip when Python with pyspnego is not available. |
-| `tools/` | Scripts used by `build.ps1`. `InvokeBuild.ps1` defines the tasks; `common.ps1` holds the `Manifest` class and helpers. `SetupWinCI.ps1` configures the Windows CI runner as a WinRM target (listeners, local user, certificate auth, JEA) and writes the matching `test.settings.json`. Run it under Windows PowerShell as an administrator. |
+| `tools/` | Scripts used by `build.ps1`. `InvokeBuild.ps1` defines the tasks; `common.ps1` holds the `Manifest` class and helpers. `UpdateDocs.ps1` regenerates the markdown help from the built module. `SetupWinCI.ps1` configures the Windows CI runner as a WinRM target (listeners, local user, certificate auth, JEA) and writes the matching `test.settings.json`. Run it under Windows PowerShell as an administrator. |
 | `output/` | Git-ignored. Built module, nupkg, downloaded PowerShell versions, cached build modules, and test results all land here. Never commit or hand-edit it. |
 | `CHANGELOG.md` | Update under the top (unreleased) heading for any user-visible change. |
 
@@ -188,6 +188,11 @@ pwsh -File ./tools/CoverageReport.ps1 -Path ./output/TestResults/Coverage.cobert
   `New-PSSession` parameters and takes the `New-PSWSManSessionOption`
   parameters as a hashtable, so it can disable certificate validation for
   entries marked `untrusted_certificate`.
+- `cmd.exe` cannot write arbitrary bytes. `Get-RawOutputCommand` in
+  `tests/common.ps1` builds an `Invoke-WinRSCommand -Command` that writes
+  exact bytes, given as hex or a `byte[]`, to stdout or stderr with a
+  chosen exit code. It fits about 4KB in the 8191 characters `cmd.exe`
+  allows.
 - `test.settings.json` is git-ignored and contains credentials. Never commit
   it or copy its contents into other files.
 - Every Pester file must start with `BeforeDiscovery { . ([IO.Path]::Combine($PSScriptRoot, 'common.ps1')) }`.
@@ -233,8 +238,9 @@ tests and the .NET unit tests actually execute there. Put protocol logic in
 - Cmdlets live in `src/PSWSMan/Commands/`. Adding a cmdlet means also adding
   it to `CmdletsToExport` in `module/PSWSMan.psd1` and writing
   `docs/en-US/<Verb-Noun>.md`. Parameter changes must be reflected in the
-  markdown help; the VS Code task "update docs" shows the platyPS command that
-  regenerates it from the built module.
+  markdown help; `pwsh -File ./tools/UpdateDocs.ps1` (also the VS Code task
+  "update docs") regenerates it from the built module with platyPS and
+  rewrites the pages with LF line endings on non-Windows hosts.
 - Add a line to `CHANGELOG.md` under the unreleased heading for anything a
   user would notice.
 

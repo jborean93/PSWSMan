@@ -200,12 +200,10 @@ internal sealed class WinRSReceivePump
                 WSManRequest request = _winrs.Receive(Streams, commandId: CommandId);
                 WSManReceiveResponse response = SendReceive(request, ref lease);
 
-                foreach (KeyValuePair<string, byte[][]> entry in response.Streams)
+                // In the server's order so stdout and stderr stay interleaved as the command wrote them.
+                foreach (WSManStreamChunk chunk in response.Chunks)
                 {
-                    foreach (byte[] chunk in entry.Value)
-                    {
-                        _sink.OnData(entry.Key, chunk);
-                    }
+                    _sink.OnData(chunk.Name, chunk.Data);
                 }
 
                 if (response.State == CommandState.Done)

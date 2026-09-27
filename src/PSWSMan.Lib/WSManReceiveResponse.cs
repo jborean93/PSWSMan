@@ -1,9 +1,13 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Xml.Linq;
 
 namespace PSWSMan.Lib;
+
+/// <summary>One rsp:Stream element of a Receive response.</summary>
+/// <param name="Name">The name of the stream, e.g. stdout.</param>
+/// <param name="Data">The decoded bytes of the chunk.</param>
+public sealed record WSManStreamChunk(string Name, byte[] Data);
 
 /// <summary>The response to a WinRS Receive request.</summary>
 public sealed class WSManReceiveResponse : IWSManPayload<WSManReceiveResponse>
@@ -14,14 +18,14 @@ public sealed class WSManReceiveResponse : IWSManPayload<WSManReceiveResponse>
     /// <summary>The exit code of the command, if it has finished.</summary>
     public int? ExitCode { get; }
 
-    /// <summary>The output data received, keyed by the stream name.</summary>
-    public IReadOnlyDictionary<string, byte[][]> Streams { get; }
+    /// <summary>Every chunk of output in the order the server returned it, across all streams.</summary>
+    public IReadOnlyList<WSManStreamChunk> Chunks { get; }
 
-    private WSManReceiveResponse(string? state, int? exitCode, IReadOnlyDictionary<string, byte[][]> streams)
+    private WSManReceiveResponse(string? state, int? exitCode, IReadOnlyList<WSManStreamChunk> chunks)
     {
         State = state;
         ExitCode = exitCode;
-        Streams = streams;
+        Chunks = chunks;
     }
 
     /// <inheritdoc />
@@ -32,27 +36,21 @@ public sealed class WSManReceiveResponse : IWSManPayload<WSManReceiveResponse>
         XElement resp = body.Element(WSManNamespace.rsp + "ReceiveResponse")
             ?? throw new WSManProtocolException("ReceiveResponse is missing the rsp:ReceiveResponse element");
 
-        Dictionary<string, List<byte[]>> rawStreams = new();
+        List<WSManStreamChunk> chunks = new();
         foreach (XElement stream in resp.Elements(WSManNamespace.rsp + "Stream"))
         {
             string streamName = stream.Attribute("Name")?.Value
                 ?? throw new WSManProtocolException("ReceiveResponse rsp:Stream is missing the Name attribute");
-            if (!rawStreams.TryGetValue(streamName, out List<byte[]>? chunks))
-            {
-                chunks = new();
-                rawStreams[streamName] = chunks;
-            }
 
             try
             {
-                chunks.Add(Convert.FromBase64String(stream.Value));
+                chunks.Add(new(streamName, Convert.FromBase64String(stream.Value)));
             }
             catch (FormatException e)
             {
                 throw new WSManProtocolException($"ReceiveResponse rsp:Stream '{streamName}' is not valid base64", e);
             }
         }
-        Dictionary<string, byte[][]> streams = rawStreams.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.ToArray());
 
         string? state = null;
         int? exitCode = null;
@@ -70,6 +68,6 @@ public sealed class WSManReceiveResponse : IWSManPayload<WSManReceiveResponse>
             }
         }
 
-        return new(state, exitCode, streams);
+        return new(state, exitCode, chunks);
     }
 }
