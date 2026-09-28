@@ -5,7 +5,6 @@ using System.Collections;
 using System.Diagnostics;
 using System.IO;
 using System.Management.Automation;
-using System.Management.Automation.Remoting;
 using System.Management.Automation.Remoting.Client;
 using System.Text;
 using System.Threading;
@@ -39,7 +38,7 @@ public sealed class InvokeWinRSCommand : WinRSCmdletBase
     [Parameter(
         ValueFromPipeline = true
     )]
-    [System.Management.Automation.AllowNull]
+    [AllowNull]
     [AllowEmptyString]
     public PSObject? InputObject { get; set; }
 
@@ -55,6 +54,14 @@ public sealed class InvokeWinRSCommand : WinRSCmdletBase
     protected override void BeginProcessing()
     {
         base.BeginProcessing();
+
+        // The shell's console already has its code page, the parameter only changes how this side encodes the
+        // input and decodes the output.
+        if (Shell is not null && !MyInvocation.BoundParameters.ContainsKey(nameof(ConsoleEncoding)))
+        {
+            ConsoleEncoding = Shell.ConsoleEncoding;
+        }
+
         Guard(StartCommand);
     }
 
@@ -122,7 +129,7 @@ public sealed class InvokeWinRSCommand : WinRSCmdletBase
 
     private void StartCommand()
     {
-        OpenShell(ConsoleEncoding.CodePage);
+        OpenShell(ConsoleEncoding);
 
         _stdout = AsByteStream ? null : new WinRSLineDecoder(ConsoleEncoding);
         _stderr = new WinRSLineDecoder(ConsoleEncoding);

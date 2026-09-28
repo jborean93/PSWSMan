@@ -25,7 +25,9 @@ internal sealed class WinRSCommand : IDisposable
 
     private readonly WinRSShell _shell;
     private readonly OutputQueue _queue = new();
+    private readonly CancellationTokenSource _receiveCts = new();
     private bool _stdinClosed;
+    private bool _disposed;
 
     private WinRSCommand(WinRSShell shell)
     {
@@ -43,6 +45,9 @@ internal sealed class WinRSCommand : IDisposable
     /// <summary>Whether the end of stdin has been sent.</summary>
     public bool InputEnded { get; private set; }
 
+    /// <summary>Whether the command has been terminated so the server no longer holds it.</summary>
+    public bool IsTerminated { get; private set; }
+
     /// <summary>The number of bytes sent to stdin.</summary>
     public long StdinLength { get; private set; }
 
@@ -57,7 +62,7 @@ internal sealed class WinRSCommand : IDisposable
     {
         WinRSCommand command = new(shell);
         command.CommandId = shell.RunCommand(commandLine, cancellationToken: cancellationToken);
-        shell.StartReceive(command._queue, "stdout stderr", command.CommandId);
+        shell.StartReceive(command._queue, "stdout stderr", command.CommandId, command._receiveCts.Token);
 
         return command;
     }
@@ -175,10 +180,20 @@ internal sealed class WinRSCommand : IDisposable
     public void Terminate(CancellationToken cancellationToken)
     {
         Signal(SignalCode.Terminate, cancellationToken);
+        IsTerminated = true;
     }
 
+    /// <summary>Stops receiving output, the command itself keeps running until it is terminated.</summary>
     public void Dispose()
     {
+        if (_disposed)
+        {
+            return;
+        }
+        _disposed = true;
+
+        _receiveCts.Cancel();
+        _receiveCts.Dispose();
         _queue.Dispose();
     }
 

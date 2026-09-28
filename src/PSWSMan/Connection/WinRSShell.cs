@@ -165,9 +165,10 @@ internal sealed class WinRSShell : IDisposable
     /// <param name="sink">Where the output is delivered.</param>
     /// <param name="streams">Space separated list of stream names to receive.</param>
     /// <param name="commandId">The command to receive for, null for the shell.</param>
+    /// <param name="cancellationToken">Stops the pump, it also stops when the shell is closed.</param>
     /// <returns>The running pump.</returns>
     public WinRSReceivePump StartReceive(IWinRSOutputSink sink, string streams = "stdout stderr",
-        Guid? commandId = null)
+        Guid? commandId = null, CancellationToken cancellationToken = default)
     {
         AssertOpened();
 
@@ -180,12 +181,16 @@ internal sealed class WinRSShell : IDisposable
             throw new InvalidOperationException("ReceiveRetryBackoff cannot be negative.");
         }
 
+        // The pump owns the linked source and disposes it when it exits.
+        CancellationTokenSource pumpCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token,
+            cancellationToken);
         WinRSReceivePump pump = new(this, _winrs, _pool, sink, streams, commandId, ReceiveRetries,
-            ReceiveRetryBackoff, _cts.Token, _trace);
+            ReceiveRetryBackoff, pumpCts, _trace);
         lock (_lock)
         {
             if (_closed)
             {
+                pumpCts.Dispose();
                 throw new InvalidOperationException("The shell has been closed.");
             }
             _pumps.Add(pump);
@@ -196,7 +201,10 @@ internal sealed class WinRSShell : IDisposable
     }
 
     /// <summary>Deletes the shell on the server and stops the receive pumps.</summary>
-    /// <param name="cancellationToken">Cancels the Delete request, the pumps are stopped regardless.</param>
+    /// <param name="cancellationToken">
+    /// Cancels the Delete request, the pumps are stopped regardless and a cancelled Delete falls back to the best
+    /// effort one <see cref="Abort"/> makes.
+    /// </param>
     public void Close(CancellationToken cancellationToken = default)
     {
         bool opened;
@@ -210,17 +218,23 @@ internal sealed class WinRSShell : IDisposable
             opened = _opened;
         }
 
+        bool deleted = !opened;
         try
         {
             if (opened)
             {
                 Trace("sending Delete");
                 Invoke<WSManDeleteResponse>(_winrs.Delete(), cancellationToken);
+                deleted = true;
             }
         }
         finally
         {
             StopPumps();
+            if (!deleted && cancellationToken.IsCancellationRequested)
+            {
+                DeleteBestEffort();
+            }
         }
     }
 
@@ -243,17 +257,7 @@ internal sealed class WinRSShell : IDisposable
 
         if (opened)
         {
-            // The lifetime token is cancelled so this goes straight to the pool with its own deadline.
-            using CancellationTokenSource deleteCts = new(s_abortDeleteTimeout);
-            try
-            {
-                Trace("sending best effort Delete");
-                _pool.Invoke<WSManDeleteResponse>(_winrs.Delete(), deleteCts.Token);
-            }
-            catch (Exception e)
-            {
-                Trace("best effort Delete failed", e);
-            }
+            DeleteBestEffort();
         }
     }
 
@@ -296,6 +300,21 @@ internal sealed class WinRSShell : IDisposable
             {
                 Trace($"receive pump for {pump.CommandId?.ToString() ?? "shell"} did not stop in time");
             }
+        }
+    }
+
+    private void DeleteBestEffort()
+    {
+        // The lifetime token is cancelled so this goes straight to the pool with its own deadline.
+        using CancellationTokenSource deleteCts = new(s_abortDeleteTimeout);
+        try
+        {
+            Trace("sending best effort Delete");
+            _pool.Invoke<WSManDeleteResponse>(_winrs.Delete(), deleteCts.Token);
+        }
+        catch (Exception e)
+        {
+            Trace("best effort Delete failed", e);
         }
     }
 

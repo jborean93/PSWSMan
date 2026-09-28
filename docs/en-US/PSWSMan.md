@@ -20,6 +20,9 @@ Enables PSWSMan as the transport method for WSMan based transports in PowerShell
 ### [Get-PSWSManAuth](Get-PSWSManAuth.md)
 Gets the authentication settings used by PSWSMan.
 
+### [Get-WinRSShell](Get-WinRSShell.md)
+Gets the WinRS shells created by New-WinRSShell in the current runspace.
+
 ### [Invoke-WinRSCommand](Invoke-WinRSCommand.md)
 Runs a process on a remote host through a WinRS shell and outputs its stdout and stderr.
 
@@ -29,8 +32,14 @@ Create a scriptblock delegate to validate certificates.
 ### [New-PSWSManSessionOption](New-PSWSManSessionOption.md)
 Creates an object that specifies custom connection options for a WSMan PSSession.
 
+### [New-WinRSShell](New-WinRSShell.md)
+Creates a WinRS shell on a remote host that several WinRS commands can run in.
+
 ### [Receive-WinRSFile](Receive-WinRSFile.md)
 Copies files from a remote host to the local host over a WinRS connection.
+
+### [Remove-WinRSShell](Remove-WinRSShell.md)
+Deletes WinRS shells created by New-WinRSShell.
 
 ### [Send-WinRSFile](Send-WinRSFile.md)
 Copies local files to a remote host over a WinRS connection.
