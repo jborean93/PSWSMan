@@ -23,6 +23,7 @@ internal sealed class MonoModPatcher : IDisposable
         PrepareAccessors(typeof(PSWSMan_WSManApiDataCommon));
         PrepareAccessors(typeof(PSWSMan_WSManClientSessionTransportManager));
         PrepareAccessors(typeof(PSWSMan_WSManClientCommandTransportManager));
+        PrepareAccessors(typeof(PSWSMan_EnterPSSessionCommand));
 
         _hooks.AddRange(PSWSMan_WSManApiDataCommon.GenerateHooks());
         _hooks.AddRange(PSWSMan_WSManClientSessionTransportManager.GenerateHooks());
@@ -30,6 +31,8 @@ internal sealed class MonoModPatcher : IDisposable
         _hooks.AddRange(PSWSMan_WSManConnectionInfo.GenerateHooks());
         _hooks.AddRange(PSWSMan_InternalDeserializer.GenerateHooks());
         _hooks.AddRange(PSWSMan_RemoteRunspace.GenerateHooks());
+        _hooks.AddRange(PSWSMan_EnterPSSessionCommand.GenerateHooks());
+        _hooks.AddRange(PSWSMan_RemoteHostCall.GenerateHooks());
     }
 
     public void UnpatchAll()
