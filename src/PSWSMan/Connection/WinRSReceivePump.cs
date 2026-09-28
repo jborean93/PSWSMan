@@ -14,7 +14,8 @@ namespace PSWSMan.Connection;
 /// <para>
 /// The pump runs on its own dedicated thread and holds one pooled connection for its lifetime, the same model the
 /// native WinRM client uses. It stops when the server reports the command is done, the shell goes away, or the
-/// shell's cancellation token is triggered by <see cref="WinRSShell.Close"/> or <see cref="WinRSShell.Abort"/>.
+/// shell's cancellation token is triggered by <see cref="WinRSShell.Close"/> or <see cref="WinRSShell.Abort"/>, or
+/// the token given to <see cref="WinRSShell.StartReceive"/> is cancelled.
 /// </para>
 /// <para>
 /// A Receive that fails at the transport level, for example because the command being run bounced the network
@@ -46,6 +47,7 @@ internal sealed class WinRSReceivePump
     private readonly WinRSClient _winrs;
     private readonly WSManConnectionPool _pool;
     private readonly IWinRSOutputSink _sink;
+    private readonly CancellationTokenSource _cts;
     private readonly CancellationToken _token;
     private readonly Action<string>? _trace;
     private readonly Thread _thread;
@@ -67,14 +69,15 @@ internal sealed class WinRSReceivePump
         Guid? commandId,
         int retries,
         TimeSpan retryBackoff,
-        CancellationToken token,
+        CancellationTokenSource cts,
         Action<string>? trace)
     {
         _shell = shell;
         _winrs = winrs;
         _pool = pool;
         _sink = sink;
-        _token = token;
+        _cts = cts;
+        _token = cts.Token;
         _trace = trace;
         _retries = retries;
         _retryBackoff = retryBackoff;
@@ -184,6 +187,8 @@ internal sealed class WinRSReceivePump
         {
             Trace("sink OnCompleted failed", e);
         }
+
+        _cts.Dispose();
     }
 
     private WinRSReceiveCompletion ReceiveLoop()

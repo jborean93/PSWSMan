@@ -20,6 +20,12 @@ Invoke-WinRSCommand [-Command] <String> [-InputObject <PSObject>] [-ConsoleEncod
  [-ProgressAction <ActionPreference>] [<CommonParameters>]
 ```
 
+### Shell
+```
+Invoke-WinRSCommand [-Command] <String> [-InputObject <PSObject>] [-ConsoleEncoding <Encoding>] [-AsByteStream]
+ -Shell <WinRSRemoteShell> [-ProgressAction <ActionPreference>] [<CommonParameters>]
+```
+
 ### ConnectionUri
 ```
 Invoke-WinRSCommand [-Command] <String> [-InputObject <PSObject>] [-ConsoleEncoding <Encoding>] [-AsByteStream]
@@ -50,7 +56,7 @@ Calling `ToString()` on one of the stderr records, or putting it in a string lik
 
 The stderr records are written like the errors of any other cmdlet, so they follow `-ErrorAction` and `$ErrorActionPreference`, which is different from a local native command:
 
-- With `Stop`, the first stderr line becomes a terminating error, and the remote process is terminated along with the shell before it finishes. `$LASTEXITCODE` is not updated. A local native command ignores `$ErrorActionPreference` for its stderr. Redirecting the error stream with `2>&1` or `2>$null` does not change this, set `-ErrorAction Continue|SilentlyContinue|Ignore` on the cmdlet when a script runs with `$ErrorActionPreference = 'Stop'`.
+- With `Stop`, the first stderr line becomes a terminating error, and the remote process is terminated before it finishes. `$LASTEXITCODE` is not updated. A local native command ignores `$ErrorActionPreference` for its stderr. Redirecting the error stream with `2>&1` or `2>$null` does not change this, set `-ErrorAction Continue|SilentlyContinue|Ignore` on the cmdlet when a script runs with `$ErrorActionPreference = 'Stop'`.
 - `SilentlyContinue` hides the lines but still adds them to `$Error` and to `-ErrorVariable`. `Ignore` discards them completely.
 - `$?` is `$false` after the cmdlet writes any stderr line, even if the process exits with `0`. Check `$LASTEXITCODE` to see whether the process succeeded.
 
@@ -58,6 +64,8 @@ The stdout and stderr lines are written in the order the server returns them, so
 The server reads the two streams separately, so a stdout and a stderr line written at almost the same moment can still come back in the opposite order.
 
 The remote shell is created with the code page of `-ConsoleEncoding`, UTF-8 by default, and the same encoding decodes the output and encodes the input.
+A shell from `-Shell` already has the code page it was created with by `New-WinRSShell`, and `-ConsoleEncoding` defaults to that encoding.
+Setting `-ConsoleEncoding` with `-Shell` only changes how the input is encoded and the output is decoded, not the code page of the shell.
 Set it to the code page a program actually writes, for example `437` or `oem`, when its output is not UTF-8.
 Use `-AsByteStream` to get the raw stdout of the process as `byte[]` chunks rather than lines of text, for example to copy a binary file with `type`.
 The shell still runs with the code page of `-ConsoleEncoding` in that mode, and it is still used to encode string input and to decode stderr into error records.
@@ -71,6 +79,12 @@ Input that arrives after the process has exited or closed its stdin is discarded
 Stopping the cmdlet with `Ctrl+C`, or stopping the pipeline it is part of, sends `Ctrl+C` to the remote process so it can exit cleanly, like it would when run locally.
 If the process has not exited within 10 seconds it is terminated.
 This also happens when a later command in the pipeline stops early, like `Select-Object -First 3`.
+
+Each call connects and creates a new shell for its command, then deletes the shell when the command finishes.
+Use `-Shell` with a shell from `New-WinRSShell` to run the command in that shell instead, which saves the connection and shell creation on every call.
+The shell is left open after the command finishes, and a stopped command is terminated without affecting the shell.
+The shell is the WinRS shell resource on the WinRM service, not a `cmd.exe` process that stays open.
+Each command still runs in a new `cmd.exe /C` process, so the working directory, environment variables and anything else one command changes in its process are not seen by the next command in the same shell.
 
 This cmdlet does not require `Enable-PSWSMan` to have been run as it uses the WSMan client of this module directly.
 The connection is configured with the same parameters as `Invoke-Command`, `-ComputerName`, `-Port`, `-UseSSL`, `-ApplicationName`, `-Credential`, `-CertificateThumbprint` and `-SessionOption`, and they mean the same thing.
@@ -192,6 +206,17 @@ PS C:\> Invoke-WinRSCommand Server01 whoami -UseSSL -CertificateThumbprint 'E54E
 
 Authenticates with the certificate from the current user or local machine certificate store that has the thumbprint.
 
+### Example 14: Run several commands in the same shell
+```powershell
+PS C:\> $shell = New-WinRSShell Server01
+PS C:\> Invoke-WinRSCommand -Shell $shell 'hostname'
+PS C:\> Invoke-WinRSCommand -Shell $shell 'whoami'
+PS C:\> Remove-WinRSShell $shell
+```
+
+Creates one shell with `New-WinRSShell` and runs both commands in it, rather than connecting and creating a shell for each command.
+Each command still runs in its own `cmd.exe` process, a `cd` or `set` in the first command does not change what the second command sees.
+
 ## PARAMETERS
 
 ### -ApplicationName
@@ -235,7 +260,7 @@ When set to anything other than `Default` it takes precedence over the `AuthMeth
 
 ```yaml
 Type: AuthenticationMethod
-Parameter Sets: (All)
+Parameter Sets: ComputerName, ConnectionUri
 Aliases:
 
 Required: False
@@ -251,7 +276,7 @@ It requires `-UseSSL` or a `https` `-ConnectionUri` and cannot be used with `-Cr
 
 ```yaml
 Type: String
-Parameter Sets: (All)
+Parameter Sets: ComputerName, ConnectionUri
 Aliases:
 
 Required: False
@@ -317,6 +342,7 @@ Its code page is set on the remote shell so `cmd.exe` and the programs it starts
 It accepts an `Encoding` object, a code page number like `437`, one of the names `UTF8`, `UTF8Bom`, `UTF8NoBom`, `ASCII`, `ANSI`, `OEM`, `ConsoleInput` or `ConsoleOutput`, or any other name `[System.Text.Encoding]::GetEncoding()` accepts.
 The `ANSI`, `OEM`, `ConsoleInput` and `ConsoleOutput` names resolve to the encodings of the local machine, not the remote host.
 The default is UTF-8.
+With `-Shell` the default is the encoding the shell was created with, and a different encoding does not change the code page of the shell.
 With `-AsByteStream` it still sets the code page and encodes string input and decodes stderr, only stdout is left as raw bytes.
 
 UTF-16 and UTF-32 cannot be used, the remote host rejects them as `cmd.exe` does not support them as a console code page.
@@ -339,7 +365,7 @@ When not set the credential of the current user is used.
 
 ```yaml
 Type: PSCredential
-Parameter Sets: (All)
+Parameter Sets: ComputerName, ConnectionUri
 Aliases:
 
 Required: False
@@ -401,10 +427,27 @@ Only the options that apply to a WinRS command are used, see the description for
 
 ```yaml
 Type: PSSessionOption
-Parameter Sets: (All)
+Parameter Sets: ComputerName, ConnectionUri
 Aliases:
 
 Required: False
+Position: Named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -Shell
+A WinRS shell created by `New-WinRSShell` to run the command in, instead of connecting with the connection parameters.
+The command runs in a new `cmd.exe` process, it does not see the working directory or environment variables set by earlier commands in the shell.
+The shell is left open once the command finishes, remove it with `Remove-WinRSShell`.
+
+```yaml
+Type: WinRSRemoteShell
+Parameter Sets: Shell
+Aliases:
+
+Required: True
 Position: Named
 Default value: None
 Accept pipeline input: False

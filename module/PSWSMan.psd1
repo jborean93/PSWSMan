@@ -59,7 +59,9 @@
     # TypesToProcess = @()
 
     # Format files (.ps1xml) to be loaded when importing this module
-    # FormatsToProcess       = @()
+    FormatsToProcess = @(
+        'PSWSMan.Format.ps1xml'
+    )
 
     # Modules to import as nested modules of the module specified in RootModule/ModuleToProcess
     NestedModules = @()
@@ -72,10 +74,13 @@
         'ConvertTo-WinRSCommandLine'
         'Enable-PSWSMan'
         'Get-PSWSManAuth'
+        'Get-WinRSShell'
         'Invoke-WinRSCommand'
         'New-PSWSManCertValidationCallback'
         'New-PSWSManSessionOption'
+        'New-WinRSShell'
         'Receive-WinRSFile'
+        'Remove-WinRSShell'
         'Send-WinRSFile'
         'Set-PSWSManAuth'
     )

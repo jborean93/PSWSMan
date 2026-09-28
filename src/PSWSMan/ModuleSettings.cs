@@ -51,6 +51,8 @@ internal class ModuleSettings
 
     private static readonly RunspaceSpecificStorage<ModuleSettings> _state = new(() => new());
 
+    private readonly List<WinRSRemoteShell> _winrsShells = [];
+
     private ModuleSettings() { }
 
     /// <summary>The default authentication provider set for the module.</summary>
@@ -59,5 +61,36 @@ internal class ModuleSettings
     /// <summary>The path to the GSSAPI library used by the module, <c>Default</c> means the pre-defined library is used.</summary>
     public string GssapiLib { get; set; } = DefaultGssapiLib;
 
+    /// <summary>The open shells created by New-WinRSShell in the runspace, oldest first.</summary>
+    public WinRSRemoteShell[] WinRSShells
+    {
+        get
+        {
+            // Shells are removed from the thread closing the runspace, not only the pipeline thread.
+            lock (_winrsShells)
+            {
+                return _winrsShells.ToArray();
+            }
+        }
+    }
+
     public static ModuleSettings GetFromTLS() => _state.GetFromTLS();
+
+    public static ModuleSettings GetForRunspace(Runspace runspace) => _state.GetForRunspace(runspace);
+
+    public void AddWinRSShell(WinRSRemoteShell shell)
+    {
+        lock (_winrsShells)
+        {
+            _winrsShells.Add(shell);
+        }
+    }
+
+    public void RemoveWinRSShell(WinRSRemoteShell shell)
+    {
+        lock (_winrsShells)
+        {
+            _winrsShells.Remove(shell);
+        }
+    }
 }

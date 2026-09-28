@@ -14,21 +14,13 @@ namespace PSWSMan.Commands;
 /// <summary>The shell and transfer handling shared by the cmdlets that copy files through a WinRS shell.</summary>
 public abstract class WinRSFileCmdletBase : WinRSCmdletBase
 {
-    private WinRSShell? _shell;
-
     [Parameter]
     public CompressionMethod Compression { get; set; } = CompressionMethod.Deflate;
 
     protected override void EndProcessing()
     {
-        if (_shell is not null)
-        {
-            Guard(CloseShell);
-        }
+        Guard(CloseShell);
     }
-
-    /// <summary>Opens the shell for the first file, so nothing connects when every file is skipped.</summary>
-    private protected WinRSShell EnsureShell() => _shell ??= OpenShell(Encoding.UTF8.CodePage);
 
     /// <summary>Resolves a local path without expanding wildcards, it must be on the file system.</summary>
     private protected string GetFileSystemPath(string path)
@@ -58,7 +50,8 @@ public abstract class WinRSFileCmdletBase : WinRSCmdletBase
     private protected TransferResult RunTransfer(string commandLine, string description,
         IEnumerable<byte[]>? input, Action<Stream> readStdout)
     {
-        EnsureShell();
+        // Opened for the first file, so nothing connects when every file is skipped.
+        OpenShell(Encoding.UTF8);
         using WinRSCommand command = StartCommand(commandLine, description);
         try
         {

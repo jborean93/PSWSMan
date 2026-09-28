@@ -20,6 +20,12 @@ Receive-WinRSFile [-Path] <String[]> [-Destination] <String> [-Compression <Comp
  [-ProgressAction <ActionPreference>] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
+### Shell
+```
+Receive-WinRSFile [-Path] <String[]> [-Destination] <String> [-Compression <CompressionMethod>]
+ -Shell <WinRSRemoteShell> [-ProgressAction <ActionPreference>] [-WhatIf] [-Confirm] [<CommonParameters>]
+```
+
 ### ConnectionUri
 ```
 Receive-WinRSFile [-Path] <String[]> [-Destination] <String> [-Compression <CompressionMethod>]
@@ -61,6 +67,7 @@ Stopping the cmdlet with `Ctrl+C` removes the partially copied file from the loc
 
 This cmdlet does not require `Enable-PSWSMan` to have been run.
 The connection parameters are the same as `Invoke-WinRSCommand` and mean the same thing as they do for `Invoke-Command`.
+Instead of connecting, `-Shell` copies the files through a shell created by `New-WinRSShell`, which is left open afterwards.
 Without `-Credential` or `-CertificateThumbprint` the credential of the current user is used, on Linux and macOS this needs a Kerberos ticket to be available.
 
 ## EXAMPLES
@@ -121,7 +128,7 @@ When set to anything other than `Default` it takes precedence over the `AuthMeth
 
 ```yaml
 Type: AuthenticationMethod
-Parameter Sets: (All)
+Parameter Sets: ComputerName, ConnectionUri
 Aliases:
 Accepted values: Default, Basic, Negotiate, NTLM, Kerberos, CredSSP
 
@@ -138,7 +145,7 @@ It requires `-UseSSL` or a `https` `-ConnectionUri` and cannot be used with `-Cr
 
 ```yaml
 Type: String
-Parameter Sets: (All)
+Parameter Sets: ComputerName, ConnectionUri
 Aliases:
 
 Required: False
@@ -203,7 +210,7 @@ When not set the credential of the current user is used.
 
 ```yaml
 Type: PSCredential
-Parameter Sets: (All)
+Parameter Sets: ComputerName, ConnectionUri
 Aliases:
 
 Required: False
@@ -282,10 +289,26 @@ Only the options that apply to a WinRS connection are used, see `Invoke-WinRSCom
 
 ```yaml
 Type: PSSessionOption
-Parameter Sets: (All)
+Parameter Sets: ComputerName, ConnectionUri
 Aliases:
 
 Required: False
+Position: Named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -Shell
+A WinRS shell created by `New-WinRSShell` to copy the files through, instead of connecting with the connection parameters.
+The shell is left open once the files have been copied, remove it with `Remove-WinRSShell`.
+
+```yaml
+Type: WinRSRemoteShell
+Parameter Sets: Shell
+Aliases:
+
+Required: True
 Position: Named
 Default value: None
 Accept pipeline input: False
