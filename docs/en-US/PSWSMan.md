@@ -29,6 +29,12 @@ Create a scriptblock delegate to validate certificates.
 ### [New-PSWSManSessionOption](New-PSWSManSessionOption.md)
 Creates an object that specifies custom connection options for a WSMan PSSession.
 
+### [Receive-WinRSFile](Receive-WinRSFile.md)
+Copies files from a remote host to the local host over a WinRS connection.
+
+### [Send-WinRSFile](Send-WinRSFile.md)
+Copies local files to a remote host over a WinRS connection.
+
 ### [Set-PSWSManAuth](Set-PSWSManAuth.md)
 Sets the authentication settings used by PSWSMan.
 

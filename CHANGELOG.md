@@ -63,6 +63,7 @@ The following cmdlets have been added:
 + [Set-PSWSManAuth](./docs/en-US/Set-PSWSManAuth.md) - changes the default authentication provider and GSSAPI library
 + [Invoke-WinRSCommand](./docs/en-US/Invoke-WinRSCommand.md) runs a command line through `cmd.exe` on a remote host with a WinRS shell, without a PowerShell session on the other side, pipeline input is written to its stdin, alias `iwcm`
 + [ConvertTo-WinRSCommandLine](./docs/en-US/ConvertTo-WinRSCommandLine.md) builds an `Invoke-WinRSCommand` command line from an executable and a list of arguments, escaping them for `cmd.exe` so the process receives them exactly as given
++ [Send-WinRSFile](./docs/en-US/Send-WinRSFile.md) and [Receive-WinRSFile](./docs/en-US/Receive-WinRSFile.md) copy files to and from a remote host over a WinRS connection, without a PowerShell remoting session or file share, each copy is verified with a SHA256 hash before it replaces the destination
 
 ## 2.3.1 - 2022-11-28
 

@@ -14,16 +14,16 @@ Runs a process on a remote host through a WinRS shell and outputs its stdout and
 
 ### ComputerName (Default)
 ```
-Invoke-WinRSCommand [-ComputerName] <String> [-Command] <String> [-InputObject <PSObject>]
- [-ConsoleEncoding <Encoding>] [-AsByteStream] [-Credential <PSCredential>] [-Port <Int32>] [-UseSSL]
- [-ApplicationName <String>] [-SessionOption <PSSessionOption>] [-Authentication <AuthenticationMethod>]
- [-CertificateThumbprint <String>] [-ProgressAction <ActionPreference>] [<CommonParameters>]
+Invoke-WinRSCommand [-Command] <String> [-InputObject <PSObject>] [-ConsoleEncoding <Encoding>] [-AsByteStream]
+ [-ComputerName] <String> [-Credential <PSCredential>] [-Port <Int32>] [-UseSSL] [-ApplicationName <String>]
+ [-SessionOption <PSSessionOption>] [-Authentication <AuthenticationMethod>] [-CertificateThumbprint <String>]
+ [-ProgressAction <ActionPreference>] [<CommonParameters>]
 ```
 
 ### ConnectionUri
 ```
-Invoke-WinRSCommand [-ConnectionUri] <Uri> [-Command] <String> [-InputObject <PSObject>]
- [-ConsoleEncoding <Encoding>] [-AsByteStream] [-Credential <PSCredential>] [-SessionOption <PSSessionOption>]
+Invoke-WinRSCommand [-Command] <String> [-InputObject <PSObject>] [-ConsoleEncoding <Encoding>] [-AsByteStream]
+ [-ConnectionUri] <Uri> [-Credential <PSCredential>] [-SessionOption <PSSessionOption>]
  [-Authentication <AuthenticationMethod>] [-CertificateThumbprint <String>]
  [-ProgressAction <ActionPreference>] [<CommonParameters>]
 ```
@@ -68,7 +68,9 @@ Any other object is written as its string form, one line each.
 Stdin is closed once all the input has been sent, or straight away when there is none, so a process that reads from stdin gets end of file rather than blocking.
 Input that arrives after the process has exited or closed its stdin is discarded, as it is for a local native command.
 
-Stopping the cmdlet with `Ctrl+C`, or stopping the pipeline it is part of, terminates the remote process.
+Stopping the cmdlet with `Ctrl+C`, or stopping the pipeline it is part of, sends `Ctrl+C` to the remote process so it can exit cleanly, like it would when run locally.
+If the process has not exited within 10 seconds it is terminated.
+This also happens when a later command in the pipeline stops early, like `Select-Object -First 3`.
 
 This cmdlet does not require `Enable-PSWSMan` to have been run as it uses the WSMan client of this module directly.
 The connection is configured with the same parameters as `Invoke-Command`, `-ComputerName`, `-Port`, `-UseSSL`, `-ApplicationName`, `-Credential`, `-CertificateThumbprint` and `-SessionOption`, and they mean the same thing.
@@ -156,6 +158,7 @@ PS C:\> Invoke-WinRSCommand Server01 'type C:\temp\archive.zip' -AsByteStream |
 ```
 
 Outputs the raw bytes `type` writes as `byte[]` chunks and writes them unchanged to a local file.
+`Receive-WinRSFile` copies a file the same way but also checks its length and hash before writing it to the destination.
 
 ### Example 10: Send input to the process
 ```powershell
