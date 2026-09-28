@@ -665,7 +665,7 @@ Describe "Invoke-WinRSCommand" {
 
             $err = $cmd | Should-Throw -ExceptionMessage '*pswsman.invalid:80*'
             $err.FullyQualifiedErrorId | Should-Be 'WinRSCommandFailed,PSWSMan.Commands.InvokeWinRSCommand'
-            $err.TargetObject | Should-Be ([Uri]'http://pswsman.invalid')
+            $err.TargetObject | Should-Be 'http://pswsman.invalid'
         }
 
         It "Fails with a ConnectionUri that is not an absolute http or https URI: <_>" -ForEach @(

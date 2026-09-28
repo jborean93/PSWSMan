@@ -75,6 +75,8 @@
         'Invoke-WinRSCommand'
         'New-PSWSManCertValidationCallback'
         'New-PSWSManSessionOption'
+        'Receive-WinRSFile'
+        'Send-WinRSFile'
         'Set-PSWSManAuth'
     )
 

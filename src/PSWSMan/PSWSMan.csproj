@@ -7,6 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Scripts/*.ps1" LogicalName="PSWSMan.Scripts.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <IgnoresAccessChecksTo Include="System.Management.Automation" />
     <InternalsVisibleTo Include="PSWSMan.Connection.Tests" />
     <InternalsVisibleTo Include="PSWSMan.Authentication.Tests" />

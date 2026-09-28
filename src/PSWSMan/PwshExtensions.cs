@@ -30,6 +30,15 @@ public enum AuthenticationMethod
     CredSSP
 }
 
+public enum CompressionMethod
+{
+    /// <summary>The data is sent as is.</summary>
+    None,
+
+    /// <summary>The data is compressed with Deflate.</summary>
+    Deflate,
+}
+
 public enum AuthenticationProvider
 {
     /// <summary>
