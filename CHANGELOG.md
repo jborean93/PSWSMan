@@ -2,8 +2,8 @@
 
 ## v3.0.0 - TBD
 
-This is a major change in the `PSWSMan` module away from shipping the `libmi` and `libpsrpclient` C library with custom changes to a pure dotnet WSMan client.
-It is designed to hook the PowerShell WSMan libraries with its own mechanisms to avoid needing the C library altogether.
+This is a major change in the `PSWSMan` module away from shipping a custom `libmi` and `libpsrpclient` C library to a pure .NET WSMan client.
+It is designed to hook the PowerShell WSMan client classes with its own mechanisms to avoid needing the C library altogether.
 This opens up the possibility of introducing more features in the WSMan client that wasn't possible before like CredSSP authentication, better TLS validation, better error messages, etc.
 
 As it is no longer required to replace the C libraries in the PowerShell directory, the module can be installed as any user and enabled by running `Enable-PSWSMan -Force` in the PowerShell process.
@@ -17,14 +17,15 @@ As this is a major shift away from the old PSWSMan module based on a fork of the
 + `Install-WSMan` - no longer needed
 + `Get-WSManVersion` - no longer needed
 + `Disable-WSManCertVerification` and `Enable-WSManCertVerification`
-  + Certificate verification can be enabled/disabled using the `New-PSSessionOption` or [New-PSWSManSessionOption](./docs/en-US/New-PSWSManSessionOption.md) cmdlets
+  + Certificate verification can be enabled/disabled using the switch parameters `-SkipCACheck` and `-SkipCNCheck` on the `New-PSSessionOption` or [New-PSWSManSessionOption](./docs/en-US/New-PSWSManSessionOption.md) cmdlets
 + `Register-TrustedCertificate`
-  + The new PSWSMan uses dotnet for TLS operations so relies on the behaviour of how it interacts with the system TLS library rather than directly linking to OpenSSL
+  + The new PSWSMan uses .NET for TLS operations so relies on the behaviour of how .NET interacts with the system TLS library rather than directly linking to OpenSSL
 
 The following platforms are current not supported
 
 + Linux on musl based libc like Alpine
   + While this may work it is currently experimental
+  + The Devolutions SSPI library will not not work musl builds, `Negotiate` authentication must be done through the MIT krb5 GSSAPI library
 
 If you still need anything that was removed then it is recommended to pin your dependencies to `2.3.1` to avoid pulling in any new incompatible changes.
 
@@ -40,7 +41,7 @@ The following features have been introduced in this version
   + Optional support for the [Devolutions/sspi-rs](https://github.com/Devolutions/sspi-rs) auth provider
   + Certificate auth works with TLS 1.3
 + Improved TLS support
-  + Integrated into dotnet for a more consistent validation support
+  + Integrated into .NET for a more consistent validation support
   + Support for TLS 1.3
   + Custom certificate validation scriptblocks
   + This is exposed by `New-PSWSManSessionOption -TlsOption ...`
@@ -53,6 +54,8 @@ The following features have been introduced in this version
   + `Enable-PSWSMan` now hooks the deserializer on non-Windows platforms so these objects no longer depend on `libmi` at all, they keep the same properties and formatting
   + They are no longer a `CimInstance` so `CimClass`, `CimSystemProperties` and `Invoke-CimMethod -InputObject` are not available on the client, and arrays are returned as `ArrayList`
   + Windows is unaffected as the MI library is part of the OS
++ `Enter-PSSession` can now be stopped with `Ctrl+C` while it is connecting, previously it ignored the stop until the connection failed
++ `Clear-Host` (`clear`/`cls`) in a remote session to a Windows host now clears the screen on non-Windows clients, previously it only moved the cursor to the top and failed with `The method or operation is not implemented`
 
 The following cmdlets have been added:
 

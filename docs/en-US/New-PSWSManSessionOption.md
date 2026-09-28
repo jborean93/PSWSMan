@@ -64,7 +64,7 @@ These cmdlets are:
 
 + `-ProxyCredential`: Proxy support is not implemented
 
-+ `-SkipRevocationCheck`: By default dotnet skips revocation checks as they are not implemented on all platforms. To opt-in to these checks use `-TlsOption` with `CertificateRevocationCheckMode` set to `Offline` or `Online`
++ `-SkipRevocationCheck`: By default .NET skips revocation checks as they are not implemented on all platforms. To opt-in to these checks use `-TlsOption` with `CertificateRevocationCheckMode` set to `Offline` or `Online`
 
 + `-UseUTF16`: This option is not useful and not implemented
 
@@ -122,7 +122,7 @@ PS C:\> Invoke-Command -ComputerName Server03 -SessionOption $pso -UseSSL -Scrip
 ```
 
 Enables certificate revocation checks in `Offline` mode to check the peers certificate against an offline revocation list.
-The value can also be set to `Online` to have dotnet attempt to download the revocation lists from pre-configured locations.
+The value can also be set to `Online` to have .NET attempt to download the revocation lists from pre-configured locations.
 
 ### Example 6: Connect using client certificate authentication
 ```powershell
@@ -422,7 +422,8 @@ Determines how long the client computer waits for the session connection to be e
 When the interval expires, the command to establish the connection fails.
 Enter a value in milliseconds.
 
-The default is `180000` (3 minutes) and a value of `0` means no time out.
+The default is `180000` (3 minutes) and a value of `0` uses a 10 second timeout.
+Pressing `Ctrl+C` stops a connection attempt before the timeout expires.
 
 ```yaml
 Type: Int32
@@ -564,7 +565,7 @@ Set the TLS authentication options used on a HTTPS connection.
 This option is mutually exclusive to `-SkipCACheck`, `-SkipCNCheck`, and `-ClientCertificate`.
 
 This value can control a finer selection of options around the TLS handshake, like the protocols and cipher suites used in a connection.
-It can also be used to specify a custom certificate verification logic than what is provided by dotnet.
+It can also be used to specify a custom certificate verification logic than what is provided by .NET.
 
 The [New-PSWSManCertValidationCallback](./New-PSWSManCertValidationCallback.md) cmdlet can be used to create a delegate for `RemoteCertificateValidationCallback` of this object that will run the PowerShell scriptblock for validation.
 

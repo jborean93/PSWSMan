@@ -5,6 +5,11 @@
 [![PowerShell Gallery](https://img.shields.io/powershellgallery/dt/PSWSMan.svg)](https://www.powershellgallery.com/packages/PSWSMan)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/jborean93/PSWSMan/blob/main/LICENSE)
 
+> [!NOTE]
+> This repository is for PSWSMan 3.0.0 and newer.
+> PSWSMan before 3.0.0 is built from [jborean93/omi](https://github.com/jborean93/omi), which is based on a completely different stack and is no longer maintained.
+> See the v3.0.0 notes in the [changelog](CHANGELOG.md) for the changes between 2.x and 3.0.0+.
+
 See [about_PSWSMan](docs/en-US/about_PSWSMan.md) for more details.
 
 ## Documentation
@@ -33,8 +38,73 @@ Install-PSResource -Name PSWSMan -Scope CurrentUser
 Install-PSResource -Name PSWSMan -Scope AllUsers
 ```
 
-Once installed, run `Enable-PSWSMan -Force` to enable the hooks needed for PowerShell to use this module.
-Once enabled the builtin cmdlets will use this module for any WSMan transport operations.
+Once installed, run `Enable-PSWSMan -Force` to enable the hooks needed for PowerShell to use this module, see [PowerShell Remoting with Enable-PSWSMan](#powershell-remoting-with-enable-pswsman).
+
+## PowerShell Remoting with Enable-PSWSMan
+
+PSWSMan replaces the WSMan client that PowerShell uses for its builtin remoting cmdlets like `New-PSSession`, `Invoke-Command`, and `Enter-PSSession`.
+Run `Enable-PSWSMan -Force` once in the PowerShell process to hook the engine, any WSMan PSSession created after that uses this module's client instead of the one PowerShell ships with.
+
+```powershell
+Import-Module -Name PSWSMan
+Enable-PSWSMan -Force
+
+$cred = Get-Credential
+Invoke-Command -ComputerName Server01 -Credential $cred -ScriptBlock { $env:COMPUTERNAME }
+
+$session = New-PSSession -ComputerName Server01 -Credential $cred -UseSSL
+Enter-PSSession -Session $session
+```
+
+The hooks apply to the whole process and cannot be undone, restart PowerShell to go back to the builtin client.
+Add `Enable-PSWSMan -Force` to your PowerShell profile to have it enabled in every session.
+
+The builtin cmdlets keep their own parameters, `-ComputerName`, `-Credential`, `-Authentication`, `-UseSSL`, and so on, and work as they normally do.
+Use [New-PSWSManSessionOption](docs/en-US/New-PSWSManSessionOption.md) in place of `New-PSSessionOption` for the options that are specific to PSWSMan, like choosing the authentication provider, the Kerberos SPN, CredSSP settings, custom TLS options, or a client certificate that is not in a certificate store.
+
+```powershell
+$so = New-PSWSManSessionOption -AuthMethod Kerberos -RequestKerberosDelegate
+Invoke-Command -ComputerName Server01 -SessionOption $so -ScriptBlock { whoami }
+
+$so = New-PSWSManSessionOption -SkipCACheck -SkipCNCheck
+Enter-PSSession -ComputerName 192.168.1.2 -UseSSL -Credential $cred -SessionOption $so
+```
+
+See [about_PSWSManAuthentication](docs/en-US/about_PSWSManAuthentication.md) for details on the authentication methods and how to set them up on each platform.
+
+## WinRS Cmdlets
+
+PSWSMan also includes cmdlets that use WinRS (Windows Remote Shell), the protocol `winrs.exe` uses, to run commands on a Windows host over the same WinRM listener.
+
+| Cmdlet | Purpose |
+| --- | --- |
+| [Invoke-WinRSCommand](docs/en-US/Invoke-WinRSCommand.md) (`iwcm`) | Runs a command line on the remote host and outputs its stdout and stderr. |
+| [ConvertTo-WinRSCommandLine](docs/en-US/ConvertTo-WinRSCommandLine.md) | Builds a safely quoted command line for `Invoke-WinRSCommand` from an executable and its arguments. |
+| [Send-WinRSFile](docs/en-US/Send-WinRSFile.md) | Copies local files to the remote host. |
+| [Receive-WinRSFile](docs/en-US/Receive-WinRSFile.md) | Copies files from the remote host to the local host. |
+| [New-WinRSShell](docs/en-US/New-WinRSShell.md), [Get-WinRSShell](docs/en-US/Get-WinRSShell.md), [Remove-WinRSShell](docs/en-US/Remove-WinRSShell.md) | Creates, lists, and removes a WinRS shell that several of the above commands can share. |
+
+```powershell
+$cred = Get-Credential
+Invoke-WinRSCommand -ComputerName Server01 -Credential $cred -Command 'ipconfig /all'
+$LASTEXITCODE
+
+$cmd = ConvertTo-WinRSCommandLine 'C:\Program Files\7-Zip\7z.exe' l 'C:\temp\my archive.zip'
+iwcm Server01 $cmd -Credential $cred
+
+Send-WinRSFile -ComputerName Server01 -Credential $cred -Path ./app.zip -Destination C:\temp
+```
+
+They differ from PowerShell remoting in a few ways:
+
+* They do not need `Enable-PSWSMan`, they use this module's WSMan client directly and can be used without hooking the process
+* No PowerShell session is started on the remote host, a command runs as `cmd.exe /C <command>` and only its raw output comes back as strings, like a local native command, rather than serialized objects
+* `$LASTEXITCODE` is set to the exit code of the remote process and stderr lines are written to the error stream
+* Each command runs in a new `cmd.exe` process, even in a shared shell, so a `cd` or `set` in one command is not seen by the next
+* `Send-WinRSFile` and `Receive-WinRSFile` need Windows PowerShell 5.1 on the remote host but no PSSession or file share
+
+The connection parameters, `-ComputerName`, `-ConnectionUri`, `-Credential`, `-Authentication`, `-UseSSL`, `-SessionOption`, and so on, mean the same as they do for `Invoke-Command`, and `-SessionOption` accepts the output of both `New-PSSessionOption` and `New-PSWSManSessionOption`.
+Use them when you need to run a native program, work with a host that has no usable PowerShell endpoint, or want the exact output of a command without PowerShell's serialization.
 
 ## Contributing
 
