@@ -1,18 +1,18 @@
-using Microsoft.PowerShell.Commands;
-using MonoMod.RuntimeDetour;
 using System;
 using System.Management.Automation;
 using System.Management.Automation.Host;
 using System.Management.Automation.Runspaces;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using Microsoft.PowerShell.Commands;
+using MonoMod.RuntimeDetour;
 
 namespace PSWSMan.Patches;
 
 internal static class PSWSMan_EnterPSSessionCommand
 {
-    private static MethodInfo? _createTemporaryRemoteRunspaceMeth;
-    private static MethodInfo? _openMeth;
+    private static MethodInfo? s_createTemporaryRemoteRunspaceMeth;
+    private static MethodInfo? s_openMeth;
 
     [ThreadStatic]
     private static EnterPSSessionCommand? s_openingCommand;
@@ -80,7 +80,7 @@ internal static class PSWSMan_EnterPSSessionCommand
         return new[]
         {
             new Hook(
-                _createTemporaryRemoteRunspaceMeth ??= MonoModPatcher.GetMethod(
+                s_createTemporaryRemoteRunspaceMeth ??= MonoModPatcher.GetMethod(
                     typeof(EnterPSSessionCommand),
                     "CreateTemporaryRemoteRunspace",
                     new[] { typeof(PSHost), typeof(WSManConnectionInfo) },
@@ -89,7 +89,7 @@ internal static class PSWSMan_EnterPSSessionCommand
                 CreateTemporaryRemoteRunspacePatch
             ),
             new Hook(
-                _openMeth ??= MonoModPatcher.GetMethod(
+                s_openMeth ??= MonoModPatcher.GetMethod(
                     typeof(RemoteRunspace),
                     nameof(RemoteRunspace.Open),
                     Array.Empty<Type>(),

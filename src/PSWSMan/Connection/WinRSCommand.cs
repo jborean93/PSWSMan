@@ -1,9 +1,9 @@
-using PSWSMan.Lib;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
+using PSWSMan.Lib;
 
 namespace PSWSMan.Connection;
 

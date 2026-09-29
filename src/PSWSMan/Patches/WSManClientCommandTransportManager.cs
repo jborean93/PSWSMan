@@ -1,21 +1,21 @@
-using MonoMod.RuntimeDetour;
 using System;
 using System.Management.Automation;
 using System.Management.Automation.Remoting;
 using System.Management.Automation.Remoting.Client;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using MonoMod.RuntimeDetour;
 
 namespace PSWSMan.Patches;
 
 internal static class PSWSMan_WSManClientCommandTransportManager
 {
-    private static MethodInfo? _closeAsyncMeth;
-    private static MethodInfo? _createAsyncMeth;
-    private static MethodInfo? _disposeMeth;
-    private static MethodInfo? _sendDataMeth;
-    private static MethodInfo? _sendStopSignalMeth;
-    private static MethodInfo? _startReceivingDataMeth;
+    private static MethodInfo? s_closeAsyncMeth;
+    private static MethodInfo? s_createAsyncMeth;
+    private static MethodInfo? s_disposeMeth;
+    private static MethodInfo? s_sendDataMeth;
+    private static MethodInfo? s_sendStopSignalMeth;
+    private static MethodInfo? s_startReceivingDataMeth;
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "powershellInstanceId")]
     private static extern ref Guid PowershellInstanceId(BaseClientCommandTransportManager self);
@@ -282,7 +282,7 @@ internal static class PSWSMan_WSManClientCommandTransportManager
         return new[]
         {
             new Hook(
-                _closeAsyncMeth ??= MonoModPatcher.GetMethod(
+                s_closeAsyncMeth ??= MonoModPatcher.GetMethod(
                     typeof(WSManClientCommandTransportManager),
                     nameof(WSManClientCommandTransportManager.CloseAsync),
                     Array.Empty<Type>(),
@@ -292,7 +292,7 @@ internal static class PSWSMan_WSManClientCommandTransportManager
                 CloseAsyncPatch
             ),
             new Hook(
-                _createAsyncMeth ??= MonoModPatcher.GetMethod(
+                s_createAsyncMeth ??= MonoModPatcher.GetMethod(
                     typeof(WSManClientCommandTransportManager),
                     nameof(WSManClientCommandTransportManager.CreateAsync),
                     Array.Empty<Type>(),
@@ -302,7 +302,7 @@ internal static class PSWSMan_WSManClientCommandTransportManager
                 CreateAsyncPatch
             ),
             new Hook(
-                _disposeMeth ??= MonoModPatcher.GetMethod(
+                s_disposeMeth ??= MonoModPatcher.GetMethod(
                     typeof(WSManClientCommandTransportManager),
                     nameof(WSManClientCommandTransportManager.Dispose),
                     new[] { typeof(bool) },
@@ -311,7 +311,7 @@ internal static class PSWSMan_WSManClientCommandTransportManager
                 DisposePatch
             ),
             new Hook(
-                _sendDataMeth ??= MonoModPatcher.GetMethod(
+                s_sendDataMeth ??= MonoModPatcher.GetMethod(
                     typeof(WSManClientCommandTransportManager),
                     "SendData",
                     new[] { typeof(byte[]), typeof(DataPriorityType) },
@@ -320,7 +320,7 @@ internal static class PSWSMan_WSManClientCommandTransportManager
                 SendDataPatch
             ),
             new Hook(
-                _sendStopSignalMeth ??= MonoModPatcher.GetMethod(
+                s_sendStopSignalMeth ??= MonoModPatcher.GetMethod(
                     typeof(WSManClientCommandTransportManager),
                     nameof(WSManClientCommandTransportManager.SendStopSignal),
                     Array.Empty<Type>(),
@@ -329,7 +329,7 @@ internal static class PSWSMan_WSManClientCommandTransportManager
                 SendStopSignalPatch
             ),
             new Hook(
-                _startReceivingDataMeth ??= MonoModPatcher.GetMethod(
+                s_startReceivingDataMeth ??= MonoModPatcher.GetMethod(
                     typeof(WSManClientCommandTransportManager),
                     nameof(WSManClientCommandTransportManager.StartReceivingData),
                     Array.Empty<Type>(),

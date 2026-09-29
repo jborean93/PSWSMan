@@ -49,7 +49,7 @@ internal class ModuleSettings
 {
     public const string DefaultGssapiLib = "Default";
 
-    private static readonly RunspaceSpecificStorage<ModuleSettings> _state = new(() => new());
+    private static readonly RunspaceSpecificStorage<ModuleSettings> s_state = new(() => new());
 
     private readonly List<WinRSRemoteShell> _winrsShells = [];
 
@@ -74,9 +74,9 @@ internal class ModuleSettings
         }
     }
 
-    public static ModuleSettings GetFromTLS() => _state.GetFromTLS();
+    public static ModuleSettings GetFromTLS() => s_state.GetFromTLS();
 
-    public static ModuleSettings GetForRunspace(Runspace runspace) => _state.GetForRunspace(runspace);
+    public static ModuleSettings GetForRunspace(Runspace runspace) => s_state.GetForRunspace(runspace);
 
     public void AddWinRSShell(WinRSRemoteShell shell)
     {

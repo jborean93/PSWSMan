@@ -1,14 +1,14 @@
-using MonoMod.RuntimeDetour;
 using System;
 using System.Management.Automation.Host;
 using System.Management.Automation.Remoting;
 using System.Reflection;
+using MonoMod.RuntimeDetour;
 
 namespace PSWSMan.Patches;
 
 internal static class PSWSMan_RemoteHostCall
 {
-    private static MethodInfo? _executeVoidMethodMeth;
+    private static MethodInfo? s_executeVoidMethodMeth;
 
     private static void ExecuteVoidMethodPatch(
         Action<RemoteHostCall, PSHost> orig,
@@ -64,7 +64,7 @@ internal static class PSWSMan_RemoteHostCall
         return new[]
         {
             new Hook(
-                _executeVoidMethodMeth ??= MonoModPatcher.GetMethod(
+                s_executeVoidMethodMeth ??= MonoModPatcher.GetMethod(
                     typeof(RemoteHostCall),
                     nameof(RemoteHostCall.ExecuteVoidMethod),
                     new[] { typeof(PSHost) },

@@ -1,14 +1,14 @@
-using MonoMod.RuntimeDetour;
 using System;
 using System.Management.Automation;
 using System.Management.Automation.Runspaces;
 using System.Reflection;
+using MonoMod.RuntimeDetour;
 
 namespace PSWSMan.Patches;
 
 internal static class PSWSMan_RemoteRunspace
 {
-    private static MethodInfo? _getCapabilitiesMeth;
+    private static MethodInfo? s_getCapabilitiesMeth;
 
     private static RunspaceCapability GetCapabilitiesPatch(
         Func<RemoteRunspace, RunspaceCapability> orig,
@@ -50,7 +50,7 @@ internal static class PSWSMan_RemoteRunspace
         return new[]
         {
             new Hook(
-                _getCapabilitiesMeth ??= MonoModPatcher.GetMethod(
+                s_getCapabilitiesMeth ??= MonoModPatcher.GetMethod(
                     typeof(RemoteRunspace),
                     nameof(RemoteRunspace.GetCapabilities),
                     Array.Empty<Type>(),

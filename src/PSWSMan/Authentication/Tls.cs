@@ -237,7 +237,7 @@ internal class TlsSecurityContext : IDisposable
         return record.Length >= 7 && record[0] == 21 && record[5] == 2;
     }
 
-    /// <summary>Get the peer X.509 certificate sent by the server during the handshake process.</summary
+    /// <summary>Get the peer X.509 certificate sent by the server during the handshake process.</summary>
     /// <remarks>This can only be called after the handshake is complete.</remarks>
     /// <returns>The X.509 certificate of the server.</returns>
     public X509Certificate GetRemoteCertificate()

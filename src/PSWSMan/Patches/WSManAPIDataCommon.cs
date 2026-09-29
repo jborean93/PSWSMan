@@ -1,15 +1,15 @@
-using MonoMod.RuntimeDetour;
 using System;
 using System.Management.Automation.Remoting.Client;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using MonoMod.RuntimeDetour;
 
 namespace PSWSMan.Patches;
 
 internal static class PSWSMan_WSManApiDataCommon
 {
-    private static ConstructorInfo? _cstor;
-    private static MethodInfo? _dispose;
+    private static ConstructorInfo? s_cstor;
+    private static MethodInfo? s_dispose;
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_handle")]
     private static extern ref nint Handle(WSManClientSessionTransportManager.WSManAPIDataCommon self);
@@ -56,7 +56,7 @@ internal static class PSWSMan_WSManApiDataCommon
         return new[]
         {
             new Hook(
-                _cstor ??= MonoModPatcher.GetConstructor(
+                s_cstor ??= MonoModPatcher.GetConstructor(
                     typeof(WSManClientSessionTransportManager.WSManAPIDataCommon),
                     Array.Empty<Type>(),
                     BindingFlags.Instance | BindingFlags.NonPublic
@@ -64,7 +64,7 @@ internal static class PSWSMan_WSManApiDataCommon
                 CstorPatch
             ),
             new Hook(
-                _dispose ??= MonoModPatcher.GetMethod(
+                s_dispose ??= MonoModPatcher.GetMethod(
                     typeof(WSManClientSessionTransportManager.WSManAPIDataCommon),
                     nameof(WSManClientSessionTransportManager.WSManAPIData.Dispose),
                     Array.Empty<Type>(),

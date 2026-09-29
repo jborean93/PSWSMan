@@ -1,5 +1,3 @@
-using PSWSMan.Connection;
-using PSWSMan.Lib;
 using System;
 using System.Collections.Concurrent;
 using System.Management.Automation;
@@ -8,6 +6,8 @@ using System.Management.Automation.Remoting.Client;
 using System.Management.Automation.Runspaces;
 using System.Threading;
 using System.Xml.Linq;
+using PSWSMan.Connection;
+using PSWSMan.Lib;
 
 namespace PSWSMan;
 

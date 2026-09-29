@@ -1,7 +1,7 @@
-using PSWSMan.Authentication.Native;
 using System;
 using System.Management.Automation;
 using System.Runtime.InteropServices;
+using PSWSMan.Authentication.Native;
 
 namespace PSWSMan.Commands;
 

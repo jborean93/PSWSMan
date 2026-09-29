@@ -1,6 +1,3 @@
-using PSWSMan.Authentication;
-using PSWSMan.Connection;
-using PSWSMan.Lib;
 using System;
 using System.Globalization;
 using System.Management.Automation;
@@ -8,6 +5,9 @@ using System.Net.Security;
 using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using PSWSMan.Authentication;
+using PSWSMan.Connection;
+using PSWSMan.Lib;
 
 namespace PSWSMan;
 

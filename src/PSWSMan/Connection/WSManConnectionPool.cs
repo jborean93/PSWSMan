@@ -1,7 +1,7 @@
-using PSWSMan.Lib;
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using PSWSMan.Lib;
 
 namespace PSWSMan.Connection;
 

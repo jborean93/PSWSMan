@@ -1,5 +1,5 @@
-using PSWSMan.Lib;
 using System;
+using PSWSMan.Lib;
 
 namespace PSWSMan.Connection;
 

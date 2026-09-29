@@ -1,16 +1,16 @@
-using MonoMod.RuntimeDetour;
 using System;
 using System.Management.Automation;
 using System.Management.Automation.Remoting;
 using System.Management.Automation.Runspaces;
 using System.Reflection;
+using MonoMod.RuntimeDetour;
 
 namespace PSWSMan.Patches;
 
 internal static class PSWSMan_WSManConnectionInfo
 {
-    private static MethodInfo? _copyMeth;
-    private static MethodInfo? _setSessionOptionsMeth;
+    private static MethodInfo? s_copyMeth;
+    private static MethodInfo? s_setSessionOptionsMeth;
 
     private static WSManConnectionInfo CopyPatch(
         Func<WSManConnectionInfo, WSManConnectionInfo> orig,
@@ -53,7 +53,7 @@ internal static class PSWSMan_WSManConnectionInfo
         return new[]
         {
             new Hook(
-                _copyMeth ??= MonoModPatcher.GetMethod(
+                s_copyMeth ??= MonoModPatcher.GetMethod(
                     typeof(WSManConnectionInfo),
                     nameof(WSManConnectionInfo.Copy),
                     Array.Empty<Type>(),
@@ -62,7 +62,7 @@ internal static class PSWSMan_WSManConnectionInfo
                 CopyPatch
             ),
             new Hook(
-                _setSessionOptionsMeth ??= MonoModPatcher.GetMethod(
+                s_setSessionOptionsMeth ??= MonoModPatcher.GetMethod(
                     typeof(WSManConnectionInfo),
                     nameof(WSManConnectionInfo.SetSessionOptions),
                     new[] { typeof(PSSessionOption) },
