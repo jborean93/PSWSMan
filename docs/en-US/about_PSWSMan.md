@@ -19,7 +19,7 @@ The module can be used in three ways, which all use the same WinRM client and au
 
 + `Enable-PSWSMan` hooks PowerShell so the builtin remoting cmdlets, like `New-PSSession`, `Invoke-Command` and `Enter-PSSession`, use this client for WSMan connections. Their `-SessionOption` and `$PSSessionOption` take the output of `New-WinRMSessionOption`, which adds the PSWSMan specific options to the builtin ones. The hooks patch internal PowerShell methods at runtime so a new .NET release, including pre-releases, or a new PowerShell version can break them until PSWSMan is updated. Only this way uses the patching, the other two do not patch anything and are not affected.
 
-+ `New-WinRMSession` creates a PSSession through PowerShell's public custom remoting transport API. It needs no hooks, the session works with the builtin cmdlets that take a `-Session`, and several hosts can be connected to in parallel. Its options come from `New-WinRMSessionOption` too, or a hashtable of the same options.
++ `New-WinRMSession` creates a PSSession through PowerShell's public custom remoting transport API. It needs no hooks, the session works with the builtin cmdlets that take a `-Session`, and several hosts can be connected to in parallel. `Invoke-WinRMCommand` runs a command on hosts or in those sessions like `Invoke-Command` and `Enter-WinRMSession` is its interactive counterpart to `Enter-PSSession -ComputerName`. Its options come from `New-WinRMSessionOption` too, or a hashtable of the same options.
 
 + The WinRS cmdlets, like `Invoke-WinRSCommand` and `Send-WinRSFile`, run commands through `cmd.exe` and copy files without starting PowerShell on the remote host. They need no hooks either and take the same options as `New-WinRMSession`.
 

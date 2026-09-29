@@ -14,15 +14,18 @@ namespace PSWSMan.Authentication.Tests;
 public class NtlmTests
 {
     private const string Domain = "TESTDOM";
-    private const string Username = "testuser";
     private const string Password = "Password01";
-    private static readonly AcceptorUser s_user = new(Domain, Username, Password);
     private static readonly string[] s_pureNtlm = ["use_ntlm"];
+
+    // TUnit creates an instance for each test so every test authenticates as a user of its own. Devolutions.Sspi
+    // 2026.9.29 answers every NTLM credential for a user with the password of the last credential acquired for that
+    // user, tests running in parallel with a shared user name changed each other's outcome.
+    private readonly AcceptorUser _user = new(Domain, $"testuser-{Guid.NewGuid():N}", Password);
 
     // The context borrows the credential's native handle so the credential must outlive it, each test keeps both
     // in scope with the credential disposed last.
-    private static WSManCredential CreateCredential(AuthProvider provider, string password = Password)
-        => provider.CreateCredential($"{Domain}\\{Username}", password, NegotiateMethod.NTLM,
+    private WSManCredential CreateCredential(AuthProvider provider, string password = Password)
+        => provider.CreateCredential($"{Domain}\\{_user.Username}", password, NegotiateMethod.NTLM,
             new NegotiateOptions { SPNHostName = "acceptor.test" });
 
     [Test]
@@ -32,7 +35,7 @@ public class NtlmTests
     public async Task Authenticates(string providerName)
     {
         AuthProvider provider = TestProviders.Require(providerName);
-        using Acceptor acceptor = Acceptor.Start(s_user);
+        using Acceptor acceptor = Acceptor.Start(_user);
         acceptor.Create("ntlm", s_pureNtlm);
         using WSManCredential credential = CreateCredential(provider);
         using NegotiateAuthContext client = (NegotiateAuthContext)credential.CreateAuthContext(null);
@@ -48,7 +51,7 @@ public class NtlmTests
             .IsEqualTo(WSManEncryptionProtocol.SPNEGO);
         await Assert.That(info.Complete).IsTrue();
         await Assert.That(info.NegotiatedProtocol).IsEqualTo("ntlm");
-        await Assert.That(info.ClientPrincipal).IsEqualTo($"{Domain}\\{Username}");
+        await Assert.That(info.ClientPrincipal).IsEqualTo($"{Domain}\\{_user.Username}");
     }
 
     [Test]
@@ -58,7 +61,7 @@ public class NtlmTests
     public async Task WrongPassword_IsRejected(string providerName)
     {
         AuthProvider provider = TestProviders.Require(providerName);
-        using Acceptor acceptor = Acceptor.Start(s_user);
+        using Acceptor acceptor = Acceptor.Start(_user);
         acceptor.Create("ntlm", s_pureNtlm);
         using WSManCredential credential = CreateCredential(provider, password: "WrongPassword");
         using NegotiateAuthContext client = (NegotiateAuthContext)credential.CreateAuthContext(null);
@@ -75,10 +78,44 @@ public class NtlmTests
     [Arguments(TestProviders.Gssapi)]
     [Arguments(TestProviders.Sspi)]
     [Arguments(TestProviders.Devolutions)]
+    public async Task Credentials_ForTheSameUser_KeepTheirOwnPassword(string providerName)
+    {
+        // Devolutions.Sspi 2026.9.29 answers with the password of the last credential acquired for the user, so a
+        // wrong password authenticates once a right one is acquired after it and the right one is then rejected.
+        // Enable it for Devolutions again once the package is updated with the fix.
+        Skip.When(providerName == TestProviders.Devolutions,
+            "Devolutions.Sspi 2026.9.29 uses the password of the last credential acquired for the user");
+        AuthProvider provider = TestProviders.Require(providerName);
+        using WSManCredential wrong = CreateCredential(provider, password: "WrongPassword");
+        using WSManCredential right = CreateCredential(provider);
+
+        using (Acceptor acceptor = Acceptor.Start(_user))
+        {
+            acceptor.Create("ntlm", s_pureNtlm);
+            using NegotiateAuthContext client = (NegotiateAuthContext)wrong.CreateAuthContext(null);
+
+            AcceptorException ex = Assert.Throws<AcceptorException>(() => AuthExchange.Authenticate(client, acceptor));
+            await Assert.That(ex.Type).IsEqualTo("InvalidTokenError");
+        }
+
+        using (Acceptor acceptor = Acceptor.Start(_user))
+        {
+            acceptor.Create("ntlm", s_pureNtlm);
+            using NegotiateAuthContext client = (NegotiateAuthContext)right.CreateAuthContext(null);
+
+            AuthExchange.Authenticate(client, acceptor);
+            await Assert.That(acceptor.Query().Complete).IsTrue();
+        }
+    }
+
+    [Test]
+    [Arguments(TestProviders.Gssapi)]
+    [Arguments(TestProviders.Sspi)]
+    [Arguments(TestProviders.Devolutions)]
     public async Task WinRMEncryption_RoundTripsBothWays(string providerName)
     {
         AuthProvider provider = TestProviders.Require(providerName);
-        using Acceptor acceptor = Acceptor.Start(s_user);
+        using Acceptor acceptor = Acceptor.Start(_user);
         acceptor.Create("ntlm", s_pureNtlm);
         using WSManCredential credential = CreateCredential(provider);
         using NegotiateAuthContext client = (NegotiateAuthContext)credential.CreateAuthContext(null);
@@ -106,7 +143,7 @@ public class NtlmTests
     public async Task StreamWrap_RoundTripsBothWays(string providerName)
     {
         AuthProvider provider = TestProviders.Require(providerName);
-        using Acceptor acceptor = Acceptor.Start(s_user);
+        using Acceptor acceptor = Acceptor.Start(_user);
         acceptor.Create("ntlm", s_pureNtlm);
         using WSManCredential credential = CreateCredential(provider);
         using NegotiateAuthContext client = (NegotiateAuthContext)credential.CreateAuthContext(null);
@@ -134,7 +171,7 @@ public class NtlmTests
     {
         AuthProvider provider = TestProviders.Require(providerName);
         using X509Certificate2 certificate = AuthExchange.CreateCertificate();
-        using Acceptor acceptor = Acceptor.Start(s_user);
+        using Acceptor acceptor = Acceptor.Start(_user);
         acceptor.Create("ntlm", s_pureNtlm, channelBindings: AuthExchange.TlsServerEndPoint(certificate));
         using WSManCredential credential = CreateCredential(provider);
         using NegotiateAuthContext client = (NegotiateAuthContext)credential.CreateAuthContext(certificate);
@@ -154,7 +191,7 @@ public class NtlmTests
         AuthProvider provider = TestProviders.Require(providerName);
         using X509Certificate2 clientCert = AuthExchange.CreateCertificate("CN=client-side");
         using X509Certificate2 acceptorCert = AuthExchange.CreateCertificate("CN=acceptor-side");
-        using Acceptor acceptor = Acceptor.Start(s_user);
+        using Acceptor acceptor = Acceptor.Start(_user);
         acceptor.Create("ntlm", s_pureNtlm, channelBindings: AuthExchange.TlsServerEndPoint(acceptorCert));
         using WSManCredential credential = CreateCredential(provider);
         using NegotiateAuthContext client = (NegotiateAuthContext)credential.CreateAuthContext(clientCert);

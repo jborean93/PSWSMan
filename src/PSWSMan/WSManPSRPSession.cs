@@ -25,6 +25,7 @@ internal sealed class WSManPSRPSession : IDisposable
     private readonly WSManClient _client;
     private readonly WinRSShell _shell;
     private readonly bool _noMachineProfile;
+    private readonly ConcurrentDictionary<Guid, byte> _commands = new();
 
     public Guid RunspacePoolId { get; }
 
@@ -103,10 +104,21 @@ internal sealed class WSManPSRPSession : IDisposable
     {
         string psrpPayload = Convert.ToBase64String(psrpFragment);
         _shell.RunCommand("", new[] { psrpPayload }, commandId: commandId, cancellationToken: cancellationToken);
+        _commands[commandId] = 0;
     }
 
-    public void CloseCommand(Guid commandId, CancellationToken cancellationToken = default)
-        => _shell.Signal(SignalCode.Terminate, commandId, cancellationToken);
+    /// <summary>Terminates a command the server created.</summary>
+    /// <returns>False when the command was never created, there is nothing on the server to close.</returns>
+    public bool CloseCommand(Guid commandId, CancellationToken cancellationToken = default)
+    {
+        if (!_commands.TryRemove(commandId, out _))
+        {
+            return false;
+        }
+
+        _shell.Signal(SignalCode.Terminate, commandId, cancellationToken);
+        return true;
+    }
 
     public void StopCommand(Guid commandId, CancellationToken cancellationToken = default)
         => _shell.Signal(SignalCode.PSCtrlC, commandId, cancellationToken);

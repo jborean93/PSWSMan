@@ -124,6 +124,140 @@ Describe "New-RemoteCertificateValidationCallback" {
         Invoke-CertValidationCallback -Callback $callback -SslPolicyErrors None | Should-BeFalse
     }
 
+    It "Uses a using variable regardless of its case" {
+        $state = @{}
+        $callback = New-RemoteCertificateValidationCallback -ScriptBlock {
+            $lower = $using:State
+            $upper = $using:STATE
+            $lower['lower'] = $true
+            $upper['upper'] = $true
+
+            $true
+        }
+
+        Invoke-CertValidationCallback -Callback $callback | Should-BeTrue
+        $state['lower'] | Should-BeTrue
+        $state['upper'] | Should-BeTrue
+    }
+
+    It "Uses a member of a using variable" {
+        $state = @{}
+        $obj = [PSCustomObject]@{
+            Value = 'member value'
+            Nested = [PSCustomObject]@{ Value = 'nested value' }
+            Items = @(1, 2, 3)
+        }
+        $callback = New-RemoteCertificateValidationCallback -ScriptBlock {
+            $state = $using:state
+            $state['value'] = $using:obj.Value
+            $state['nested'] = $using:obj.Nested.Value
+            $state['items'] = $using:obj.Items
+            $state['missing'] = $using:obj.Missing
+
+            $true
+        }
+        $obj.Value = 'changed'
+
+        Invoke-CertValidationCallback -Callback $callback | Should-BeTrue
+        $state['value'] | Should-Be 'member value'
+        $state['nested'] | Should-Be 'nested value'
+        , $state['items'] | Should-HaveType ([object[]])
+        $state['items'] | Should-BeCollection @(1, 2, 3)
+        $state['missing'] | Should-BeNull
+    }
+
+    It "Uses an index of a using variable" {
+        $state = @{}
+        $list = @('first', @('inner1', 'inner2'))
+        $dict = @{ Key = 'dict value'; key2 = 'other value' }
+        $callback = New-RemoteCertificateValidationCallback -ScriptBlock {
+            $state = $using:state
+            $state['first'] = $using:list[0]
+            $state['inner'] = $using:list[1]
+            $state['nested'] = $using:list[1][-1]
+            $state['dict'] = $using:dict['Key']
+            $state['dict2'] = $using:dict['key2']
+            $state['member'] = $using:list[0].Length
+
+            $true
+        }
+
+        Invoke-CertValidationCallback -Callback $callback | Should-BeTrue
+        $state['first'] | Should-Be 'first'
+        $state['inner'] | Should-BeCollection @('inner1', 'inner2')
+        $state['nested'] | Should-Be 'inner2'
+        $state['dict'] | Should-Be 'dict value'
+        $state['dict2'] | Should-Be 'other value'
+        $state['member'] | Should-Be 5
+    }
+
+    It "Uses a null using variable" {
+        $state = @{}
+        $value = $null
+        $callback = New-RemoteCertificateValidationCallback -ScriptBlock {
+            $state = $using:state
+            $state['isNull'] = $null -eq $using:value
+
+            $true
+        }
+
+        Invoke-CertValidationCallback -Callback $callback | Should-BeTrue
+        $state['isNull'] | Should-BeTrue
+    }
+
+    It "Uses a scope qualified using variable" {
+        $state = @{}
+        $env:PSWSMAN_TEST_USING = 'env value'
+        try {
+            $callback = New-RemoteCertificateValidationCallback -ScriptBlock {
+                $state = $using:local:state
+                $state['env'] = $using:env:PSWSMAN_TEST_USING
+
+                $true
+            }
+        }
+        finally {
+            $env:PSWSMAN_TEST_USING = $null
+        }
+
+        Invoke-CertValidationCallback -Callback $callback | Should-BeTrue
+        $state['env'] | Should-Be 'env value'
+    }
+
+    It "Uses a using variable in a nested script block" {
+        $state = @{}
+        $callback = New-RemoteCertificateValidationCallback -ScriptBlock {
+            & {
+                $state = $using:state
+                $state['nested'] = $true
+            }
+
+            $true
+        }
+
+        Invoke-CertValidationCallback -Callback $callback | Should-BeTrue
+        $state['nested'] | Should-BeTrue
+    }
+
+    It "Fails with a single error for all undefined using variables" {
+        $err = {
+            New-RemoteCertificateValidationCallback -ScriptBlock {
+                $using:undefinedVar1
+                $using:UNDEFINEDVAR1
+                $using:undefinedVar2.Member
+                $using:env:PSWSMAN_TEST_UNDEFINED
+                $true
+            }
+        } | Should-Throw
+
+        $err.FullyQualifiedErrorId | Should-Be 'UsingVariableIsUndefined,PSWSMan.Commands.NewRemoteCertificateValidationCallback'
+        $err.CategoryInfo.Category | Should-Be ([System.Management.Automation.ErrorCategory]::InvalidArgument)
+        $err.Exception | Should-HaveType ([ArgumentException])
+        $err.Exception.Message | Should-Be ("The value of the using variable(s) '`$using:undefinedVar1', " +
+            "'`$using:undefinedVar2.Member', '`$using:env:PSWSMAN_TEST_UNDEFINED' cannot be retrieved because " +
+            "they have not been set in the local session.")
+    }
+
     It "Returns <Expected> when the script block outputs <Expected>" -TestCases @(
         @{ Expected = $true }
         @{ Expected = $false }

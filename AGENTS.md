@@ -15,9 +15,11 @@ client once `Enable-PSWSMan -Force` has been run.
 
 The same client is also reachable without any hooks. `New-WinRMSession`
 creates a PSSession through PowerShell's public custom remoting transport API
-(`src/PSWSMan/CustomTransport/`), and the WinRS cmdlets (`Invoke-WinRSCommand`,
-`Send-WinRSFile`, ...) run `cmd.exe` commands without a PowerShell session. Both
-take their options as a `WinRMSessionOption`.
+(`src/PSWSMan/CustomTransport/`), and `Invoke-WinRMCommand` and
+`Enter-WinRMSession` run a command or an interactive session over the same
+kind of session. The WinRS cmdlets (`Invoke-WinRSCommand`, `Send-WinRSFile`,
+...) run `cmd.exe` commands without a PowerShell session. All of them take
+their options as a `WinRMSessionOption`.
 
 ## Repository layout
 
@@ -37,7 +39,7 @@ take their options as a `WinRMSessionOption`.
 | `module/` | The `.psd1` manifest and `.psm1` loader script copied verbatim into the built module. `ModuleVersion` here is the single source of truth for the version. |
 | `docs/en-US/` | platyPS markdown help. Compiled to MAML at build time. Edit these when cmdlet parameters or behaviour change. |
 | `tests/*.Tests.ps1` | Pester tests that run against the built module. Most connection tests need a real WinRM server and skip without one. |
-| `tests/data/` | Files the tests share. `WinRSCommandLine.json` holds the `ConvertTo-WinRSCommandLine` cases that both the `PSWSMan.Lib` unit tests and `tests/ConvertTo-WinRSCommandLine.Tests.ps1` run, and `print_argv.cs` is the argv printer the Pester test compiles on the WinRM host, at the relative `file_path` of the cases under the shell's working directory, to run each expected line verbatim. |
+| `tests/data/` | Files the tests share. `WinRSCommandLine.json` holds the `ConvertTo-WinRSCommandLine` cases that both the `PSWSMan.Lib` unit tests and `tests/ConvertTo-WinRSCommandLine.Tests.ps1` run, and `print_argv.cs` is the argv printer the Pester test compiles on the WinRM host, at the relative `file_path` of the cases under the shell's working directory, to run each expected line verbatim. `RecordingHost.cs` has `PSHost` implementations that record every member called on them, for tests of host calls and the host wrapper. |
 | `tests/common.ps1` | Dot-sourced by every Pester file. Imports the built module and runs `Enable-PSWSMan -Force`. |
 | `tests/units/<Project>/` | .NET unit test projects (TUnit). Each directory is discovered and run automatically by the `Test` task. |
 | `tests/units/PSWSMan.Authentication.Tests/` | Drives the module's authentication contexts (GSSAPI, Windows SSPI, Devolutions) against an independent acceptor, the pyspnego library, over stdin/stdout. `acceptor.py` is the Python side. These tests skip when Python with pyspnego is not available. |
@@ -228,6 +230,11 @@ pwsh -File ./tools/CoverageReport.ps1 -Path ./output/TestResults/Coverage.cobert
   ClientTransport -FilePath ...` captures the transport and pump activity of the
   patched builtin cmdlets, `-SessionOption @{ TracePath = '...' }` that of
   `New-WinRMSession` and the WinRS cmdlets.
+- The Kerberos tests on Linux and macOS run `kinit` and `kdestroy`. The
+  `PesterTests` task points `KRB5CCNAME` at `output/TestResults/krb5cc` so
+  they never touch your own tickets. When running Pester directly, set
+  `$env:KRB5CCNAME = 'FILE:/tmp/pswsman-krb5cc'` (or any other path) first,
+  otherwise they replace and then destroy your default credential cache.
 - `build.ps1 -Task Test` instruments the built module for coverage. Do not
   run it while another `pwsh` process has `output/PSWSMan` imported, that
   process can crash with `BadImageFormatException`.
@@ -274,8 +281,10 @@ tests and the .NET unit tests actually execute there. Put protocol logic in
   none, mark the use with an `// Internal S.M.A API:` comment that says what
   it is, why no public API works and that it is a known risk. The current ones
   are `ErrorRecord.PreserveInvocationInfoOnce` (`Invoke-WinRSCommand`) and
-  the `$using:` capture and `ScriptBlock` constructor behind
-  `New-RemoteCertificateValidationCallback`. `src/PSWSMan/CustomTransport/` must
+  the `ScriptBlock` constructor behind
+  `New-RemoteCertificateValidationCallback` and
+  `RemoteRunspace.ShouldCloseOnPop` (`Enter-WinRMSession`). `$using:` values are captured
+  with the public AST and session state APIs in `UsingVariableParser`. `src/PSWSMan/CustomTransport/` must
   never use one. To audit, build a copy of the project against
   `ref/<tfm>/System.Management.Automation.dll` of the NuGet package without
   `IgnoresAccessChecksTo` and without the `Enable-PSWSMan` path files, every
