@@ -99,7 +99,7 @@ Describe "Invoke-WinRSCommand" {
             $params = $_ | Get-PSSessionSplat
             $ErrorActionPreference = 'Stop'
 
-            $actual = Invoke-WinRSCommand @params -Command 'echo err1>&2& echo out1& exit 3' -ErrorAction Continue 2>&1
+            $actual = Invoke-WinRSCommand @params -Command 'echo err1>&2& echo out1& powershell.exe -NoProfile -Command "$input | Out-Null; exit 3"' -ErrorAction Continue 2>&1
             $succeeded = $?
 
             $actual | Where-Object { $_ -is [string] } | Should-Be 'out1'
@@ -110,7 +110,9 @@ Describe "Invoke-WinRSCommand" {
         It "Sets LASTEXITCODE from the process exit code - <_.Name>" -ForEach (Get-PSWSManTestServer -First) {
             $params = $_ | Get-PSSessionSplat
 
-            $actual = Invoke-WinRSCommand @params -Command 'exit 3'
+            # WinRS sometimes reports 0 for a process that exits while the stdin close is arriving, waiting for
+            # the end of input keeps it alive until then.
+            $actual = Invoke-WinRSCommand @params -Command 'powershell.exe -NoProfile -Command "$input | Out-Null; exit 3"'
 
             $actual | Should-BeNull
             $LASTEXITCODE | Should-Be 3

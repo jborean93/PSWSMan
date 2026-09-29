@@ -130,10 +130,16 @@ internal sealed class WSManHttpConnection : IDisposable
         }
         catch (OperationCanceledException e)
         {
-            // A connection timeout surfaces as a TaskCanceledException with a vague message. Use the base exception
-            // which contains the real details, e.g. connect timeout or DNS failure.
+            // A connect timeout surfaces as a TaskCanceledException with a vague message wrapping a TimeoutException
+            // that has the real details. The timeout can land in a DNS lookup, which Windows fails with its own
+            // cancellation SocketException underneath, so stop at the TimeoutException rather than the base exception.
             IsBroken = true;
-            ExceptionDispatchInfo.Throw(e.GetBaseException());
+            Exception? inner = e.InnerException;
+            while (inner is not null and not TimeoutException)
+            {
+                inner = inner.InnerException;
+            }
+            ExceptionDispatchInfo.Throw(inner ?? e.GetBaseException());
             throw;
         }
         catch (HttpRequestException e) when (e.InnerException is AuthenticationException or WSManTransportException)

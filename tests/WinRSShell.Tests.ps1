@@ -40,7 +40,9 @@ Describe "New-WinRSShell and Remove-WinRSShell" {
             $shell = New-WinRSShell @params
             try {
                 Invoke-WinRSCommand -Shell $shell 'echo first' | Should-Be 'first'
-                Invoke-WinRSCommand -Shell $shell -Command 'exit 3'
+                # WinRS sometimes reports 0 for a process that exits while the stdin close is arriving.
+                # We use powershell to ensure stdin is fully closed by the time exit is called.
+                Invoke-WinRSCommand -Shell $shell -Command 'powershell.exe -NoProfile -Command "$input | Out-Null; exit 3"'
                 $LASTEXITCODE | Should-Be 3
                 Invoke-WinRSCommand -Shell $shell 'echo second' | Should-Be 'second'
                 $LASTEXITCODE | Should-Be 0
