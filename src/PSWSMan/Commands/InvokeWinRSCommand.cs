@@ -15,7 +15,7 @@ namespace PSWSMan.Commands;
     VerbsLifecycle.Invoke, "WinRSCommand",
     DefaultParameterSetName = "ComputerName"
 )]
-[Alias("iwcm")]
+[Alias("irscm")]
 [OutputType(typeof(string), typeof(byte[]))]
 public sealed class InvokeWinRSCommand : WinRSCmdletBase
 {
@@ -122,7 +122,7 @@ public sealed class InvokeWinRSCommand : WinRSCmdletBase
         }
         catch (Exception e)
         {
-            BaseClientTransportManager.tracer.WriteLine(
+            Trace(
                 $"PSWSMan Invoke-WinRSCommand: stopped command did not exit cleanly: {e.Message}");
         }
     }
@@ -276,6 +276,10 @@ public sealed class InvokeWinRSCommand : WinRSCmdletBase
         // The same shape PowerShell gives stderr lines of a local native command so they format as plain text. The
         // formatter matches the error id exactly, and WriteError would append the cmdlet type to it when it stamps
         // the record with the invocation info, so the internal flag the runtime uses to skip that step is set.
+        //
+        // Internal S.M.A API: ErrorRecord.PreserveInvocationInfoOnce is internal and only reachable through the
+        // assembly wide IgnoresAccessChecksTo. It is a known risk, a PowerShell release that renames or removes it
+        // makes this method fail with a MissingMemberException until PSWSMan is updated.
         ErrorRecord record = _firstError
             ? new(new RemoteException(line), "NativeCommandError", ErrorCategory.NotSpecified, line)
             : new(new RemoteException(line), "NativeCommandErrorMessage", ErrorCategory.NotSpecified, null);

@@ -17,7 +17,7 @@ As this is a major shift away from the old PSWSMan module based on a fork of the
 + `Install-WSMan` - no longer needed
 + `Get-WSManVersion` - no longer needed
 + `Disable-WSManCertVerification` and `Enable-WSManCertVerification`
-  + Certificate verification can be enabled/disabled using the switch parameters `-SkipCACheck` and `-SkipCNCheck` on the `New-PSSessionOption` or [New-PSWSManSessionOption](./docs/en-US/New-PSWSManSessionOption.md) cmdlets
+  + Certificate verification can be enabled/disabled using the switch parameters `-SkipCACheck` and `-SkipCNCheck` on the `New-PSSessionOption` or [New-WinRMSessionOption](./docs/en-US/New-WinRMSessionOption.md) cmdlets
 + `Register-TrustedCertificate`
   + The new PSWSMan uses .NET for TLS operations so relies on the behaviour of how .NET interacts with the system TLS library rather than directly linking to OpenSSL
 
@@ -44,11 +44,11 @@ The following features have been introduced in this version
   + Integrated into .NET for a more consistent validation support
   + Support for TLS 1.3
   + Custom certificate validation scriptblocks
-  + This is exposed by `New-PSWSManSessionOption -TlsOption ...`
+  + This is exposed by `New-WinRMSessionOption -TlsOption ...`
 + It is possible to use this with Windows to bypass the builtin WSMan client and its rules
-+ Encryption can be disabled for debugging outside Windows with `New-PSWSManSessionOption -NoEncryption`
-+ Kerberos delegation can be explicitly requested with `New-PSWSManSessionOption -RequestKerberosDelegate`
-+ A custom SPN can be used for Kerberos auth with `New-PSWSManSessionOption -SPNHostName ... -SPNService ...`
++ Encryption can be disabled for debugging outside Windows with `New-WinRMSessionOption -NoEncryption`
++ Kerberos delegation can be explicitly requested with `New-WinRMSessionOption -RequestKerberosDelegate`
++ A custom SPN can be used for Kerberos auth with `New-WinRMSessionOption -SPNHostName ... -SPNService ...`
 + CIM instances returned from a remote session are now returned as deserialized property bags (`Deserialized.Microsoft.Management.Infrastructure.CimInstance#...`) on Linux and macOS
   + PowerShell rebuilds a live `CimInstance` on the client through the `libmi` library from `omi`, which the old `omi` based module provided
   + `Enable-PSWSMan` now hooks the deserializer on non-Windows platforms so these objects no longer depend on `libmi` at all, they keep the same properties and formatting
@@ -59,15 +59,25 @@ The following features have been introduced in this version
 
 The following cmdlets have been added:
 
-+ [Enable-PSWSMan](./docs/en-US/Enable-PSWSMan.md) - enables this library
-+ [Get-PSWSManAuth](./docs/en-US/Get-PSWSManAuth.md) - gets the current authentication settings
-+ [New-PSWSManCertValidationCallback](./docs/en-US/New-PSWSManCertValidationCallback.md) - creates a TLS cert validation callback from the scriptblock provided
-+ [New-PSWSManSessionOption](./docs/en-US/New-PSWSManSessionOption.md) - exposes more session options that can be applied to `-SessionOption` on the builtin cmdlets
-+ [Set-PSWSManAuth](./docs/en-US/Set-PSWSManAuth.md) - changes the default authentication provider and GSSAPI library
-+ [Invoke-WinRSCommand](./docs/en-US/Invoke-WinRSCommand.md) runs a command line through `cmd.exe` on a remote host with a WinRS shell, without a PowerShell session on the other side, pipeline input is written to its stdin, alias `iwcm`
-+ [ConvertTo-WinRSCommandLine](./docs/en-US/ConvertTo-WinRSCommandLine.md) builds an `Invoke-WinRSCommand` command line from an executable and a list of arguments, escaping them for `cmd.exe` so the process receives them exactly as given
-+ [Send-WinRSFile](./docs/en-US/Send-WinRSFile.md) and [Receive-WinRSFile](./docs/en-US/Receive-WinRSFile.md) copy files to and from a remote host over a WinRS connection, without a PowerShell remoting session or file share, each copy is verified with a SHA256 hash before it replaces the destination
-+ [New-WinRSShell](./docs/en-US/New-WinRSShell.md), [Get-WinRSShell](./docs/en-US/Get-WinRSShell.md) and [Remove-WinRSShell](./docs/en-US/Remove-WinRSShell.md) create, list and delete a WinRS shell that `Invoke-WinRSCommand`, `Send-WinRSFile` and `Receive-WinRSFile` can run their commands in with `-Shell`, rather than connecting and creating a shell on every call
++ Module setup and settings
+  + [Enable-PSWSMan](./docs/en-US/Enable-PSWSMan.md) - hooks the builtin remoting cmdlets like `New-PSSession` and `Invoke-Command` so they use this module's WSMan client
+  + [Get-PSWSManAuth](./docs/en-US/Get-PSWSManAuth.md) - gets the current authentication settings
+  + [Set-PSWSManAuth](./docs/en-US/Set-PSWSManAuth.md) - changes the default authentication provider and GSSAPI library
++ Custom WinRM transport sessions and options, these do not need `Enable-PSWSMan`
+  + [New-WinRMSession](./docs/en-US/New-WinRMSession.md) - creates PSSessions with PSWSMan's WinRM client through PowerShell's public custom remoting transport API
+    + The sessions work with `Invoke-Command -Session`, `Enter-PSSession -Session` and the other builtin session cmdlets
+    + Several hosts can be given or piped in and are opened in parallel up to `-ThrottleLimit`
+  + [New-WinRMSessionOption](./docs/en-US/New-WinRMSessionOption.md) - creates the connection options for every way of connecting
+    + Converts to a `PSSessionOption` for `-SessionOption` and `$PSSessionOption` of the builtin cmdlets like `New-PSSession` and `Invoke-Command`
+    + Taken as is by `New-WinRMSession` and the WinRS cmdlets, whose `-SessionOption` also accepts a hashtable of the same options or a `PSSessionOption`, which is an error if it sets an option PSWSMan does not support
+    + `-TracePath` writes the connection trace of `New-WinRMSession` and the WinRS cmdlets to a file
++ WinRS cmdlets, these run commands through `cmd.exe` without a PowerShell session on the remote host and do not need `Enable-PSWSMan`
+  + [Invoke-WinRSCommand](./docs/en-US/Invoke-WinRSCommand.md) - runs a command line on a remote host with a WinRS shell, pipeline input is written to its stdin, alias `irscm`
+  + [ConvertTo-WinRSCommandLine](./docs/en-US/ConvertTo-WinRSCommandLine.md) - builds an `Invoke-WinRSCommand` command line from an executable and a list of arguments, escaping them for `cmd.exe` so the process receives them exactly as given
+  + [Send-WinRSFile](./docs/en-US/Send-WinRSFile.md) and [Receive-WinRSFile](./docs/en-US/Receive-WinRSFile.md) - copy files to and from a remote host without a PowerShell remoting session or file share, each copy is verified with a SHA256 hash before it replaces the destination
+  + [New-WinRSShell](./docs/en-US/New-WinRSShell.md), [Get-WinRSShell](./docs/en-US/Get-WinRSShell.md) and [Remove-WinRSShell](./docs/en-US/Remove-WinRSShell.md) - create, list and delete a WinRS shell that `Invoke-WinRSCommand`, `Send-WinRSFile` and `Receive-WinRSFile` can run their commands in with `-Shell`, rather than connecting and creating a shell on every call
++ Helpers
+  + [New-RemoteCertificateValidationCallback](./docs/en-US/New-RemoteCertificateValidationCallback.md) - creates a thread safe `RemoteCertificateValidationCallback` that validates a server certificate with a scriptblock, for the `-TlsOption` and `-CredSSPTlsOption` of `New-WinRMSessionOption`
 
 ## 2.3.1 - 2022-11-28
 

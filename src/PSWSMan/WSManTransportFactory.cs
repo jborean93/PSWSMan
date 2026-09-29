@@ -2,7 +2,8 @@ using PSWSMan.Authentication;
 using PSWSMan.Connection;
 using PSWSMan.Lib;
 using System;
-using System.Management.Automation.Runspaces;
+using System.Globalization;
+using System.Management.Automation;
 using System.Net.Security;
 using System.Security.Authentication;
 using System.Security.Cryptography;
@@ -18,64 +19,34 @@ internal sealed record WSManTransport(WSManConnectionPool Pool, WSManClient Clie
     public void Dispose() => Pool.Dispose();
 }
 
-/// <summary>Turns the PowerShell connection settings into a <see cref="WSManTransport"/>.</summary>
+/// <summary>Turns the connection settings into a <see cref="WSManTransport"/>.</summary>
 /// <remarks>
-/// This is the one place the <see cref="WSManConnectionInfo"/> and <see cref="PSWSManSessionOption"/> values are
-/// mapped to credentials, TLS options and timeouts, so a PSRP session and a WinRS command built from the same
-/// parameters connect the same way.
+/// This is the one place the <see cref="WinRMSessionOption"/> values are mapped to credentials, TLS options and
+/// timeouts, so a PSRP session over the patched transport, a WinRM session and a WinRS command built from the same
+/// options connect the same way.
 /// </remarks>
 internal static class WSManTransportFactory
 {
     // Extra time on top of the server side operation timeout before a request is considered lost.
     private static readonly TimeSpan s_requestTimeoutGrace = TimeSpan.FromSeconds(30);
 
-    /// <summary>The endpoint URI of a connection info, with the default WSMan port when none was given.</summary>
-    /// <param name="connInfo">The connection info.</param>
-    /// <returns>The URI to connect to.</returns>
-    /// <remarks>
-    /// PowerShell leaves the port off the URI when the caller did not specify one, which <see cref="Uri"/> reads
-    /// as 80 or 443. The flag on the connection info says the WSMan defaults are meant instead.
-    /// </remarks>
-    public static Uri GetConnectionUri(WSManConnectionInfo connInfo)
-    {
-        Uri connectionUri = connInfo.ConnectionUri;
-        if (connInfo.UseDefaultWSManPort)
-        {
-            UriBuilder uriBuilder = new(connectionUri)
-            {
-                Port = connectionUri.Scheme == Uri.UriSchemeHttps ? 5986 : 5985,
-            };
-            connectionUri = uriBuilder.Uri;
-        }
-
-        return connectionUri;
-    }
-
-    /// <summary>Reads the PSWSMan specific options that New-PSWSManSessionOption attaches to an object.</summary>
-    /// <param name="source">The PSSessionOption or WSManConnectionInfo to read from.</param>
-    /// <returns>The extra options, or null when the object has none.</returns>
-    public static PSWSManSessionOption? GetExtraOptions(object source)
-    {
-        return System.Management.Automation.PSObject.AsPSObject(source)
-            .Properties[PSWSManSessionOption.PSWSMAN_SESSION_OPTION_PROP]
-            ?.Value as PSWSManSessionOption;
-    }
-
     /// <summary>Creates the transport for a connection.</summary>
     /// <param name="connectionUri">The endpoint to connect to.</param>
-    /// <param name="connInfo">The PowerShell connection settings.</param>
-    /// <param name="extraConnInfo">The PSWSMan specific settings, if any.</param>
+    /// <param name="credential">The explicit credential, null for the current user.</param>
+    /// <param name="certificateThumbprint">The thumbprint of a client certificate to authenticate with.</param>
+    /// <param name="options">The connection options.</param>
     /// <param name="maxEnvelopeSize">The initial maximum envelope size.</param>
     /// <param name="trace">Callback for diagnostic messages.</param>
     /// <param name="authMethod">
-    /// An explicit authentication method that overrides the one in <paramref name="extraConnInfo"/> and the
-    /// mechanism in <paramref name="connInfo"/>. Default uses those instead.
+    /// An explicit authentication method that overrides the one in <paramref name="options"/>. Default uses that
+    /// instead.
     /// </param>
     /// <returns>The transport, the caller disposes it.</returns>
     public static WSManTransport Create(
         Uri connectionUri,
-        WSManConnectionInfo connInfo,
-        PSWSManSessionOption? extraConnInfo,
+        PSCredential? credential,
+        string? certificateThumbprint,
+        WinRMSessionOption options,
         int maxEnvelopeSize,
         Action<string> trace,
         AuthenticationMethod authMethod = AuthenticationMethod.Default)
@@ -83,7 +54,7 @@ internal static class WSManTransportFactory
         SslClientAuthenticationOptions? tlsOptions = null;
         if (connectionUri.Scheme == Uri.UriSchemeHttps)
         {
-            tlsOptions = extraConnInfo?.TlsOption ?? BuildTlsOptions(connectionUri, connInfo, extraConnInfo);
+            tlsOptions = options.TlsOption ?? BuildTlsOptions(connectionUri, certificateThumbprint, options);
 
             // If using client certificates, disable TLS session resumption to ensure the certificate exchange occurs
             // on every new connection.
@@ -93,56 +64,43 @@ internal static class WSManTransportFactory
             }
         }
 
-        // An explicit method wins, then the extra options, then the builtin mechanism mapped to our known enum.
         if (authMethod == AuthenticationMethod.Default)
         {
-            authMethod = extraConnInfo?.AuthMethod ?? AuthenticationMethod.Default;
-        }
-        if (authMethod == AuthenticationMethod.Default)
-        {
-            authMethod = connInfo.AuthenticationMechanism switch
-            {
-                AuthenticationMechanism.Basic => AuthenticationMethod.Basic,
-                AuthenticationMechanism.Credssp => AuthenticationMethod.CredSSP,
-                AuthenticationMechanism.Kerberos => AuthenticationMethod.Kerberos,
-                AuthenticationMechanism.Negotiate => AuthenticationMethod.Negotiate,
-                AuthenticationMechanism.NegotiateWithImplicitCredential => AuthenticationMethod.Negotiate,
-                _ => AuthenticationMethod.Default,
-            };
+            authMethod = options.AuthMethod;
         }
 
         NegotiateOptions negoOptions = new()
         {
             Flags = NegotiateRequestFlags.Default,
-            SPNHostName = extraConnInfo?.SPNHostName ?? connectionUri.DnsSafeHost,
-            SPNService = extraConnInfo?.SPNService,
+            SPNHostName = options.SPNHostName ?? connectionUri.DnsSafeHost,
+            SPNService = options.SPNService,
         };
-        if (extraConnInfo?.RequestKerberosDelegate == true)
+        if (options.RequestKerberosDelegate)
         {
             negoOptions.Flags |= NegotiateRequestFlags.Delegate;
         }
 
-        WSManCredential credential = WSManCredentialFactory.Create(
+        WSManCredential wsmanCredential = WSManCredentialFactory.Create(
             authMethod,
-            extraConnInfo?.AuthProvider ?? AuthenticationProvider.Default,
-            connInfo.Credential?.UserName,
-            connInfo.Credential?.GetNetworkCredential()?.Password,
+            options.AuthProvider,
+            credential?.UserName,
+            credential?.GetNetworkCredential()?.Password,
             tlsOptions,
-            extraConnInfo?.CredSSPTlsOption,
-            extraConnInfo?.CredSSPAuthMethod ?? AuthenticationMethod.Default,
+            options.CredSSPTlsOption,
+            options.CredSSPAuthMethod,
             negoOptions
         );
 
-        // The PowerShell timeouts are in milliseconds, 0 means the default.
-        TimeSpan connectTimeout = connInfo.OpenTimeout > 0
-            ? TimeSpan.FromMilliseconds(connInfo.OpenTimeout)
+        // A zero or negative timeout means the default.
+        TimeSpan connectTimeout = options.OpenTimeout > TimeSpan.Zero
+            ? options.OpenTimeout
             : TimeSpan.FromSeconds(10);
-        TimeSpan operationTimeout = connInfo.OperationTimeout > 0
-            ? TimeSpan.FromMilliseconds(connInfo.OperationTimeout)
+        TimeSpan operationTimeout = options.OperationTimeout > TimeSpan.Zero
+            ? options.OperationTimeout
             : TimeSpan.FromSeconds(180);
 
-        bool encrypt = !(connectionUri.Scheme == Uri.UriSchemeHttps || connInfo.NoEncryption);
-        WSManConnectionOptions options = new(connectionUri, credential)
+        bool encrypt = !(connectionUri.Scheme == Uri.UriSchemeHttps || options.NoEncryption);
+        WSManConnectionOptions connOptions = new(connectionUri, wsmanCredential)
         {
             TlsOptions = tlsOptions,
             Encrypt = encrypt,
@@ -151,36 +109,40 @@ internal static class WSManTransportFactory
             Trace = trace,
         };
 
-        WSManConnectionPool pool = new(options);
+        WSManConnectionPool pool = new(connOptions);
         // wsman:Locale is the language for messages and maps to the UI culture, wsmv:DataLocale is the format for
         // data and maps to the culture. The server applies them to Get-UICulture and Get-Culture respectively.
+        CultureInfo culture = options.Culture ?? CultureInfo.CurrentCulture;
+        CultureInfo uiCulture = options.UICulture ?? CultureInfo.CurrentUICulture;
         WSManClient client = new(
             connectionUri,
             maxEnvelopeSize,
             operationTimeout,
-            connInfo.UICulture?.Name ?? connInfo.Culture.Name,
-            dataLocale: connInfo.Culture.Name);
+            uiCulture.Name,
+            dataLocale: culture.Name);
 
         return new WSManTransport(pool, client);
     }
 
-    private static SslClientAuthenticationOptions BuildTlsOptions(Uri connectionUri, WSManConnectionInfo connInfo,
-        PSWSManSessionOption? extraConnInfo)
+    private static SslClientAuthenticationOptions BuildTlsOptions(Uri connectionUri, string? certificateThumbprint,
+        WinRMSessionOption options)
     {
         SslClientAuthenticationOptions tlsOptions = new()
         {
             TargetHost = connectionUri.DnsSafeHost,
         };
 
-        if (connInfo.SkipCACheck || connInfo.SkipCNCheck)
+        if (options.SkipCACheck || options.SkipCNCheck)
         {
+            bool skipCA = options.SkipCACheck;
+            bool skipCN = options.SkipCNCheck;
             tlsOptions.RemoteCertificateValidationCallback = ((_1, _2, _3, sslPolicyErrors) =>
             {
-                if (connInfo.SkipCACheck)
+                if (skipCA)
                 {
                     sslPolicyErrors &= ~SslPolicyErrors.RemoteCertificateChainErrors;
                 }
-                if (connInfo.SkipCNCheck)
+                if (skipCN)
                 {
                     sslPolicyErrors &= ~SslPolicyErrors.RemoteCertificateNameMismatch;
                 }
@@ -189,20 +151,20 @@ internal static class WSManTransportFactory
             });
         }
 
-        if (!string.IsNullOrWhiteSpace(connInfo.CertificateThumbprint))
+        if (!string.IsNullOrWhiteSpace(certificateThumbprint))
         {
-            X509Certificate2? cert = FindCertificate(connInfo.CertificateThumbprint);
+            X509Certificate2? cert = FindCertificate(certificateThumbprint);
             if (cert is null)
             {
-                string errMsg = $"WinRM failed to find certificate with the thumbprint requested '{connInfo.CertificateThumbprint}'";
+                string errMsg = $"WinRM failed to find certificate with the thumbprint requested '{certificateThumbprint}'";
                 throw new AuthenticationException(errMsg);
             }
 
             tlsOptions.ClientCertificates = new(new[] { cert });
         }
-        else if (extraConnInfo?.ClientCertificate != null)
+        else if (options.ClientCertificate != null)
         {
-            tlsOptions.ClientCertificates = new(new[] { extraConnInfo.ClientCertificate });
+            tlsOptions.ClientCertificates = new(new[] { options.ClientCertificate });
         }
 
         return tlsOptions;

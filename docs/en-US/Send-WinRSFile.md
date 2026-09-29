@@ -16,20 +16,21 @@ Copies local files to a remote host over a WinRS connection.
 ```
 Send-WinRSFile [-Path] <String[]> [-Destination] <String> [-Compression <CompressionMethod>]
  [-ComputerName] <String> [-Credential <PSCredential>] [-Port <Int32>] [-UseSSL] [-ApplicationName <String>]
- [-SessionOption <PSSessionOption>] [-Authentication <AuthenticationMethod>] [-CertificateThumbprint <String>]
- [-ProgressAction <ActionPreference>] [-WhatIf] [-Confirm] [<CommonParameters>]
+ [-SessionOption <WinRMSessionOption>] [-Authentication <AuthenticationMethod>]
+ [-CertificateThumbprint <String>] [-ProgressAction <ActionPreference>] [-WhatIf] [-Confirm]
+ [<CommonParameters>]
 ```
 
 ### Shell
 ```
 Send-WinRSFile [-Path] <String[]> [-Destination] <String> [-Compression <CompressionMethod>]
- -Shell <WinRSRemoteShell> [-ProgressAction <ActionPreference>] [-WhatIf] [-Confirm] [<CommonParameters>]
+ [-Shell] <WinRSRemoteShell> [-ProgressAction <ActionPreference>] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ### ConnectionUri
 ```
 Send-WinRSFile [-Path] <String[]> [-Destination] <String> [-Compression <CompressionMethod>]
- [-ConnectionUri] <Uri> [-Credential <PSCredential>] [-SessionOption <PSSessionOption>]
+ [-ConnectionUri] <Uri> [-Credential <PSCredential>] [-SessionOption <WinRMSessionOption>]
  [-Authentication <AuthenticationMethod>] [-CertificateThumbprint <String>]
  [-ProgressAction <ActionPreference>] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
@@ -95,7 +96,7 @@ Each file is copied into `C:\Logs` and the verbose stream shows where it was cop
 
 ### Example 4: Connect over HTTPS with a connection URI
 ```powershell
-PS C:\> $so = New-PSWSManSessionOption -SkipCACheck -SkipCNCheck
+PS C:\> $so = New-WinRMSessionOption -SkipCACheck -SkipCNCheck
 PS C:\> Send-WinRSFile -ConnectionUri https://Server01:5986/wsman -Path ./script.ps1 -Destination C:\temp -SessionOption $so
 ```
 
@@ -291,11 +292,12 @@ Accept wildcard characters: False
 ```
 
 ### -SessionOption
-The session options created by `New-PSSessionOption` or `New-PSWSManSessionOption`.
-Only the options that apply to a WinRS connection are used, see `Invoke-WinRSCommand` for the list.
+The connection options, the output of `New-WinRMSessionOption` or a hashtable of its option names and values, like `@{ OperationTimeout = 30000; AuthProvider = 'Devolutions' }`.
+A `PSSessionOption`, like the output of `New-PSSessionOption`, is accepted too, but it is an error if it sets an option PSWSMan does not support, like `NoCompression`, `IdleTimeout` or a proxy.
+See `New-WinRMSessionOption` for the options and their defaults.
 
 ```yaml
-Type: PSSessionOption
+Type: WinRMSessionOption
 Parameter Sets: ComputerName, ConnectionUri
 Aliases:
 
@@ -316,7 +318,7 @@ Parameter Sets: Shell
 Aliases:
 
 Required: True
-Position: Named
+Position: 0
 Default value: None
 Accept pipeline input: False
 Accept wildcard characters: False

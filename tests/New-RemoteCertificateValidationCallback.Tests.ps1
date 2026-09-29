@@ -58,9 +58,9 @@ BeforeAll {
     }
 }
 
-Describe "New-PSWSManCertValidationCallback" {
+Describe "New-RemoteCertificateValidationCallback" {
     It "Creates a RemoteCertificateValidationCallback" {
-        $actual = New-PSWSManCertValidationCallback -ScriptBlock { $true }
+        $actual = New-RemoteCertificateValidationCallback -ScriptBlock { $true }
 
         $actual | Should-HaveType ([RemoteCertificateValidationCallback])
     }
@@ -73,7 +73,7 @@ Describe "New-PSWSManCertValidationCallback" {
         @{ SslPolicyErrors = [SslPolicyErrors]'RemoteCertificateChainErrors, RemoteCertificateNameMismatch' }
     ) {
         $state = @{}
-        $callback = New-PSWSManCertValidationCallback -ScriptBlock {
+        $callback = New-RemoteCertificateValidationCallback -ScriptBlock {
             $state = $using:state
             $state['args'] = $args
 
@@ -97,7 +97,7 @@ Describe "New-PSWSManCertValidationCallback" {
         $testThread = [Environment]::CurrentManagedThreadId
 
         $state = @{}
-        $callback = New-PSWSManCertValidationCallback -ScriptBlock {
+        $callback = New-RemoteCertificateValidationCallback -ScriptBlock {
             $state = $using:state
             $state['runspace'] = [System.Management.Automation.Runspaces.Runspace]::DefaultRunspace.Id
             $state['thread'] = [Environment]::CurrentManagedThreadId
@@ -114,7 +114,7 @@ Describe "New-PSWSManCertValidationCallback" {
 
     It "Uses a value captured with using" {
         $expected = [SslPolicyErrors]::RemoteCertificateNameMismatch
-        $callback = New-PSWSManCertValidationCallback -ScriptBlock {
+        $callback = New-RemoteCertificateValidationCallback -ScriptBlock {
             param ($Sender, $Certificate, $Chain, $SslPolicyErrors)
 
             $SslPolicyErrors -eq $using:expected
@@ -128,19 +128,19 @@ Describe "New-PSWSManCertValidationCallback" {
         @{ Expected = $true }
         @{ Expected = $false }
     ) {
-        $callback = New-PSWSManCertValidationCallback -ScriptBlock { $using:Expected }
+        $callback = New-RemoteCertificateValidationCallback -ScriptBlock { $using:Expected }
 
         Invoke-CertValidationCallback -Callback $callback | Should-Be $Expected
     }
 
     It "Treats no output as a failed check" {
-        $callback = New-PSWSManCertValidationCallback -ScriptBlock { }
+        $callback = New-RemoteCertificateValidationCallback -ScriptBlock { }
 
         Invoke-CertValidationCallback -Callback $callback | Should-BeFalse
     }
 
     It "Uses only the last output" {
-        $callback = New-PSWSManCertValidationCallback -ScriptBlock {
+        $callback = New-RemoteCertificateValidationCallback -ScriptBlock {
             $false
             $true
         }
@@ -149,7 +149,7 @@ Describe "New-PSWSManCertValidationCallback" {
     }
 
     It "Treats a last output that is not a bool as a failed check" {
-        $callback = New-PSWSManCertValidationCallback -ScriptBlock {
+        $callback = New-RemoteCertificateValidationCallback -ScriptBlock {
             $true
             'will fail'
         }
@@ -169,7 +169,7 @@ Describe "New-PSWSManCertValidationCallback" {
         }
 
         $state = @{}
-        $callback = New-PSWSManCertValidationCallback -ScriptBlock ${function:Test-CertValidation}
+        $callback = New-RemoteCertificateValidationCallback -ScriptBlock ${function:Test-CertValidation}
 
         $actual = Invoke-CertValidationCallback -Callback $callback -SslPolicyErrors RemoteCertificateChainErrors
 
@@ -186,7 +186,7 @@ Describe "New-PSWSManCertValidationCallback" {
 
             $true
         }
-        $callback = New-PSWSManCertValidationCallback -ScriptBlock $scriptBlock
+        $callback = New-RemoteCertificateValidationCallback -ScriptBlock $scriptBlock
 
         $actual = Invoke-CertValidationCallback -Callback $callback
 
@@ -198,13 +198,13 @@ Describe "New-PSWSManCertValidationCallback" {
     }
 
     It "Invokes a script block created from a string" {
-        $callback = New-PSWSManCertValidationCallback -ScriptBlock ([scriptblock]::Create('$args[3] -eq "None"'))
+        $callback = New-RemoteCertificateValidationCallback -ScriptBlock ([scriptblock]::Create('$args[3] -eq "None"'))
 
         Invoke-CertValidationCallback -Callback $callback | Should-BeTrue
     }
 
     It "Raises a script block error to the caller" {
-        $callback = New-PSWSManCertValidationCallback -ScriptBlock { throw 'validation error' }
+        $callback = New-RemoteCertificateValidationCallback -ScriptBlock { throw 'validation error' }
 
         { Invoke-CertValidationCallback -Callback $callback } | Should-Throw -ExceptionMessage '*validation error*'
     }

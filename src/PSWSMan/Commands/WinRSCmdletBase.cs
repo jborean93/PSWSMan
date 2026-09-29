@@ -20,6 +20,7 @@ public abstract class WinRSCmdletBase : WinRSConnectionCmdletBase
 
     [Parameter(
         Mandatory = true,
+        Position = 0,
         ParameterSetName = "Shell"
     )]
     [ValidateNotNull]
@@ -134,7 +135,7 @@ public abstract class WinRSCmdletBase : WinRSConnectionCmdletBase
             }
             catch (Exception e)
             {
-                BaseClientTransportManager.tracer.WriteLine(
+                Trace(
                     $"PSWSMan WinRS: failed to terminate command {command.CommandId}: {e.Message}");
             }
         }

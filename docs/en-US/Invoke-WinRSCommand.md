@@ -16,20 +16,20 @@ Runs a process on a remote host through a WinRS shell and outputs its stdout and
 ```
 Invoke-WinRSCommand [-Command] <String> [-InputObject <PSObject>] [-ConsoleEncoding <Encoding>] [-AsByteStream]
  [-ComputerName] <String> [-Credential <PSCredential>] [-Port <Int32>] [-UseSSL] [-ApplicationName <String>]
- [-SessionOption <PSSessionOption>] [-Authentication <AuthenticationMethod>] [-CertificateThumbprint <String>]
- [-ProgressAction <ActionPreference>] [<CommonParameters>]
+ [-SessionOption <WinRMSessionOption>] [-Authentication <AuthenticationMethod>]
+ [-CertificateThumbprint <String>] [-ProgressAction <ActionPreference>] [<CommonParameters>]
 ```
 
 ### Shell
 ```
 Invoke-WinRSCommand [-Command] <String> [-InputObject <PSObject>] [-ConsoleEncoding <Encoding>] [-AsByteStream]
- -Shell <WinRSRemoteShell> [-ProgressAction <ActionPreference>] [<CommonParameters>]
+ [-Shell] <WinRSRemoteShell> [-ProgressAction <ActionPreference>] [<CommonParameters>]
 ```
 
 ### ConnectionUri
 ```
 Invoke-WinRSCommand [-Command] <String> [-InputObject <PSObject>] [-ConsoleEncoding <Encoding>] [-AsByteStream]
- [-ConnectionUri] <Uri> [-Credential <PSCredential>] [-SessionOption <PSSessionOption>]
+ [-ConnectionUri] <Uri> [-Credential <PSCredential>] [-SessionOption <WinRMSessionOption>]
  [-Authentication <AuthenticationMethod>] [-CertificateThumbprint <String>]
  [-ProgressAction <ActionPreference>] [<CommonParameters>]
 ```
@@ -89,7 +89,7 @@ Each command still runs in a new `cmd.exe /C` process, so the working directory,
 This cmdlet does not require `Enable-PSWSMan` to have been run as it uses the WSMan client of this module directly.
 The connection is configured with the same parameters as `Invoke-Command`, `-ComputerName`, `-Port`, `-UseSSL`, `-ApplicationName`, `-Credential`, `-CertificateThumbprint` and `-SessionOption`, and they mean the same thing.
 Instead of `-ComputerName`, `-Port`, `-UseSSL` and `-ApplicationName`, the endpoint can be given as a whole with `-ConnectionUri`, like `https://Server01:5986/wsman`.
-The `-SessionOption` parameter accepts the output of either `New-PSSessionOption` or `New-PSWSManSessionOption`, the options that apply to a WinRS command are the timeouts, `NoEncryption`, `NoMachineProfile`, `Culture`, `UICulture`, `MaxConnectionRetryCount`, the certificate checks and all of the PSWSMan specific options like the authentication provider, SPN and TLS settings.
+The `-SessionOption` parameter takes the output of `New-WinRMSessionOption`, a hashtable of the same options, or a `PSSessionOption`.
 
 Without `-Credential` or `-CertificateThumbprint` the credential of the current user is used, on Linux and macOS this needs a Kerberos ticket to be available.
 The default authentication is Negotiate, which uses Kerberos where possible and falls back to NTLM otherwise, and a HTTP connection encrypts the messages with it unless `NoEncryption` is set in the session option.
@@ -186,7 +186,7 @@ The second sends the raw bytes of a file to a process reading its stdin.
 
 ### Example 11: Connect over HTTPS with NTLM
 ```powershell
-PS C:\> $so = New-PSWSManSessionOption -SkipCACheck -SkipCNCheck
+PS C:\> $so = New-WinRMSessionOption -SkipCACheck -SkipCNCheck
 PS C:\> Invoke-WinRSCommand Server01 hostname -UseSSL -Credential $cred -Authentication NTLM -SessionOption $so
 ```
 
@@ -422,11 +422,13 @@ Accept wildcard characters: False
 ```
 
 ### -SessionOption
-The session options created by `New-PSSessionOption` or `New-PSWSManSessionOption`.
+The connection options, the output of `New-WinRMSessionOption` or a hashtable of its option names and values, like `@{ OperationTimeout = 30000; AuthProvider = 'Devolutions' }`.
+A `PSSessionOption`, like the output of `New-PSSessionOption`, is accepted too, but it is an error if it sets an option PSWSMan does not support, like `NoCompression`, `IdleTimeout` or a proxy.
+See `New-WinRMSessionOption` for the options and their defaults.
 Only the options that apply to a WinRS command are used, see the description for the list.
 
 ```yaml
-Type: PSSessionOption
+Type: WinRMSessionOption
 Parameter Sets: ComputerName, ConnectionUri
 Aliases:
 
@@ -448,7 +450,7 @@ Parameter Sets: Shell
 Aliases:
 
 Required: True
-Position: Named
+Position: 0
 Default value: None
 Accept pipeline input: False
 Accept wildcard characters: False
@@ -488,7 +490,7 @@ The raw stdout chunks when `-AsByteStream` is used.
 ## NOTES
 The exit code of the process is stored in `$LASTEXITCODE`.
 
-This cmdlet has the alias `iwcm`.
+This cmdlet has the alias `irscm`.
 
 ## RELATED LINKS
 

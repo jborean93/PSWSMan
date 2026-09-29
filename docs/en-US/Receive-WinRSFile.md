@@ -16,20 +16,21 @@ Copies files from a remote host to the local host over a WinRS connection.
 ```
 Receive-WinRSFile [-Path] <String[]> [-Destination] <String> [-Compression <CompressionMethod>]
  [-ComputerName] <String> [-Credential <PSCredential>] [-Port <Int32>] [-UseSSL] [-ApplicationName <String>]
- [-SessionOption <PSSessionOption>] [-Authentication <AuthenticationMethod>] [-CertificateThumbprint <String>]
- [-ProgressAction <ActionPreference>] [-WhatIf] [-Confirm] [<CommonParameters>]
+ [-SessionOption <WinRMSessionOption>] [-Authentication <AuthenticationMethod>]
+ [-CertificateThumbprint <String>] [-ProgressAction <ActionPreference>] [-WhatIf] [-Confirm]
+ [<CommonParameters>]
 ```
 
 ### Shell
 ```
 Receive-WinRSFile [-Path] <String[]> [-Destination] <String> [-Compression <CompressionMethod>]
- -Shell <WinRSRemoteShell> [-ProgressAction <ActionPreference>] [-WhatIf] [-Confirm] [<CommonParameters>]
+ [-Shell] <WinRSRemoteShell> [-ProgressAction <ActionPreference>] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ### ConnectionUri
 ```
 Receive-WinRSFile [-Path] <String[]> [-Destination] <String> [-Compression <CompressionMethod>]
- [-ConnectionUri] <Uri> [-Credential <PSCredential>] [-SessionOption <PSSessionOption>]
+ [-ConnectionUri] <Uri> [-Credential <PSCredential>] [-SessionOption <WinRMSessionOption>]
  [-Authentication <AuthenticationMethod>] [-CertificateThumbprint <String>]
  [-ProgressAction <ActionPreference>] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
@@ -284,11 +285,12 @@ Accept wildcard characters: False
 ```
 
 ### -SessionOption
-The session options created by `New-PSSessionOption` or `New-PSWSManSessionOption`.
-Only the options that apply to a WinRS connection are used, see `Invoke-WinRSCommand` for the list.
+The connection options, the output of `New-WinRMSessionOption` or a hashtable of its option names and values, like `@{ OperationTimeout = 30000; AuthProvider = 'Devolutions' }`.
+A `PSSessionOption`, like the output of `New-PSSessionOption`, is accepted too, but it is an error if it sets an option PSWSMan does not support, like `NoCompression`, `IdleTimeout` or a proxy.
+See `New-WinRMSessionOption` for the options and their defaults.
 
 ```yaml
-Type: PSSessionOption
+Type: WinRMSessionOption
 Parameter Sets: ComputerName, ConnectionUri
 Aliases:
 
@@ -309,7 +311,7 @@ Parameter Sets: Shell
 Aliases:
 
 Required: True
-Position: Named
+Position: 0
 Default value: None
 Accept pipeline input: False
 Accept wildcard characters: False

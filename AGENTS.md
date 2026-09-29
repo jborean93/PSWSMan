@@ -13,6 +13,12 @@ classes at runtime using MonoMod detours, so the built-in remoting cmdlets
 (`New-PSSession`, `Invoke-Command`, `Enter-PSSession`, ...) use this module's
 client once `Enable-PSWSMan -Force` has been run.
 
+The same client is also reachable without any hooks. `New-WinRMSession`
+creates a PSSession through PowerShell's public custom remoting transport API
+(`src/PSWSMan/CustomTransport/`), and the WinRS cmdlets (`Invoke-WinRSCommand`,
+`Send-WinRSFile`, ...) run `cmd.exe` commands without a PowerShell session. Both
+take their options as a `WinRMSessionOption`.
+
 ## Repository layout
 
 | Path | Purpose |
@@ -23,6 +29,7 @@ client once `Enable-PSWSMan -Force` has been run.
 | `PSWSMan.slnx` | Solution file listing the three `src/` projects. |
 | `src/PSWSMan/` | The PowerShell module assembly: cmdlets, S.M.A patches, authentication (GSSAPI, SSPI, CredSSP, Basic, certificate), TLS, PSRP session bridge (`WSManPSRPSession.cs`). Compiles against the S.M.A implementation assembly from the `System.Management.Automation` NuGet package. |
 | `src/PSWSMan/Connection/` | The synchronous HTTP transport (`PSWSMan.Connection` namespace): one authenticated socket per `WSManHttpConnection`, a `WSManConnectionPool` handing them out under exclusive leases, and `WinRSShell`/`WinRSReceivePump` driving a WinRS shell with dedicated receive threads. Nothing in this folder may reference S.M.A types so it can be loaded by a plain unit test project. |
+| `src/PSWSMan/CustomTransport/` | The hook-free PSSession behind `New-WinRMSession`: `WinRMConnectionInfo` and its transport manager plug into PowerShell's public custom transport API. The protocol work is done by `OutOfProcWSManTranslator` in `src/PSWSMan/Connection/`, which turns the OutOfProc packets PowerShell writes into WSMan shell operations through `IWSManShellOperations` and the Receive output back into packets, it has no S.M.A dependency so `PSWSMan.Connection.Tests` covers it with a fake shell. Only public or protected S.M.A members may be used here; the project compiles with `IgnoresAccessChecksTo` so the compiler will not catch a slip. The `TracePath` session option (`New-WinRMSessionOption -TracePath`) logs the translated traffic to a file. |
 | `src/PSWSMan.Lib/` | Protocol-only library: WSMan/WinRS envelope building and response parsing. No PowerShell dependency, so it is unit testable with plain `dotnet test`. |
 | `src/PSWSMan.Loader/` | Tiny `AssemblyLoadContext` used by `module/PSWSMan.psm1` to isolate the module's dependencies from the host process. |
 | `src/Directory.Build.props` | Shared compiler settings (C# 12, nullable enabled, unsafe allowed). |
@@ -163,7 +170,7 @@ the pinned version is the one that runs.
 ```powershell
 pwsh -NoProfile -Command {
     Import-Module ./output/Modules/Pester
-    Invoke-Pester -Path ./tests/New-PSWSManSessionOption.Tests.ps1 -Output Detailed
+    Invoke-Pester -Path ./tests/New-WinRMSessionOption.Tests.ps1 -Output Detailed
 }
 ```
 
@@ -186,7 +193,7 @@ pwsh -File ./tools/CoverageReport.ps1 -Path ./output/TestResults/Coverage.cobert
   and feed them to Pester's `-ForEach` (the entry is `$_` in the test), so a
   new connection test should filter on what it needs rather than assume a
   particular host. `Get-PSSessionSplat` turns an entry into the
-  `New-PSSession` parameters and takes the `New-PSWSManSessionOption`
+  `New-PSSession` parameters and takes the `New-WinRMSessionOption`
   parameters as a hashtable, so it can disable certificate validation for
   entries marked `untrusted_certificate`.
 - `cmd.exe` cannot write arbitrary bytes. `Get-RawOutputCommand` in
@@ -195,7 +202,14 @@ pwsh -File ./tools/CoverageReport.ps1 -Path ./output/TestResults/Coverage.cobert
   chosen exit code. It fits about 4KB in the 8191 characters `cmd.exe`
   allows.
 - `test.settings.json` is git-ignored and contains credentials. Never commit
-  it or copy its contents into other files.
+  it or copy its contents into other files. When present, its servers and
+  credentials are meant to be used for manual testing too, such as proving
+  out a POC or a one-off check outside the Pester tests. Read them from the
+  file at run time (e.g. `Get-PSWSManTestServer | Get-PSSessionSplat` after
+  dot-sourcing `tests/common.ps1`, or parsing the JSON in the script) rather
+  than pasting them into commands or scripts. Dot-sourcing `common.ps1` also
+  runs `Enable-PSWSMan -Force`, so parse the JSON directly when checking
+  behaviour without the S.M.A patches.
 - Every Pester file must start with `BeforeDiscovery { . ([IO.Path]::Combine($PSScriptRoot, 'common.ps1')) }`.
 - Assertions use the Pester 6 `Should-*` commands (`Should-Be`, `Should-Throw -ExceptionMessage`, ...). The
   classic `Should -Be` form is disabled in the test run and fails.
@@ -211,7 +225,9 @@ pwsh -File ./tools/CoverageReport.ps1 -Path ./output/TestResults/Coverage.cobert
   checks the token exchange and message protection of each security library
   against an independent implementation without any HTTP involved. Tests
   needing it must go through `Acceptor.Start` so they skip cleanly. `Trace-Command -Name
-  ClientTransport -FilePath ...` captures the transport and pump activity.
+  ClientTransport -FilePath ...` captures the transport and pump activity of the
+  patched builtin cmdlets, `-SessionOption @{ TracePath = '...' }` that of
+  `New-WinRMSession` and the WinRS cmdlets.
 - `build.ps1 -Task Test` instruments the built module for coverage. Do not
   run it while another `pwsh` process has `output/PSWSMan` imported, that
   process can crash with `BadImageFormatException`.
@@ -244,6 +260,20 @@ tests and the .NET unit tests actually execute there. Put protocol logic in
   rewrites the pages with LF line endings on non-Windows hosts.
 - Add a line to `CHANGELOG.md` under the unreleased heading for anything a
   user would notice.
+- Internal S.M.A members are only meant for the `Enable-PSWSMan` path
+  (`src/PSWSMan/Patches/`, `WSManPSRPSession.cs` and the `Enable-PSWSMan`
+  cmdlet). `IgnoresAccessChecksTo` is an assembly attribute and cannot be
+  scoped to a namespace, so the compiler will not stop internal use anywhere
+  else in `src/PSWSMan`. Outside that path prefer a public API; when there is
+  none, mark the use with an `// Internal S.M.A API:` comment that says what
+  it is, why no public API works and that it is a known risk. The current ones
+  are `ErrorRecord.PreserveInvocationInfoOnce` (`Invoke-WinRSCommand`) and
+  the `$using:` capture and `ScriptBlock` constructor behind
+  `New-RemoteCertificateValidationCallback`. `src/PSWSMan/CustomTransport/` must
+  never use one. To audit, build a copy of the project against
+  `ref/<tfm>/System.Management.Automation.dll` of the NuGet package without
+  `IgnoresAccessChecksTo` and without the `Enable-PSWSMan` path files, every
+  compile error is an internal use.
 
 ### Verifying manually against a WinRM host
 
@@ -257,7 +287,7 @@ pwsh -File ./build.ps1 -Task Build
 pwsh -NoProfile -Command {
     Import-Module ./output/PSWSMan
     Enable-PSWSMan -Force
-    $so = New-PSWSManSessionOption -NoEncryption
+    $so = New-WinRMSessionOption -NoEncryption
     Invoke-Command -ComputerName host.example.test { hostname } -Credential $cred -SessionOption $so
 }
 ```
@@ -275,4 +305,8 @@ the failure looks like a transport error.
   enables it in an interactive session. `.vscode/launch.json` attaches the
   .NET debugger to that script.
 - `Trace-Command -PSHost -Name ClientTransport -Expression { ... }` shows the
-  transport-level hook activity from inside PowerShell.
+  transport-level hook activity of the patched builtin cmdlets from inside
+  PowerShell.
+- `New-WinRMSession` and the WinRS cmdlets do not write to that internal trace
+  source. Pass `-SessionOption @{ TracePath = '...' }` to write their trace,
+  including the OutOfProc packets of `New-WinRMSession`, to a file.

@@ -64,5 +64,18 @@ public class ChunkReadStreamTests
         await Assert.That(() => stream.Length).Throws<NotSupportedException>();
         await Assert.That(() => stream.Position).Throws<NotSupportedException>();
         await Assert.That(() => stream.Write([1], 0, 1)).Throws<NotSupportedException>();
+        await Assert.That(() => stream.Position = 0).Throws<NotSupportedException>();
+        await Assert.That(() => stream.Seek(0, SeekOrigin.Begin)).Throws<NotSupportedException>();
+        await Assert.That(() => stream.SetLength(0)).Throws<NotSupportedException>();
+    }
+
+    [Test]
+    public async Task Flush_DoesNothing()
+    {
+        using ChunkReadStream stream = Create([1]);
+
+        stream.Flush();
+
+        await Assert.That(stream.ReadByte()).IsEqualTo(1);
     }
 }

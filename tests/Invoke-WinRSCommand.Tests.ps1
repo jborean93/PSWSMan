@@ -125,6 +125,25 @@ Describe "Invoke-WinRSCommand" {
             $LASTEXITCODE | Should-Be 1
         }
 
+        It "Writes a last stdout line without a newline - <_.Name>" -ForEach (Get-PSWSManTestServer -First) {
+            $params = $_ | Get-PSSessionSplat
+
+            $actual = Invoke-WinRSCommand @params -Command (Get-RawOutputCommand -Hex '66697273740D0A6C617374')
+
+            $actual | Should-BeCollection @('first', 'last')
+        }
+
+        It "Writes a last stderr line without a newline - <_.Name>" -ForEach (Get-PSWSManTestServer -First) {
+            $params = $_ | Get-PSSessionSplat
+            $command = Get-RawOutputCommand -Hex '6572726F72' -Stream Stderr
+
+            $actual = Invoke-WinRSCommand @params -Command $command -ErrorAction SilentlyContinue -ErrorVariable err
+
+            $actual | Should-BeNull
+            $err.Count | Should-Be 1
+            [string]$err[0] | Should-Be 'error'
+        }
+
         It "Decodes UTF-8 output - <_.Name>" -ForEach (Get-PSWSManTestServer -First) {
             $params = $_ | Get-PSSessionSplat
             # 1, 2, 3 and 4 byte UTF-8 sequences, the last is a surrogate pair in .NET.
@@ -173,6 +192,11 @@ Describe "Invoke-WinRSCommand" {
                 }
                 $ps.Stop()
                 $sw.Stop()
+
+                # The two statements run as a batch whose worker thread can still write to the output after Stop
+                # returns, disposing before it finishes fails that write on a thread pool thread and kills the
+                # process.
+                $null = $task.AsyncWaitHandle.WaitOne([TimeSpan]::FromSeconds(30))
             }
             finally {
                 $ps.Dispose()
@@ -217,6 +241,22 @@ Describe "Invoke-WinRSCommand" {
             $actual | Should-Be '2'
         }
 
+        It "Skips null values inside a collection sent as one object - <_.Name>" -ForEach (Get-PSWSManTestServer -First) {
+            $params = $_ | Get-PSSessionSplat
+
+            $actual = , @('a', $null, 'b') | Invoke-WinRSCommand @params -Command 'find /v /c ""'
+
+            $actual | Should-Be '2'
+        }
+
+        It "Writes a dictionary as its string form rather than enumerating it - <_.Name>" -ForEach (Get-PSWSManTestServer -First) {
+            $params = $_ | Get-PSSessionSplat
+
+            $actual = @{ Key = 'value' } | Invoke-WinRSCommand @params -Command 'findstr .'
+
+            $actual | Should-Be 'System.Collections.Hashtable'
+        }
+
         It "Writes strings as lines to stdin - <_.Name>" -ForEach (Get-PSWSManTestServer -First) {
             $params = $_ | Get-PSSessionSplat
 
@@ -250,6 +290,16 @@ Describe "Invoke-WinRSCommand" {
             $actual = $bytes | Invoke-WinRSCommand @params -Command 'findstr d'
 
             $actual | Should-Be 'def'
+        }
+
+        It "Sends enumerated bytes in chunks once they fill one - <_.Name>" -ForEach (Get-PSWSManTestServer -First) {
+            $params = $_ | Get-PSSessionSplat
+            # More than the 64KiB chunk so the collected bytes are sent part way through the input.
+            $bytes = [System.Text.Encoding]::ASCII.GetBytes("ab`r`n" * 20000)
+
+            $actual = $bytes | Invoke-WinRSCommand @params -Command 'find /v /c ""'
+
+            $actual | Should-Be '20000'
         }
 
         It "Accepts InputObject as a parameter - <_.Name>" -ForEach (Get-PSWSManTestServer -First) {
@@ -629,6 +679,15 @@ Describe "Invoke-WinRSCommand" {
             Invoke-WinRSCommand @params -Command 'echo hello' -Authentication Kerberos | Should-Be 'hello'
         }
 
+        It "Writes the connection trace to the TracePath file - <_.Name>" -ForEach (Get-PSWSManTestServer -First) {
+            $tracePath = Join-Path TestDrive: winrs-trace.log
+            $params = $_ | Get-PSSessionSplat -SessionOption @{ TracePath = $tracePath }
+
+            Invoke-WinRSCommand @params -Command 'echo hello' | Should-Be 'hello'
+
+            (Get-Item -LiteralPath $tracePath).Length | Should-BeGreaterThan 0
+        }
+
         It "Applies the session option timeouts and culture - <_.Name>" -ForEach (Get-PSWSManTestServer -First) {
             $params = $_ | Get-PSSessionSplat -SessionOption @{
                 OperationTimeout = 20000
@@ -643,8 +702,8 @@ Describe "Invoke-WinRSCommand" {
     }
 
     Context "Module" {
-        It "Exports the iwcm alias" {
-            $actual = Get-Alias -Name iwcm
+        It "Exports the irscm alias" {
+            $actual = Get-Alias -Name irscm
 
             $actual.ResolvedCommand.Name | Should-Be 'Invoke-WinRSCommand'
             $actual.ModuleName | Should-Be 'PSWSMan'
@@ -652,6 +711,51 @@ Describe "Invoke-WinRSCommand" {
     }
 
     Context "Parameter validation" {
+        It "Stops while it is still waiting for the server" {
+            # A listener that never accepts is a black hole on every host: the OS completes the TCP handshake from
+            # its backlog so the first request goes out and then waits for a response that never comes. A remote
+            # address is not reliable for this, some networks reject it straight away. Basic auth with a dummy
+            # credential sends the request without needing Kerberos or NTLM on the host.
+            $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+            $listener.Start()
+            $ps = [PowerShell]::Create()
+            try {
+                $uri = "http://127.0.0.1:$($listener.LocalEndpoint.Port)/wsman"
+                $cred = [PSCredential]::new('user', (ConvertTo-SecureString -AsPlainText -Force 'pass'))
+                $null = $ps.AddScript({
+                        param ($ModulePath, $Uri, $Credential)
+                        Import-Module -Name $ModulePath
+                        'starting'
+                        Invoke-WinRSCommand -ConnectionUri $Uri -Command hostname -Authentication Basic -Credential $Credential -SessionOption @{ NoEncryption = $true }
+                    }).AddArgument([IO.Path]::Combine((Get-Module -Name PSWSMan).ModuleBase, 'PSWSMan.psd1')).
+                    AddArgument($uri).AddArgument($cred)
+                $output = [System.Management.Automation.PSDataCollection[PSObject]]::new()
+                $task = $ps.BeginInvoke([System.Management.Automation.PSDataCollection[PSObject]]$null, $output)
+
+                # Importing the module in the new runspace can take a while on a slow or instrumented host, only
+                # the connection itself should be running when it is stopped.
+                $wait = [System.Diagnostics.Stopwatch]::StartNew()
+                while ($output.Count -eq 0 -and -not $task.IsCompleted -and $wait.Elapsed.TotalSeconds -lt 60) {
+                    Start-Sleep -Milliseconds 50
+                }
+                $output[0] | Should-Be 'starting'
+                Start-Sleep -Seconds 2
+                # Still waiting for the server, otherwise the stop below has nothing to interrupt.
+                $task.IsCompleted | Should-BeFalse
+
+                $sw = [System.Diagnostics.Stopwatch]::StartNew()
+                $ps.Stop()
+                $null = $task.AsyncWaitHandle.WaitOne([TimeSpan]::FromSeconds(60))
+                $sw.Elapsed.TotalSeconds | Should-BeLessThan 30
+                $task.IsCompleted | Should-BeTrue
+                $ps.InvocationStateInfo.State | Should-Be Stopped
+            }
+            finally {
+                $ps.Dispose()
+                $listener.Stop()
+            }
+        }
+
         It "Fails with a terminating error when the host cannot be reached" {
             $cmd = { Invoke-WinRSCommand -ComputerName 'pswsman.invalid' -Command hostname -ErrorAction Stop }
 

@@ -152,7 +152,7 @@ public abstract class WinRSFileCmdletBase : WinRSCmdletBase
     /// token is already cancelled so these requests get their own deadline, and failing is only traced as the
     /// abort that follows is the fallback.
     /// </remarks>
-    private static void FinishAfterStop(WinRSCommand command)
+    private void FinishAfterStop(WinRSCommand command)
     {
         using CancellationTokenSource cts = new(StopGracePeriod);
         try
@@ -164,7 +164,7 @@ public abstract class WinRSFileCmdletBase : WinRSCmdletBase
         }
         catch (Exception e)
         {
-            BaseClientTransportManager.tracer.WriteLine(
+            Trace(
                 $"PSWSMan file transfer: stopped upload did not finish cleanly: {e.Message}");
         }
     }

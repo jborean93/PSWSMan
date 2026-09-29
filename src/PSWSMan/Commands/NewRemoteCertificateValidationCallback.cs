@@ -9,19 +9,23 @@ using System.Security.Cryptography.X509Certificates;
 namespace PSWSMan.Commands;
 
 [Cmdlet(
-    VerbsCommon.New, "PSWSManCertValidationCallback"
+    VerbsCommon.New, "RemoteCertificateValidationCallback"
 )]
 [OutputType(typeof(RemoteCertificateValidationCallback))]
-public sealed class NewPSWSmanCertValidationCallback : PSCmdlet
+public sealed class NewRemoteCertificateValidationCallback : PSCmdlet
 {
     [Parameter(
         Position = 1,
         Mandatory = true
     )]
-    public ScriptBlock ScriptBlock { get; set; } = ScriptBlock.EmptyScriptBlock;
+    public ScriptBlock ScriptBlock { get; set; } = null!;
 
     protected override void EndProcessing()
     {
+        // Internal S.M.A API: ScriptBlockToPowerShellConverter.GetUsingValuesAsDictionary and Cmdlet.Context are
+        // internal and only reachable through the assembly wide IgnoresAccessChecksTo. They capture the $using:
+        // values the same way Start-ThreadJob and ForEach-Object -Parallel do, which no public API offers. It is a
+        // known risk, a PowerShell release that changes them breaks this cmdlet until PSWSMan is updated.
         Dictionary<string, object> usingVars = ScriptBlockToPowerShellConverter.GetUsingValuesAsDictionary(
             ScriptBlock, true, this.Context, null);
 

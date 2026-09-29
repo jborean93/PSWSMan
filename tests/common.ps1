@@ -293,7 +293,7 @@ Function global:Get-PSSessionSplat {
     the tests exercise the common cmdlet parameters and adds the credential when
     the entry has one.
 
-    The SessionOption hashtable is splatted to New-PSWSManSessionOption. For a
+    The SessionOption hashtable is splatted to New-WinRMSessionOption. For a
     server with an untrusted certificate SkipCACheck and SkipCNCheck are added
     unless the test supplies its own TlsOption, so every test can run against it.
     Remove the SessionOption key from the result to connect with certificate
@@ -313,7 +313,7 @@ Function global:Get-PSSessionSplat {
     A server returned by Get-PSWSManTestServer, usually piped in as $_.
 
     .PARAMETER SessionOption
-    Parameters for New-PSWSManSessionOption. When set, or when the server has
+    Parameters for New-WinRMSessionOption. When set, or when the server has
     an untrusted certificate, the result contains a SessionOption entry.
 
     .PARAMETER UseIPAddress
@@ -375,7 +375,7 @@ Function global:Get-PSSessionSplat {
             }
         }
         if ($optionParams.Count) {
-            $params.SessionOption = New-PSWSManSessionOption @optionParams
+            $params.SessionOption = New-WinRMSessionOption @optionParams
         }
 
         $params

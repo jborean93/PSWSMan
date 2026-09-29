@@ -1,11 +1,11 @@
 ---
 external help file: PSWSMan.dll-Help.xml
 Module Name: PSWSMan
-online version: https://www.github.com/jborean93/PSWSMan/blob/main/docs/en-US/New-PSWSManCertValidationCallback.md
+online version: https://www.github.com/jborean93/PSWSMan/blob/main/docs/en-US/New-RemoteCertificateValidationCallback.md
 schema: 2.0.0
 ---
 
-# New-PSWSManCertValidationCallback
+# New-RemoteCertificateValidationCallback
 
 ## SYNOPSIS
 Create a scriptblock delegate to validate certificates.
@@ -13,30 +13,32 @@ Create a scriptblock delegate to validate certificates.
 ## SYNTAX
 
 ```
-New-PSWSManCertValidationCallback [-ScriptBlock] <ScriptBlock> [-ProgressAction <ActionPreference>]
+New-RemoteCertificateValidationCallback [-ScriptBlock] <ScriptBlock> [-ProgressAction <ActionPreference>]
  [<CommonParameters>]
 ```
 
 ## DESCRIPTION
-Creates a delegate object that can be used as a delegate for `RemoteCertificateValidationCallback`.
-This delegate is used to validate the certificates received by a remote server using a PowerShell scriptblock.
-The scriptblock is run through a separate Runspace so will not have access to the same module scope from where it is run.
-Use the `$using:varName` syntax to inject these variables in the delegate scope.
+Creates a `RemoteCertificateValidationCallback` delegate that validates the certificate presented by a remote server with a PowerShell scriptblock.
+.NET calls such a callback on whatever thread does the TLS handshake, where a scriptblock cannot normally run, so the scriptblock is run in a separate runspace each time the delegate is called and it is safe to call from any thread.
+Because of that the scriptblock does not have access to the variables or module scope it was defined in, use the `$using:varName` syntax to pass in variables.
+
+The delegate is not specific to PSWSMan, it can be used with any .NET API that takes a `RemoteCertificateValidationCallback`, like `System.Net.Security.SslStream` or `System.Net.Security.SslClientAuthenticationOptions`.
+With PSWSMan it is set as the `RemoteCertificateValidationCallback` of the `-TlsOption` or `-CredSSPTlsOption` of `New-WinRMSessionOption`.
 
 The last returned object must be a bool where `$true` will accept the certificate and `$false` does not.
 If there is no output or the last object is not a `[bool]` then it will be treated as `$false`.
-Anyything else outputted before the last object will be ignored.
+Anything else output before the last object is ignored.
 
 ## EXAMPLES
 
 ### Example 1: Create a callback that accepts all certificates
 ```powershell
-PS C:\> $delegate = New-PSWSManCertValidationCallback -ScriptBlock { $true }
+PS C:\> $delegate = New-RemoteCertificateValidationCallback -ScriptBlock { $true }
 PS C:\> $tlsOptions = [System.Net.Security.SslClientAuthenticationOptions]@{
 >>     RemoteCertificateValidationCallback = $delegate
 >>     TargetHost = 'host'
 >> }
-PS C:\> $pso = New-PSWSManSessionOption -TlsOption $tlsOptions
+PS C:\> $pso = New-WinRMSessionOption -TlsOption $tlsOptions
 ```
 
 Creates a WSMan session option that will accept any certificate essentially disabling cert verification.
@@ -44,7 +46,7 @@ Creates a WSMan session option that will accept any certificate essentially disa
 ### Example 2: Create a callback with param signature that rejects hosts in a list
 ```powershell
 PS C:\> $denyHosts = @('CN=host1', 'CN=host2')
-PS C:\> $delegate = New-PSWSManCertValidationCallback -ScriptBlock {
+PS C:\> $delegate = New-RemoteCertificateValidationCallback -ScriptBlock {
 >>     param (
 >>         [System.Net.Security.SslStream]$Sender,
 >>         [System.Security.Cryptography.X509Certificates.X509Certificate]$Certificate,
@@ -65,7 +67,7 @@ PS C:\> $tlsOptions = [System.Net.Security.SslClientAuthenticationOptions]@{
 >>     RemoteCertificateValidationCallback = $delegate
 >>     TargetHost = 'host1'
 >> }
-PS C:\> $pso = New-PSWSManSessionOption -TlsOption $tlsOptions
+PS C:\> $pso = New-WinRMSessionOption -TlsOption $tlsOptions
 ```
 
 Creates a WSMan session option with a callback that rejects certs with the subject `CN=host1` or `CN=host2`.
@@ -103,7 +105,7 @@ The scriptblock is called with 4 positional arguments:
 + `[System.Net.Security.SslPolicyErrors]$PolicyErrors` - One or more errors associated with the remote certificate
 
 The scriptblock also has access to the `$host` variable and can perform any host actions like `Write-Host`.
-The host is the same host that `New-PSWSManCertValidationCallback` was associated with.
+The host is the same host that `New-RemoteCertificateValidationCallback` was associated with.
 
 ```yaml
 Type: ScriptBlock

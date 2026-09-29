@@ -22,7 +22,7 @@ Sets the authentication settings that apply to new PSSessions created in the cur
 The settings are scoped to the runspace, a fresh runspace, such as a new `Start-ThreadJob` or `ForEach-Object -Parallel` job, starts with the default settings.
 Sessions that have already been created are not affected.
 
-The `-AuthProvider` parameter sets the provider used when `NTLM`, `Kerberos`, `Negotiate`, or `CredSSP` authentication is selected for a PSSession and no explicit provider is specified with `New-PSWSManSessionOption -AuthProvider`.
+The `-AuthProvider` parameter sets the provider used when `NTLM`, `Kerberos`, `Negotiate`, or `CredSSP` authentication is selected for a PSSession and no explicit provider is specified with `New-WinRMSessionOption -AuthProvider`.
 
 Using `System` will use the system provided authentication provider.
 On Windows this is `SSPI`, on Linux this is `GSSAPI`, and on macOS this is `GSS.Framework`.
@@ -173,6 +173,6 @@ A runspace opened from a thread that has no default runspace, for example a host
 
 [Get-PSWSManAuth](./Get-PSWSManAuth.md)
 
-[New-PSWSManSessionOption](./New-PSWSManSessionOption.md)
+[New-WinRMSessionOption](./New-WinRMSessionOption.md)
 
 [about_PSWSManAuthentication](./about_PSWSManAuthentication.md)

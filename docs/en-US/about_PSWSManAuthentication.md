@@ -51,7 +51,7 @@ When specifying a credential for Basic authentication only the username should b
 Do not specify the hostname portion of the username, e.g. use `username` and not `HOST\username`.
 
 Using it over a HTTP connection is dangerous as the credentials are simply encoded not encrypted and there is no encryption of the data exchanged between the client and server.
-If Basic authentication over HTTP is truly desired then `New-PSWSManSessionOption -NoEncryption` must be set and the server must allow unencrypted access.
+If Basic authentication over HTTP is truly desired then `New-WinRMSessionOption -NoEncryption` must be set and the server must allow unencrypted access.
 
 By default Basic authentication is disabled on the server, to enable it run:
 
@@ -68,16 +68,25 @@ The certificate must have the `ClientAuthentication` extended key usage and a Su
 On the server side a HTTPS listener must exist, the certificate must be trusted and installed in the `TrustedPeople` store, mapped to the local account, and the WSMan service must have certificate authentication enabled.
 The [winrm-cert-auth](https://github.com/jborean93/winrm-cert-auth) repository covers these requirements in greater detail and includes scripts that generate the certificate and configure the server.
 
-Once the server is configured, specify the client certificate with `-ClientCertificate` on `New-PSWSManSessionOption` and connect with `-UseSSL`.
+Once the server is configured, connect over HTTPS with `-UseSSL`, or a `https` `-ConnectionUri`, and give the client certificate in one of two ways:
+
++ By thumbprint with the `-CertificateThumbprint` parameter, for a certificate with its private key in the `Cert:\CurrentUser\My` or `Cert:\LocalMachine\My` store. The parameter is on the builtin remoting cmdlets, like `New-PSSession` and `Invoke-Command`, as well as `New-WinRMSession` and the WinRS cmdlets, and cannot be combined with `-Credential` or `-Authentication`.
+
++ As a certificate object with `-ClientCertificate` on `New-WinRMSessionOption`, for a certificate that is not in a store, like one loaded from a PFX file.
 
 ```powershell
+# A certificate in the personal store, referenced by thumbprint
+Invoke-Command -ComputerName host -UseSSL -CertificateThumbprint 2C8D1BE6A3F2E1F8C9D0B1A2F3E4D5C6B7A89012 -ScriptBlock { ... }
+
+# A certificate loaded from a file
 $cert = Get-PfxCertificate -FilePath ~/client_auth.pfx
-$pso = New-PSWSManSessionOption -ClientCertificate $cert
+$pso = New-WinRMSessionOption -ClientCertificate $cert
 Invoke-Command -ComputerName host -UseSSL -SessionOption $pso -ScriptBlock { ... }
 ```
 
-Certificates already in the `Cert:\CurrentUser\My` or `Cert:\LocalMachine\My` store can be referenced by thumbprint with the `-CertificateThumbprint` parameter of the remoting cmdlets instead.
-If `-TlsOption` is used, the `ClientCertificates` property of the `SslClientAuthenticationOptions` object must contain the certificate instead.
+On Linux and macOS the stores are the ones .NET provides, `Cert:\LocalMachine\My` is not available on Linux and PowerShell has no `Cert:` drive outside Windows.
+Import a certificate into the current user store with `[System.Security.Cryptography.X509Certificates.X509Store]` or use `-ClientCertificate` instead.
+If `-TlsOption` is used, the `ClientCertificates` property of the `SslClientAuthenticationOptions` object must contain the certificate instead, `-CertificateThumbprint` and `-ClientCertificate` are ignored.
 
 # NTLM AUTH
 NTLM authentication is a legacy authentication protocol offered by Microsoft.
@@ -96,7 +105,7 @@ On Linux NTLM is only available if both GSSAPI is installed and the [gss-ntlmssp
 
 The `Devolutions` authentication provider also supports NTLM authentication out of the box.
 It only supports explicit credentials but is a good option to use that is consistent across all platforms.
-To specify the `Devolutions` authentication provider to be used pass in the session options `New-PSWSManSessionOption -AuthProvider Devolutions`.
+To specify the `Devolutions` authentication provider to be used pass in the session options `New-WinRMSessionOption -AuthProvider Devolutions`.
 Alternatively, the `Devolutions` authentication package can be set globally as the default with `Set-PSWSManAuth -AuthProvider Devolutions`.
 See `#DEVOLUTIONS SSPI` for more details.
 
@@ -109,14 +118,14 @@ It is the first protocol that is attempted with the Negotiate method.
 
 Kerberos authentication can also be used to delegate the ticket to remote host.
 This delegation enables the remote session to be able to connect to another downstream server like a UNC path.
-To request a delegated ticket the session option `New-PSWSManSessionOption -RequestKerberosDelegate` must be specified.
+To request a delegated ticket the session option `New-WinRMSessionOption -RequestKerberosDelegate` must be specified.
 See `#CREDENTIAL DELEGATION` for more details.
 
 Part of the Kerberos authentication process is to lookup the target server using an service principal name (SPN).
 The SPN is constructed using the `-ComputerName` value that is being connected to form the SPN `host/$ComputerName`.
-To change the service portion `host` to something else use `New-PSWSManSessionOption -SPNService host`.
-To override the hostname portion to something else use `New-PSWSManSessionOption -SPNHostName other`.
-For example `New-PSWSManSessionOption -SPNService http -SPNHostName test` will use the SPN `http/test`.
+To change the service portion `host` to something else use `New-WinRMSessionOption -SPNService host`.
+To override the hostname portion to something else use `New-WinRMSessionOption -SPNHostName other`.
+For example `New-WinRMSessionOption -SPNService http -SPNHostName test` will use the SPN `http/test`.
 
 Availability of Kerberos depends on the OS and authentication provider used.
 On Windows Kerberos will work out of the box and supports using the current user's credentials.
@@ -129,7 +138,7 @@ It can also use DNS SRV records to lookup domain realms.
 The `Devolutions` authentication provider also supports Kerberos authentication out of the box.
 It only support explicit credentials but as it requires no system packages it provides a consistent experience across all platforms.
 DevolutionsSspi can retrieve domain configuration through many means, like the `/etc/krb5.config`.
-To specify the `Devolutions` authentication provider to be used pass in the session options `New-PSWSManSessionOption -AuthProvider Devolutions`.
+To specify the `Devolutions` authentication provider to be used pass in the session options `New-WinRMSessionOption -AuthProvider Devolutions`.
 Alternatively, the `Devolutions` authentication package can be set globally as the default with `Set-PSWSManAuth -AuthProvider Devolutions`.
 See `#DEVOLUTIONS SSPI` for more details.
 
@@ -149,7 +158,7 @@ Internally CredSSP uses the Negotiate protocol to authenticate the user but beca
 
 CredSSP creates a temporary TLS context that wraps the authentication exchange and subsequent messages.
 This is unrelated to the actual HTTP transport, i.e. CredSSP works just fine over a HTTP connection.
-The following options can be specified with `New-PSWSManSessionOption` to control the CredSSP authentication behaviour
+The following options can be specified with `New-WinRMSessionOption` to control the CredSSP authentication behaviour
 
 + `CredSSPAuthMethod` - By default CredSSP will use `Negotiate` but this can be set to `Kerberos` or `NTLM` to restrict CredSSP from only using one or the other
 
@@ -171,12 +180,12 @@ Enable-WSManCredSSP -Role Server
 # SPECIFY AUTHENTICATION METHOD
 There are two main ways an authentication method is set:
 
-+ On the `-Authentication` parameter of cmdlets that create a PSSession, e.g. `New-PSSession`, `Invoke-Command`, `Enter-PSSession`
++ On the `-Authentication` parameter of cmdlets that create a connection, e.g. `New-PSSession`, `Invoke-Command`, `Enter-PSSession`, `New-WinRMSession`, `Invoke-WinRSCommand`
 
-+ On the `-AuthMethod` parameter of the `New-PSWSManSessionOption`
++ On the `-AuthMethod` parameter of the `New-WinRMSessionOption`
 
-The `-Authentication` parameter is limited to just `Basic`, `Kerberos`, `Negotiate`, or `CredSSP` while the `-AuthMethod` parameter also includes `NTLM` as an option.
-The `-AuthMethod` parameter takes priority over `-Authentication` if both are set.
+The `-Authentication` parameter of the builtin cmdlets is limited to just `Basic`, `Kerberos`, `Negotiate`, or `CredSSP` while the `-AuthMethod` parameter, and `-Authentication` on the PSWSMan cmdlets, also include `NTLM` as an option.
+The `-Authentication` parameter takes priority over `-AuthMethod` when it is set to anything other than `Default`, so `-AuthMethod` is the default for the connections made with those options.
 The default authentication method chosen is `Negotiate` which typically offers the best out of box experience.
 It uses the system SSPI/GSSAPI library unless the Devolutions provider is requested for the session or has been set as the default with `Set-PSWSManAuth`.
 On Linux, if no GSSAPI library is installed and Devolutions has not been selected, the connection fails with an error saying no SSPI/GSSAPI library could be found.
@@ -229,7 +238,7 @@ It also means that any behaviour on one platform is the same on any other.
 Devolutions SSPI is never chosen automatically, it is only used when it is set as the default authentication provider for the runspace or requested on a specific session.
 The code `Set-PSWSManAuth -AuthProvider Devolutions` sets the default for the current runspace to use Devolutions SSPI.
 The default is scoped to the runspace, so a new runspace such as a `ForEach-Object -Parallel` or `Start-ThreadJob` job starts from the `System` provider again.
-Otherwise `New-PSWSManSessionOption -AuthProvider Devolutions` can be used on a specific session setup to use Devolutions for that connection.
-The `New-PSWSManSessionOption -AuthProvider ...` takes precedence over the runspace default.
+Otherwise `New-WinRMSessionOption -AuthProvider Devolutions` can be used on a specific session setup to use Devolutions for that connection.
+The `New-WinRMSessionOption -AuthProvider ...` takes precedence over the runspace default.
 
 Support for Devolutions is limited and while things should work it is an experimental feature and mileage may vary.
