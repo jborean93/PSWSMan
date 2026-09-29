@@ -1,5 +1,3 @@
-using System;
-
 namespace PSWSMan.Authentication;
 
 /// <summary>The known WSMan encryption protocol headers.</summary>

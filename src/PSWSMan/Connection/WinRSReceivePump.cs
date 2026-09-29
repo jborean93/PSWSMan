@@ -1,4 +1,3 @@
-using PSWSMan.Lib;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -6,6 +5,7 @@ using System.IO;
 using System.Net.Http;
 using System.Net.Sockets;
 using System.Threading;
+using PSWSMan.Lib;
 
 namespace PSWSMan.Connection;
 

@@ -1,3 +1,10 @@
 <Project>
   <Import Project="../../src/Directory.Build.props" />
+
+  <!-- Code style is only enforced on the module source. -->
+  <PropertyGroup>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
 </Project>

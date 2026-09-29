@@ -1,5 +1,5 @@
-using PSWSMan.Patches;
 using System.Management.Automation;
+using PSWSMan.Patches;
 
 namespace PSWSMan.Commands;
 

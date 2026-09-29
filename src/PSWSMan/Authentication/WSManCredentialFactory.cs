@@ -1,6 +1,6 @@
-using PSWSMan.Authentication.Native;
 using System;
 using System.Net.Security;
+using PSWSMan.Authentication.Native;
 
 namespace PSWSMan.Authentication;
 

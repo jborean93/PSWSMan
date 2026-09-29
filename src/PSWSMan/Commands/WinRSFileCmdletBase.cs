@@ -1,13 +1,12 @@
-using Microsoft.PowerShell.Commands;
-using PSWSMan.Connection;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Management.Automation;
-using System.Management.Automation.Remoting.Client;
 using System.Text;
 using System.Threading;
+using Microsoft.PowerShell.Commands;
+using PSWSMan.Connection;
 
 namespace PSWSMan.Commands;
 

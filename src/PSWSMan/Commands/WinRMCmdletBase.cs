@@ -1,4 +1,3 @@
-using PSWSMan.Lib;
 using System;
 using System.IO;
 using System.Management.Automation;
@@ -7,6 +6,7 @@ using System.Net.Http;
 using System.Net.Sockets;
 using System.Security.Authentication;
 using System.Threading;
+using PSWSMan.Lib;
 
 namespace PSWSMan.Commands;
 

@@ -23,6 +23,16 @@
         120,
     ],
     "editor.formatOnSave": true,
+    //-------- C# configuration --------
+    // Sort the usings when formatting, the C# server has no organize imports code action
+    "dotnet.formatting.organizeImportsOnFormat": true,
+    // Apply the .editorconfig code style fixes (unused usings, readonly fields, ...) on save
+    "[csharp]": {
+        "editor.defaultFormatter": "ms-dotnettools.csharp",
+        "editor.codeActionsOnSave": {
+            "source.fixAll": "explicit",
+        },
+    },
     //-------- PowerShell configuration --------
     // Binary modules cannot be unloaded so running in separate processes solves that problem
     //"powershell.debugging.createTemporaryIntegratedConsole": true,

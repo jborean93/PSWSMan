@@ -1,10 +1,10 @@
-using PSWSMan.Connection;
 using System;
 using System.Management.Automation;
 using System.Management.Automation.Internal;
 using System.Management.Automation.Remoting.Client;
 using System.Management.Automation.Runspaces;
 using System.Threading;
+using PSWSMan.Connection;
 
 namespace PSWSMan.CustomTransport;
 

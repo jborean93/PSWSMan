@@ -252,6 +252,12 @@ tests and the .NET unit tests actually execute there. Put protocol logic in
   `s_` prefix.
 - Line endings are LF everywhere (`.gitattributes` sets `text=auto`). Trim
   trailing whitespace and end files with a newline.
+- `.editorconfig` sets the code style and raises a chosen set of IDE rules
+  (unused usings/members/assignments, readonly fields, formatting, naming) to
+  warnings, which the build reports for the `src/` projects. They are errors in
+  `Release` and CI builds (`TreatWarningsAsErrors`), so a clean local `Debug`
+  build can still fail CI. Run `dotnet format <project> --severity warn` on
+  each `src/` project to fix most of them. The test projects are not checked.
 - Cmdlets live in `src/PSWSMan/Commands/`. Adding a cmdlet means also adding
   it to `CmdletsToExport` in `module/PSWSMan.psd1` and writing
   `docs/en-US/<Verb-Noun>.md`. Parameter changes must be reflected in the

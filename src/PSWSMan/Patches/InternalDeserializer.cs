@@ -1,14 +1,13 @@
-using MonoMod.RuntimeDetour;
 using System;
 using System.Management.Automation;
-using System.Management.Automation.Remoting.Client;
 using System.Reflection;
+using MonoMod.RuntimeDetour;
 
 namespace PSWSMan.Patches;
 
 internal static class PSWSMan_InternalDeserializer
 {
-    private static MethodInfo? _rehydrateCimInstanceMeth;
+    private static MethodInfo? s_rehydrateCimInstanceMeth;
 
     private const string CimClassMetadataProperty = "__ClassMetadata";
     private const string CimInstanceMetadataProperty = "__InstanceMetadata";
@@ -61,7 +60,7 @@ internal static class PSWSMan_InternalDeserializer
         return new[]
         {
             new Hook(
-                _rehydrateCimInstanceMeth ??= MonoModPatcher.GetMethod(
+                s_rehydrateCimInstanceMeth ??= MonoModPatcher.GetMethod(
                     typeof(InternalDeserializer),
                     "RehydrateCimInstance",
                     new[] { typeof(PSObject) },

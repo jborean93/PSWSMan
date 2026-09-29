@@ -1,8 +1,8 @@
-using PSWSMan.Connection;
 using System;
 using System.IO;
 using System.IO.Compression;
 using System.Management.Automation;
+using PSWSMan.Connection;
 
 namespace PSWSMan.Commands;
 

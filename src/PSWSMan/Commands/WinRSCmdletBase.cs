@@ -1,11 +1,10 @@
-using PSWSMan.Connection;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Management.Automation;
-using System.Management.Automation.Remoting.Client;
 using System.Text;
 using System.Threading;
+using PSWSMan.Connection;
 
 namespace PSWSMan.Commands;
 

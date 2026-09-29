@@ -1,10 +1,10 @@
-using PSWSMan.Authentication.Native;
-using PSWSMan.Connection;
 using System;
-using System.Security.Authentication;
 using System.Buffers.Binary;
+using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using PSWSMan.Authentication.Native;
+using PSWSMan.Connection;
 
 namespace PSWSMan.Authentication;
 

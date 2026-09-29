@@ -1,15 +1,15 @@
-using MonoMod.RuntimeDetour;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using MonoMod.RuntimeDetour;
 
 namespace PSWSMan.Patches;
 
 internal sealed class MonoModPatcher : IDisposable
 {
-    private List<Hook> _hooks = new();
+    private readonly List<Hook> _hooks = new();
     private bool _disposed;
 
     public MonoModPatcher()

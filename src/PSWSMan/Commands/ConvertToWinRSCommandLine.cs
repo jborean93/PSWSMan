@@ -1,7 +1,7 @@
-using PSWSMan.Lib;
 using System;
 using System.Linq;
 using System.Management.Automation;
+using PSWSMan.Lib;
 
 namespace PSWSMan.Commands;
 

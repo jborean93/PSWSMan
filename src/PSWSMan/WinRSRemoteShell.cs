@@ -1,8 +1,8 @@
-using PSWSMan.Connection;
 using System;
 using System.Management.Automation.Runspaces;
 using System.Text;
 using System.Threading;
+using PSWSMan.Connection;
 
 namespace PSWSMan;
 

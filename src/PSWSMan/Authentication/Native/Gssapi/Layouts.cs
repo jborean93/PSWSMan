@@ -69,6 +69,7 @@ internal sealed unsafe partial class GssapiProvider
 
     /// <summary>Writes the IOV buffers into <paramref name="storage"/> as a native <c>gss_iov_buffer_desc</c> array.</summary>
     /// <param name="storage">At least <c>sizeof(gss_iov_buffer_desc) * iov.Length</c> bytes of caller owned memory.</param>
+    /// <param name="iov">The IOV buffers to write.</param>
     private void WriteIov(void* storage, ReadOnlySpan<IOVBuffer> iov)
     {
         if (IsStructPackTwo)

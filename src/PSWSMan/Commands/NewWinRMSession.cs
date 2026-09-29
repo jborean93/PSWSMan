@@ -1,4 +1,3 @@
-using PSWSMan.CustomTransport;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -6,6 +5,7 @@ using System.Management.Automation;
 using System.Management.Automation.Remoting;
 using System.Management.Automation.Runspaces;
 using System.Threading;
+using PSWSMan.CustomTransport;
 
 namespace PSWSMan.Commands;
 

@@ -7,8 +7,8 @@ namespace PSWSMan.Loader;
 
 public class LoadContext : AssemblyLoadContext
 {
-    private static LoadContext? _instance;
-    private static object _sync = new();
+    private static LoadContext? s_instance;
+    private static readonly object s_sync = new();
 
     private readonly Assembly _thisAssembly;
     private readonly AssemblyName _thisAssemblyName;
@@ -44,17 +44,17 @@ public class LoadContext : AssemblyLoadContext
 
     public static Assembly Initialize(string alcName)
     {
-        LoadContext? instance = _instance;
+        LoadContext? instance = s_instance;
         if (instance is not null)
         {
             return instance._moduleAssembly;
         }
 
-        lock (_sync)
+        lock (s_sync)
         {
-            if (_instance is not null)
+            if (s_instance is not null)
             {
-                return _instance._moduleAssembly;
+                return s_instance._moduleAssembly;
             }
 
             string assemblyPath = typeof(LoadContext).Assembly.Location;
@@ -66,8 +66,8 @@ public class LoadContext : AssemblyLoadContext
                 $"{moduleName}.dll"
             );
 
-            _instance = new LoadContext(alcName, modulePath);
-            return _instance._moduleAssembly;
+            s_instance = new LoadContext(alcName, modulePath);
+            return s_instance._moduleAssembly;
         }
     }
 }

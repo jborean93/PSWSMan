@@ -1,10 +1,9 @@
-using PSWSMan.Connection;
-using PSWSMan.Lib;
 using System;
 using System.Globalization;
 using System.Management.Automation;
-using System.Management.Automation.Remoting.Client;
 using System.Text;
+using PSWSMan.Connection;
+using PSWSMan.Lib;
 
 namespace PSWSMan.Commands;
 

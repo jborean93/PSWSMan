@@ -1,4 +1,3 @@
-using MonoMod.RuntimeDetour;
 using System;
 using System.Management.Automation;
 using System.Management.Automation.Remoting;
@@ -7,19 +6,20 @@ using System.Management.Automation.Runspaces;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using MonoMod.RuntimeDetour;
 
 namespace PSWSMan.Patches;
 
 internal static class PSWSMan_WSManClientSessionTransportManager
 {
-    private static MethodInfo? _adjustForProtocolVariationsMeth;
-    private static MethodInfo? _closeAsyncMeth;
-    private static MethodInfo? _closeSessionAndClearResourcesMeth;
-    private static MethodInfo? _createAsyncMeth;
-    private static MethodInfo? _disposeMeth;
-    private static MethodInfo? _initializeMeth;
-    private static MethodInfo? _sendDataMeth;
-    private static MethodInfo? _startReceivingDataMeth;
+    private static MethodInfo? s_adjustForProtocolVariationsMeth;
+    private static MethodInfo? s_closeAsyncMeth;
+    private static MethodInfo? s_closeSessionAndClearResourcesMeth;
+    private static MethodInfo? s_createAsyncMeth;
+    private static MethodInfo? s_disposeMeth;
+    private static MethodInfo? s_initializeMeth;
+    private static MethodInfo? s_sendDataMeth;
+    private static MethodInfo? s_startReceivingDataMeth;
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_wsManSessionHandle")]
     private static extern ref nint SessionHandle(WSManClientSessionTransportManager self);
@@ -441,7 +441,7 @@ internal static class PSWSMan_WSManClientSessionTransportManager
         return new[]
         {
             new Hook(
-                _adjustForProtocolVariationsMeth ??= MonoModPatcher.GetMethod(
+                s_adjustForProtocolVariationsMeth ??= MonoModPatcher.GetMethod(
                     typeof(WSManClientSessionTransportManager),
                     nameof(WSManClientSessionTransportManager.AdjustForProtocolVariations),
                     new[] { typeof(Version) },
@@ -450,7 +450,7 @@ internal static class PSWSMan_WSManClientSessionTransportManager
                 AdjustForProtocolVariationsPatch
             ),
             new Hook(
-                _closeAsyncMeth ??= MonoModPatcher.GetMethod(
+                s_closeAsyncMeth ??= MonoModPatcher.GetMethod(
                     typeof(WSManClientSessionTransportManager),
                     nameof(WSManClientSessionTransportManager.CloseAsync),
                     Array.Empty<Type>(),
@@ -460,7 +460,7 @@ internal static class PSWSMan_WSManClientSessionTransportManager
                 CloseAsyncPatch
             ),
             new Hook(
-                _closeSessionAndClearResourcesMeth ??= MonoModPatcher.GetMethod(
+                s_closeSessionAndClearResourcesMeth ??= MonoModPatcher.GetMethod(
                     typeof(WSManClientSessionTransportManager),
                     "CloseSessionAndClearResources",
                     Array.Empty<Type>(),
@@ -469,7 +469,7 @@ internal static class PSWSMan_WSManClientSessionTransportManager
                 CloseSessionAndClearResourcesPatch
             ),
             new Hook(
-                _createAsyncMeth ??= MonoModPatcher.GetMethod(
+                s_createAsyncMeth ??= MonoModPatcher.GetMethod(
                     typeof(WSManClientSessionTransportManager),
                     nameof(WSManClientSessionTransportManager.CreateAsync),
                     Array.Empty<Type>(),
@@ -479,7 +479,7 @@ internal static class PSWSMan_WSManClientSessionTransportManager
                 CreateAsyncPatch
             ),
             new Hook(
-                _disposeMeth ??= MonoModPatcher.GetMethod(
+                s_disposeMeth ??= MonoModPatcher.GetMethod(
                     typeof(WSManClientSessionTransportManager),
                     nameof(WSManClientSessionTransportManager.Dispose),
                     new[] { typeof(bool) },
@@ -488,7 +488,7 @@ internal static class PSWSMan_WSManClientSessionTransportManager
                 DisposePatch
             ),
             new Hook(
-                _initializeMeth ??= MonoModPatcher.GetMethod(
+                s_initializeMeth ??= MonoModPatcher.GetMethod(
                     typeof(WSManClientSessionTransportManager),
                     "Initialize",
                     new[] { typeof(Uri), typeof(WSManConnectionInfo) },
@@ -498,7 +498,7 @@ internal static class PSWSMan_WSManClientSessionTransportManager
                 InitializePatch
             ),
             new Hook(
-                _sendDataMeth ??= MonoModPatcher.GetMethod(
+                s_sendDataMeth ??= MonoModPatcher.GetMethod(
                     typeof(WSManClientSessionTransportManager),
                     "SendData",
                     new[] { typeof(byte[]), typeof(DataPriorityType) },
@@ -508,7 +508,7 @@ internal static class PSWSMan_WSManClientSessionTransportManager
                 SendDataPatch
             ),
             new Hook(
-                _startReceivingDataMeth ??= MonoModPatcher.GetMethod(
+                s_startReceivingDataMeth ??= MonoModPatcher.GetMethod(
                     typeof(WSManClientSessionTransportManager),
                     nameof(WSManClientSessionTransportManager.StartReceivingData),
                     Array.Empty<Type>(),

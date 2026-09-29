@@ -1,4 +1,3 @@
-using PSWSMan.Connection;
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
@@ -9,6 +8,7 @@ using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using PSWSMan.Connection;
 
 namespace PSWSMan.Authentication;
 
@@ -123,7 +123,7 @@ internal class TSRequest : CredSSPStructure
         byte[]? clientNonce = null;
         while (data.Length > 0)
         {
-            Asn1Tag nextTag = Asn1Tag.Decode(data, out var _);
+            Asn1Tag nextTag = Asn1Tag.Decode(data, out _);
             int consumed;
 
             // Only context specific tags are fields, an element of any other class is skipped like an unknown field.
@@ -177,7 +177,7 @@ internal class TSRequest : CredSSPStructure
                     clientNonce = AsnDecoder.ReadOctetString(data.Slice(contentOffset, contentLength), ruleSet, out _);
                     break;
                 default:
-                    AsnDecoder.ReadEncodedValue(data, ruleSet, out contentOffset, out contentLength, out consumed);
+                    AsnDecoder.ReadEncodedValue(data, ruleSet, out _, out _, out consumed);
                     break;
             }
 
@@ -386,7 +386,7 @@ internal sealed class CredSSPAuthContext : IWSManAuthenticationContext, IWSManEn
 {
     private readonly TSCredentialBase _credential;
     private readonly IWSManCredential _subAuthCredential;
-    private TlsSecurityContext _tlsContext;
+    private readonly TlsSecurityContext _tlsContext;
 
     private IEnumerator<byte[]>? _tokenGenerator;
     private CredSSPStage _stage = CredSSPStage.Start;
@@ -653,7 +653,7 @@ internal sealed class CredSSPAuthContext : IWSManAuthenticationContext, IWSManEn
     /// <param name="pubKey">The server public key bytes.</param>
     /// <param name="forClient">The PubKeyAuth value is for the client auth check.</param>
     /// <param name="nonce">The client nonce value on CredSSP v5 or newer.</param>
-    /// <returns><The CredSSP PubKeyAuth value.</returns>
+    /// <returns>The CredSSP PubKeyAuth value.</returns>
     private static byte[] GetPubKeyAuth(byte[] pubKey, bool forClient, byte[]? nonce)
     {
         if (nonce?.Length > 0)
