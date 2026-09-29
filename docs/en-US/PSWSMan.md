@@ -26,11 +26,14 @@ Gets the WinRS shells created by New-WinRSShell in the current runspace.
 ### [Invoke-WinRSCommand](Invoke-WinRSCommand.md)
 Runs a process on a remote host through a WinRS shell and outputs its stdout and stderr.
 
-### [New-PSWSManCertValidationCallback](New-PSWSManCertValidationCallback.md)
+### [New-RemoteCertificateValidationCallback](New-RemoteCertificateValidationCallback.md)
 Create a scriptblock delegate to validate certificates.
 
-### [New-PSWSManSessionOption](New-PSWSManSessionOption.md)
-Creates an object that specifies custom connection options for a WSMan PSSession.
+### [New-WinRMSession](New-WinRMSession.md)
+Creates a PowerShell session over PSWSMan's WinRM client without hooking PowerShell.
+
+### [New-WinRMSessionOption](New-WinRMSessionOption.md)
+Creates the connection options for PSWSMan and the builtin remoting cmdlets.
 
 ### [New-WinRSShell](New-WinRSShell.md)
 Creates a WinRS shell on a remote host that several WinRS commands can run in.

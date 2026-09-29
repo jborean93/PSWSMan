@@ -26,7 +26,7 @@ internal static class PSWSMan_WSManConnectionInfo
         */
 
         WSManConnectionInfo result = orig(self);
-        CopyPSProperty(self, result, PSWSManSessionOption.PSWSMAN_SESSION_OPTION_PROP);
+        CopyPSProperty(self, result, WinRMSessionOption.PSSessionOptionProperty);
 
         return result;
     }
@@ -38,14 +38,14 @@ internal static class PSWSMan_WSManConnectionInfo
     )
     {
         /*
-            Ensures the extra PSWSMan session options that might be present on
-            the connection object are also transferred to the
-            WSManConnectionInfo instance.
+            Ensures the WinRMSessionOption that might be attached to the
+            PSSessionOption is also transferred to the WSManConnectionInfo
+            instance.
 
             https://github.com/PowerShell/PowerShell/blob/3f3d79d4758704c8dad5ca7c12690ba62fd03a3b/src/System.Management.Automation/engine/remoting/common/RunspaceConnectionInfo.cs#L1021
         */
         orig(self, options);
-        CopyPSProperty(options, self, PSWSManSessionOption.PSWSMAN_SESSION_OPTION_PROP);
+        CopyPSProperty(options, self, WinRMSessionOption.PSSessionOptionProperty);
     }
 
     public static Hook[] GenerateHooks()

@@ -190,6 +190,22 @@ Describe "PSWSMan Connection tests" {
         $s.State | Should-Be 'Closed'
     }
 
+    It "Uses a WinRMSessionOption set as `$PSSessionOption - <_.Name>" -ForEach (Get-PSWSManTestServer -First) {
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ Culture = 'de-DE'; UICulture = 'fr-FR' }
+        $PSSessionOption = $sessionParams.SessionOption
+        $PSSessionOption | Should-HaveType ([PSWSMan.WinRMSessionOption])
+        $sessionParams.Remove('SessionOption')
+
+        $session = New-PSSession @sessionParams
+        try {
+            $actual = Invoke-Command -Session $session -ScriptBlock { "$((Get-Culture).Name) $((Get-UICulture).Name)" }
+            $actual | Should-Be 'de-DE fr-FR'
+        }
+        finally {
+            $session | Remove-PSSession
+        }
+    }
+
     It "Connects with Basic - <_.Name>" -ForEach (Get-PSWSManTestServer -Auth Basic) {
         $optionParams = @{}
         if ($_.Uri.Scheme -eq 'http') {
@@ -197,6 +213,14 @@ Describe "PSWSMan Connection tests" {
         }
         $sessionParams = $_ | Get-PSSessionSplat -SessionOption $optionParams
         $sessionParams.Authentication = 'Basic'
+
+        Assert-PSWSManSession -SessionParams $sessionParams
+    }
+
+    It "Prefers -Authentication over the session option AuthMethod - <_.Name>" -ForEach (Get-PSWSManTestServer -Scheme Http -First) {
+        # Basic over HTTP without NoEncryption fails, so connecting proves the explicit Negotiate was used.
+        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ AuthMethod = 'Basic' }
+        $sessionParams.Authentication = 'Negotiate'
 
         Assert-PSWSManSession -SessionParams $sessionParams
     }
@@ -211,7 +235,7 @@ Describe "PSWSMan Connection tests" {
         $tlsOption = [System.Net.Security.SslClientAuthenticationOptions]@{
             EnabledSslProtocols = 'Ssl3'  # Forces an unsupported TLS protocol
             TargetHost = $_.Uri.Host
-            RemoteCertificateValidationCallback = New-PSWSManCertValidationCallback { $true }
+            RemoteCertificateValidationCallback = New-RemoteCertificateValidationCallback { $true }
         }
         $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ CredSSPTlsOption = $tlsOption }
         $sessionParams.Authentication = 'Credssp'
@@ -263,7 +287,7 @@ Describe "PSWSMan Connection tests" {
 
         # Explicit SessionOption disables any certificate validation bypass on the server setting.
         # This is done on purpose to ensure that the certificate validation bypass is not applied elsewhere.
-        $sessionParams.SessionOption = New-PSWSManSessionOption -SPNHostName $Server.Uri.Host
+        $sessionParams.SessionOption = New-WinRMSessionOption -SPNHostName $Server.Uri.Host
 
         $out = New-PSSession @sessionParams -ErrorAction SilentlyContinue -ErrorVariable err
         $out | Should-BeNull
@@ -277,7 +301,7 @@ Describe "PSWSMan Connection tests" {
         else {
             $optionParams.TlsOption = [System.Net.Security.SslClientAuthenticationOptions]@{
                 TargetHost = $sessionParams.ComputerName
-                RemoteCertificateValidationCallback = New-PSWSManCertValidationCallback { $true }
+                RemoteCertificateValidationCallback = New-RemoteCertificateValidationCallback { $true }
             }
         }
         $sessionParams.SessionOption = ($Server | Get-PSSessionSplat -SessionOption $optionParams).SessionOption
@@ -291,13 +315,13 @@ Describe "PSWSMan Connection tests" {
         $sessionParams = $_ | Get-PSSessionSplat -UseIPAddress
 
         # SPNHostName keeps Kerberos working against the real name while connecting to the IP.
-        $sessionParams.SessionOption = New-PSWSManSessionOption -SPNHostName $_.Uri.Host
+        $sessionParams.SessionOption = New-WinRMSessionOption -SPNHostName $_.Uri.Host
         $out = New-PSSession @sessionParams -ErrorAction SilentlyContinue -ErrorVariable err
         $out | Should-BeNull
         $err.Count | Should-Be 1
         [string]$err[0] | Should-BeLikeString '*The remote certificate is invalid*RemoteCertificateNameMismatch*'
 
-        $sessionParams.SessionOption = New-PSWSManSessionOption -SPNHostName $_.Uri.Host -SkipCACheck -SkipCNCheck
+        $sessionParams.SessionOption = New-WinRMSessionOption -SPNHostName $_.Uri.Host -SkipCACheck -SkipCNCheck
         Assert-PSWSManSession -SessionParams $sessionParams
     }
 
@@ -326,11 +350,11 @@ Describe "PSWSMan Connection tests" {
         # TlsOption replaces the certificate validation the splat would set up so it can be added afterwards.
         $tlsOption = [System.Net.Security.SslClientAuthenticationOptions]@{
             TargetHost = $sessionParams.ComputerName
-            RemoteCertificateValidationCallback = New-PSWSManCertValidationCallback { $true }
+            RemoteCertificateValidationCallback = New-RemoteCertificateValidationCallback { $true }
             ClientCertificates = [System.Security.Cryptography.X509Certificates.X509CertificateCollection]::new(
                 @($_.ClientCertificate))
         }
-        $sessionParams.SessionOption = New-PSWSManSessionOption -TlsOption $tlsOption
+        $sessionParams.SessionOption = New-WinRMSessionOption -TlsOption $tlsOption
 
         Assert-PSWSManSession -SessionParams $sessionParams
     }
@@ -339,7 +363,7 @@ Describe "PSWSMan Connection tests" {
         $tlsOption = [System.Net.Security.SslClientAuthenticationOptions]@{
             EnabledSslProtocols = 'Ssl3'
             TargetHost = $_.Uri.Host
-            RemoteCertificateValidationCallback = New-PSWSManCertValidationCallback { $true }
+            RemoteCertificateValidationCallback = New-RemoteCertificateValidationCallback { $true }
         }
         $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ TlsOption = $tlsOption }
 
@@ -478,6 +502,33 @@ Describe "PSWSMan PSRemoting tests - <_.Name>" -ForEach (Get-PSWSManTestServer -
         }
 
         $s.State | Should-Be 'Closed'
+    }
+
+    It "Supports implicit remoting with Import-PSSession" {
+        # Implicit remoting, like Enter-PSSession, opens a command with GET_COMMAND_METADATA rather than
+        # CREATE_PIPELINE. It runs in its own runspace so a regression fails the test rather than hanging the run.
+        $session = New-PSSession @sessionParams
+        $ps = [PowerShell]::Create()
+        try {
+            $null = $ps.AddScript({
+                    param ($Session)
+                    $null = Import-PSSession -Session $Session -CommandName Get-Date -Prefix PSWSManRemote -AllowClobber
+                    (Get-PSWSManRemoteDate).GetType().Name
+                }).AddArgument($session)
+            $task = $ps.BeginInvoke()
+            $completed = $task.AsyncWaitHandle.WaitOne([TimeSpan]::FromSeconds(60))
+            if (-not $completed) {
+                $ps.Stop()
+            }
+
+            $completed | Should-BeTrue
+            $ps.Streams.Error | Should-BeNull
+            $ps.EndInvoke($task) | Should-Be 'DateTime'
+        }
+        finally {
+            $ps.Dispose()
+            Remove-PSSession -Session $session
+        }
     }
 
     It "Connects with large ApplicationArguments data" {
@@ -776,7 +827,12 @@ Describe "PSWSMan PSRemoting tests - <_.Name>" -ForEach (Get-PSWSManTestServer -
     }
 
     It "Fails when output exceeds MaximumReceivedObjectSize" {
-        $sessionParams = $_ | Get-PSSessionSplat -SessionOption @{ MaximumReceivedObjectSize = 1MB }
+        # New-WinRMSessionOption has no MaximumReceivedObjectSize, the builtin option is set on the converted
+        # PSSessionOption which keeps the PSWSMan options attached.
+        $sessionParams = $_ | Get-PSSessionSplat
+        $pso = [System.Management.Automation.Remoting.PSSessionOption]($sessionParams.SessionOption ?? (New-WinRMSessionOption))
+        $pso.MaximumReceivedObjectSize = 1MB
+        $sessionParams.SessionOption = $pso
 
         {
             Invoke-Command @sessionParams -ScriptBlock { 'a' * 2MB } -ErrorAction Stop
@@ -1081,7 +1137,7 @@ Describe "PSWSMan PSRemoting tests - <_.Name>" -ForEach (Get-PSWSManTestServer -
         # Talk TLS to the plain listener or plain HTTP to the TLS one, the exact message depends on the platform TLS
         # library so only the error type and that it fails promptly are checked.
         $sessionParams.UseSSL = -not $sessionParams.UseSSL
-        $sessionParams.SessionOption = New-PSWSManSessionOption -OpenTimeout 10000 -SkipCACheck -SkipCNCheck
+        $sessionParams.SessionOption = New-WinRMSessionOption -OpenTimeout 10000 -SkipCACheck -SkipCNCheck
 
         $start = Get-Date
         $err = $null

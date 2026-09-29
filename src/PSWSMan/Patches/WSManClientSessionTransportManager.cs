@@ -317,11 +317,6 @@ internal static class PSWSMan_WSManClientSessionTransportManager
 
             object syncObject = self.syncObject;
 
-            PSWSManSessionOption? extraOptions = (PSWSManSessionOption?)PSObject
-                .AsPSObject(connectionInfo)
-                .Properties[PSWSManSessionOption.PSWSMAN_SESSION_OPTION_PROP]
-                ?.Value;
-
             Guid runspacePoolId = self.RunspacePoolInstanceId;
 
             SetConnectionInfo(self, connectionInfo);
@@ -345,7 +340,6 @@ internal static class PSWSMan_WSManClientSessionTransportManager
                 runspacePoolId,
                 connectionUri,
                 connectionInfo,
-                extraOptions,
                 WSManPSRPSession.DefaultMaxEnvelopeSize,
                 tracer
             );

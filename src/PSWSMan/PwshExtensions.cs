@@ -1,6 +1,3 @@
-using System.Net.Security;
-using System.Security.Cryptography.X509Certificates;
-
 namespace PSWSMan;
 
 public enum AuthenticationMethod
@@ -59,20 +56,4 @@ public enum AuthenticationProvider
     /// Kerberos and NTLM support without any system dependencies.
     /// </summary>
     Devolutions,
-}
-
-/// <summary>Used as a way to extend New-PSSessionOption by adding in extra options available in this lib.</summary>
-public sealed class PSWSManSessionOption
-{
-    public const string PSWSMAN_SESSION_OPTION_PROP = "_PSWSManSessionOption";
-
-    public AuthenticationMethod AuthMethod { get; set; } = AuthenticationMethod.Default;
-    public AuthenticationProvider AuthProvider { get; set; } = AuthenticationProvider.Default;
-    public string? SPNService { get; set; }
-    public string? SPNHostName { get; set; }
-    public bool RequestKerberosDelegate { get; set; }
-    public SslClientAuthenticationOptions? TlsOption { get; set; }
-    public AuthenticationMethod CredSSPAuthMethod { get; set; } = AuthenticationMethod.Default;
-    public SslClientAuthenticationOptions? CredSSPTlsOption { get; set; }
-    public X509Certificate? ClientCertificate { get; set; }
 }

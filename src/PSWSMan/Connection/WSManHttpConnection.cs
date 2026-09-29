@@ -416,8 +416,11 @@ internal sealed class WSManHttpConnection : IDisposable
         Stream? stream = null;
         try
         {
-            ConfigureKeepAlive(socket);
             await socket.ConnectAsync(context.DnsEndPoint, token).ConfigureAwait(false);
+            // Set once connected, .NET 8 and 9 on Linux (pwsh 7.4 and 7.5) fail a connect to a DnsEndPoint with
+            // "Sockets on this platform are invalid for use after a failed connection attempt" when the keep-alive
+            // options are set before it, even when the first address works.
+            ConfigureKeepAlive(socket);
             stream = new NetworkStream(socket, ownsSocket: true);
 
             X509Certificate2? serverCertificate = null;

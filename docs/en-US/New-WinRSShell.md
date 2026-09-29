@@ -15,7 +15,7 @@ Creates a WinRS shell on a remote host that several WinRS commands can run in.
 ### ComputerName (Default)
 ```
 New-WinRSShell [-ConsoleEncoding <Encoding>] [-ComputerName] <String> [-Credential <PSCredential>]
- [-Port <Int32>] [-UseSSL] [-ApplicationName <String>] [-SessionOption <PSSessionOption>]
+ [-Port <Int32>] [-UseSSL] [-ApplicationName <String>] [-SessionOption <WinRMSessionOption>]
  [-Authentication <AuthenticationMethod>] [-CertificateThumbprint <String>]
  [-ProgressAction <ActionPreference>] [<CommonParameters>]
 ```
@@ -23,8 +23,8 @@ New-WinRSShell [-ConsoleEncoding <Encoding>] [-ComputerName] <String> [-Credenti
 ### ConnectionUri
 ```
 New-WinRSShell [-ConsoleEncoding <Encoding>] [-ConnectionUri] <Uri> [-Credential <PSCredential>]
- [-SessionOption <PSSessionOption>] [-Authentication <AuthenticationMethod>] [-CertificateThumbprint <String>]
- [-ProgressAction <ActionPreference>] [<CommonParameters>]
+ [-SessionOption <WinRMSessionOption>] [-Authentication <AuthenticationMethod>]
+ [-CertificateThumbprint <String>] [-ProgressAction <ActionPreference>] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -238,11 +238,12 @@ Accept wildcard characters: False
 ```
 
 ### -SessionOption
-The session options created by `New-PSSessionOption` or `New-PSWSManSessionOption`.
-Only the options that apply to a WinRS connection are used, see `Invoke-WinRSCommand` for the list.
+The connection options, the output of `New-WinRMSessionOption` or a hashtable of its option names and values, like `@{ OperationTimeout = 30000; AuthProvider = 'Devolutions' }`.
+A `PSSessionOption`, like the output of `New-PSSessionOption`, is accepted too, but it is an error if it sets an option PSWSMan does not support, like `NoCompression`, `IdleTimeout` or a proxy.
+See `New-WinRMSessionOption` for the options and their defaults.
 
 ```yaml
-Type: PSSessionOption
+Type: WinRMSessionOption
 Parameter Sets: (All)
 Aliases:
 

@@ -25,6 +25,11 @@ They keep the same properties and formatting but are not a live `CimInstance`.
 
 This operation is global to the process and is not reversible, once it has been enabled it cannot be disabled without restarting the process.
 
+The hooks patch internal PowerShell methods at runtime, rewriting them in memory with MonoMod so they call this module's code.
+This relies on implementation details of PowerShell and the .NET runtime that are not a supported API, so a new .NET release, including previews and other pre-releases, or a new PowerShell version can make this cmdlet fail or the builtin remoting cmdlets misbehave.
+PSWSMan is updated for new releases once such a break is known, but there can be a gap before a fixed version is available.
+Only the builtin remoting cmdlets depend on this patching of internal APIs, `New-WinRMSession` and the WinRS cmdlets like `Invoke-WinRSCommand` do not need this cmdlet, do not patch anything and are not affected by it.
+
 ## EXAMPLES
 
 ### Example 1: Enable PSWSMan can create a connection
@@ -84,5 +89,7 @@ This function does not output to the pipeline.
 ## NOTES
 Once enabled the hooks cannot be undone.
 The whole PowerShell process will need to be restarted to revert back to the build WSMan code.
+
+The patching may not work on a .NET or PowerShell release newer than the ones this version of PSWSMan was tested with, use `New-WinRMSession` until an updated PSWSMan is available.
 
 ## RELATED LINKS

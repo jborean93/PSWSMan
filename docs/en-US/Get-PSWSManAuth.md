@@ -20,7 +20,7 @@ Get-PSWSManAuth [-ProgressAction <ActionPreference>] [<CommonParameters>]
 Gets the authentication settings that apply to new PSSessions created in the current runspace.
 The settings are scoped to the runspace, a fresh runspace, such as a new `Start-ThreadJob` or `ForEach-Object -Parallel` job, starts with the default settings.
 
-The `DefaultAuthProvider` property is the authentication provider used when `NTLM`, `Kerberos`, `Negotiate`, or `CredSSP` authentication is selected for a PSSession and no explicit provider is specified with `New-PSWSManSessionOption -AuthProvider`.
+The `DefaultAuthProvider` property is the authentication provider used when `NTLM`, `Kerberos`, `Negotiate`, or `CredSSP` authentication is selected for a PSSession and no explicit provider is specified with `New-WinRMSessionOption -AuthProvider`.
 It is `System` unless changed with [Set-PSWSManAuth](./Set-PSWSManAuth.md).
 
 The `GssapiLib` property is the GSSAPI library used by the `System` provider on Linux and macOS.
@@ -83,6 +83,6 @@ An object with the `DefaultAuthProvider` and `GssapiLib` properties containing t
 
 [Set-PSWSManAuth](./Set-PSWSManAuth.md)
 
-[New-PSWSManSessionOption](./New-PSWSManSessionOption.md)
+[New-WinRMSessionOption](./New-WinRMSessionOption.md)
 
 [about_PSWSManAuthentication](./about_PSWSManAuthentication.md)

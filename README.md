@@ -38,12 +38,32 @@ Install-PSResource -Name PSWSMan -Scope CurrentUser
 Install-PSResource -Name PSWSMan -Scope AllUsers
 ```
 
-Once installed, run `Enable-PSWSMan -Force` to enable the hooks needed for PowerShell to use this module, see [PowerShell Remoting with Enable-PSWSMan](#powershell-remoting-with-enable-pswsman).
+## Ways to use PSWSMan
+
+PSWSMan talks to a WinRM (WSMan) host in three ways.
+All of them use the same WinRM client, authentication providers and TLS handling, they differ in what runs on the remote host and whether PowerShell itself is modified.
+
+| Path | Cmdlets | Hooks PowerShell | Remote side |
+| --- | --- | --- | --- |
+| [Builtin remoting with Enable-PSWSMan](#powershell-remoting-with-enable-pswsman) | `New-PSSession`, `Invoke-Command`, `Enter-PSSession`, ... | Yes, `Enable-PSWSMan -Force` | PowerShell session |
+| [WinRM sessions](#winrm-sessions) | `New-WinRMSession` then the builtin `-Session` cmdlets | No | PowerShell session |
+| [WinRS cmdlets](#winrs-cmdlets) | `Invoke-WinRSCommand`, `Send-WinRSFile`, ... | No | `cmd.exe` commands, no PowerShell |
+
+Use `Enable-PSWSMan` to keep using the builtin cmdlets and scripts unchanged, `New-WinRMSession` to get a PSSession without modifying the PowerShell process, and the WinRS cmdlets to run native commands or copy files where no PowerShell session is needed.
+`Enable-PSWSMan` patches PowerShell at runtime, which can stop working on a new .NET or PowerShell release until PSWSMan is updated, see [the warning below](#powershell-remoting-with-enable-pswsman).
+Only this path patches PowerShell, the other two do not and are not affected by it.
 
 ## PowerShell Remoting with Enable-PSWSMan
 
 PSWSMan replaces the WSMan client that PowerShell uses for its builtin remoting cmdlets like `New-PSSession`, `Invoke-Command`, and `Enter-PSSession`.
 Run `Enable-PSWSMan -Force` once in the PowerShell process to hook the engine, any WSMan PSSession created after that uses this module's client instead of the one PowerShell ships with.
+
+> [!WARNING]
+> `Enable-PSWSMan` works by patching internal PowerShell methods at runtime, it redirects them to this module's code by rewriting them in memory with [MonoMod](https://github.com/MonoMod/MonoMod).
+> This depends on implementation details of both PowerShell and the .NET runtime that are not a supported API.
+> A new .NET release, including previews and other pre-releases, or a new PowerShell version can change those details so that `Enable-PSWSMan` fails or the builtin remoting cmdlets misbehave.
+> PSWSMan is updated for new releases once such a break is known, but there can be a gap before a fixed version is available.
+> Only the builtin remoting cmdlets depend on this patching of internal APIs, [New-WinRMSession](#winrm-sessions) and the [WinRS cmdlets](#winrs-cmdlets) do not patch anything and keep working in the meantime.
 
 ```powershell
 Import-Module -Name PSWSMan
@@ -60,17 +80,48 @@ The hooks apply to the whole process and cannot be undone, restart PowerShell to
 Add `Enable-PSWSMan -Force` to your PowerShell profile to have it enabled in every session.
 
 The builtin cmdlets keep their own parameters, `-ComputerName`, `-Credential`, `-Authentication`, `-UseSSL`, and so on, and work as they normally do.
-Use [New-PSWSManSessionOption](docs/en-US/New-PSWSManSessionOption.md) in place of `New-PSSessionOption` for the options that are specific to PSWSMan, like choosing the authentication provider, the Kerberos SPN, CredSSP settings, custom TLS options, or a client certificate that is not in a certificate store.
+Use [New-WinRMSessionOption](docs/en-US/New-WinRMSessionOption.md) in place of `New-PSSessionOption`, for `-SessionOption` or `$PSSessionOption`, to set the options that are specific to PSWSMan, like choosing the authentication provider, the Kerberos SPN, CredSSP settings, custom TLS options, or a client certificate that is not in a certificate store.
 
 ```powershell
-$so = New-PSWSManSessionOption -AuthMethod Kerberos -RequestKerberosDelegate
+$so = New-WinRMSessionOption -AuthMethod Kerberos -RequestKerberosDelegate
 Invoke-Command -ComputerName Server01 -SessionOption $so -ScriptBlock { whoami }
 
-$so = New-PSWSManSessionOption -SkipCACheck -SkipCNCheck
+$so = New-WinRMSessionOption -SkipCACheck -SkipCNCheck
 Enter-PSSession -ComputerName 192.168.1.2 -UseSSL -Credential $cred -SessionOption $so
 ```
 
 See [about_PSWSManAuthentication](docs/en-US/about_PSWSManAuthentication.md) for details on the authentication methods and how to set them up on each platform.
+
+## WinRM Sessions
+
+[New-WinRMSession](docs/en-US/New-WinRMSession.md) creates a PSSession with PSWSMan's client through the public custom remoting transport API that PowerShell 7.3 added.
+Nothing in PowerShell is hooked, so `Enable-PSWSMan` is not needed and the builtin WSMan client is left as is for every other session.
+The session it returns works with the builtin cmdlets that take a `-Session`, like `Invoke-Command`, `Enter-PSSession`, `Import-PSSession`, `Copy-Item -ToSession`, and `Remove-PSSession`.
+
+```powershell
+Import-Module -Name PSWSMan
+
+$cred = Get-Credential
+$session = New-WinRMSession -ComputerName Server01 -Credential $cred
+Invoke-Command -Session $session -ScriptBlock { hostname.exe }
+Remove-PSSession -Session $session
+
+$so = New-WinRMSessionOption -AuthMethod Kerberos -RequestKerberosDelegate
+Enter-PSSession -Session (New-WinRMSession Server01 -UseSSL -SessionOption $so)
+
+# One session per host, opened in parallel, failures are written as errors
+$sessions = 'Server01', 'Server02', 'Server03' | New-WinRMSession -Credential $cred
+Invoke-Command -Session $sessions -ScriptBlock { $env:COMPUTERNAME }
+```
+
+The connection parameters mirror `New-PSSession`, including several hosts at once with `-ThrottleLimit`, and the options come from [New-WinRMSessionOption](docs/en-US/New-WinRMSessionOption.md).
+Unlike `New-PSSessionOption` it only has the options PSWSMan supports, and `-SessionOption` also takes a hashtable of the same names, like `-SessionOption @{ OperationTimeout = 30000; AuthProvider = 'Devolutions' }`.
+A `PSSessionOption` from `New-PSSessionOption` is accepted too, but setting an option PSWSMan does not support in it, like `NoCompression` or a proxy, is an error rather than silently ignored.
+The same `New-WinRMSessionOption` object works for all three paths, it converts to a `PSSessionOption` for the builtin cmdlets.
+On every path an explicit `-Authentication` takes precedence over the `AuthMethod` of the options.
+
+These sessions cannot be disconnected and reconnected with `Disconnect-PSSession` and `Connect-PSSession`.
+To troubleshoot a connection set `-TracePath` on `New-WinRMSessionOption`, `Trace-Command` only works for the builtin cmdlets, see [about_PSWSMan](docs/en-US/about_PSWSMan.md#troubleshooting).
 
 ## WinRS Cmdlets
 
@@ -78,7 +129,7 @@ PSWSMan also includes cmdlets that use WinRS (Windows Remote Shell), the protoco
 
 | Cmdlet | Purpose |
 | --- | --- |
-| [Invoke-WinRSCommand](docs/en-US/Invoke-WinRSCommand.md) (`iwcm`) | Runs a command line on the remote host and outputs its stdout and stderr. |
+| [Invoke-WinRSCommand](docs/en-US/Invoke-WinRSCommand.md) (`irscm`) | Runs a command line on the remote host and outputs its stdout and stderr. |
 | [ConvertTo-WinRSCommandLine](docs/en-US/ConvertTo-WinRSCommandLine.md) | Builds a safely quoted command line for `Invoke-WinRSCommand` from an executable and its arguments. |
 | [Send-WinRSFile](docs/en-US/Send-WinRSFile.md) | Copies local files to the remote host. |
 | [Receive-WinRSFile](docs/en-US/Receive-WinRSFile.md) | Copies files from the remote host to the local host. |
@@ -90,7 +141,7 @@ Invoke-WinRSCommand -ComputerName Server01 -Credential $cred -Command 'ipconfig 
 $LASTEXITCODE
 
 $cmd = ConvertTo-WinRSCommandLine 'C:\Program Files\7-Zip\7z.exe' l 'C:\temp\my archive.zip'
-iwcm Server01 $cmd -Credential $cred
+irscm Server01 $cmd -Credential $cred
 
 Send-WinRSFile -ComputerName Server01 -Credential $cred -Path ./app.zip -Destination C:\temp
 ```
@@ -103,7 +154,8 @@ They differ from PowerShell remoting in a few ways:
 * Each command runs in a new `cmd.exe` process, even in a shared shell, so a `cd` or `set` in one command is not seen by the next
 * `Send-WinRSFile` and `Receive-WinRSFile` need Windows PowerShell 5.1 on the remote host but no PSSession or file share
 
-The connection parameters, `-ComputerName`, `-ConnectionUri`, `-Credential`, `-Authentication`, `-UseSSL`, `-SessionOption`, and so on, mean the same as they do for `Invoke-Command`, and `-SessionOption` accepts the output of both `New-PSSessionOption` and `New-PSWSManSessionOption`.
+The connection parameters, `-ComputerName`, `-ConnectionUri`, `-Credential`, `-Authentication`, `-UseSSL`, `-SessionOption`, and so on, are the same as `New-WinRMSession` and mean the same as they do for `Invoke-Command`.
+`-SessionOption` takes the output of `New-WinRMSessionOption` or a hashtable, as described in [WinRM Sessions](#winrm-sessions).
 Use them when you need to run a native program, work with a host that has no usable PowerShell endpoint, or want the exact output of a command without PowerShell's serialization.
 
 ## Contributing

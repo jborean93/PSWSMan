@@ -56,19 +56,21 @@ internal sealed class WSManPSRPSession : IDisposable
         Guid runspacePoolId,
         Uri connectionUri,
         WSManConnectionInfo connInfo,
-        PSWSManSessionOption? extraConnInfo,
         int maxEnvelopeSize,
         PSTraceSource tracer)
     {
-        WSManTransport transport = WSManTransportFactory.Create(connectionUri, connInfo, extraConnInfo,
-            maxEnvelopeSize, tracer.WriteLine);
+        WinRMSessionOption options = WinRMSessionOption.FromConnectionInfo(connInfo);
+        // The thumbprint setter rejects null so an unset one reads back as an empty string.
+        string? thumbprint = string.IsNullOrEmpty(connInfo.CertificateThumbprint) ? null : connInfo.CertificateThumbprint;
+        WSManTransport transport = WSManTransportFactory.Create(connectionUri, connInfo.Credential, thumbprint,
+            options, maxEnvelopeSize, tracer.WriteLine);
 
         // PowerShell exposes this as the number of times the native client reconnects after a network failure. Here
         // it bounds how often a lost Receive is resent on a new connection, e.g. when the remote command restarts
         // the network adapter. A negative value is treated as no retries.
-        int receiveRetries = Math.Max(connInfo.MaxConnectionRetryCount, 0);
+        int receiveRetries = Math.Max(options.MaxConnectionRetryCount, 0);
 
-        return new(transport.Pool, transport.Client, runspacePoolId, connInfo.ShellUri, connInfo.NoMachineProfile,
+        return new(transport.Pool, transport.Client, runspacePoolId, connInfo.ShellUri, options.NoMachineProfile,
             receiveRetries, tracer);
     }
 

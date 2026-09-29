@@ -1,57 +1,51 @@
 using System;
 using System.Globalization;
 using System.Management.Automation;
-using System.Management.Automation.Remoting;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 
 namespace PSWSMan.Commands;
 
 [Cmdlet(
-    VerbsCommon.New, "PSWSManSessionOption",
+    VerbsCommon.New, "WinRMSessionOption",
     DefaultParameterSetName = "SimpleTls"
 )]
-[OutputType(typeof(PSSessionOption))]
-public sealed class NewPSWSManSessionOption : PSCmdlet
+[OutputType(typeof(WinRMSessionOption))]
+public sealed class NewWinRMSessionOption : PSCmdlet
 {
-    [Parameter()]
-    public int MaximumRedirection { get; set; } = 5;
-
-    [Parameter()]
+    [Parameter]
     public SwitchParameter NoMachineProfile { get; set; }
 
-    [Parameter()]
-    [ValidateNotNull()]
+    [Parameter]
+    [ValidateNotNull]
     public CultureInfo? Culture { get; set; }
 
-    [Parameter()]
-    [ValidateNotNull()]
+    [Parameter]
+    [ValidateNotNull]
     public CultureInfo? UICulture { get; set; }
 
-    [Parameter()]
-    public int? MaximumReceivedDataSizePerCommand { get; set; }
-
-    [Parameter()]
-    public int MaximumReceivedObjectSize { get; set; } = 209715200;
-
-    [Parameter()]
+    [Parameter]
     [ValidateRange(0, int.MaxValue)]
     public int MaxConnectionRetryCount { get; set; } = 5;
 
-    [Parameter()]
-    [ValidateNotNull()]
+    [Parameter]
+    [ValidateNotNull]
     public PSPrimitiveDictionary? ApplicationArguments { get; set; }
 
-    [Parameter()]
+    [Parameter]
     [Alias("OpenTimeoutMSec")]
+    [ValidateRange(0, int.MaxValue)]
     public int OpenTimeout { get; set; } = 3 * 60 * 1000;
 
-    [Parameter()]
+    [Parameter]
     [Alias("CancelTimeoutMSec")]
-    [ValidateRange(0, Int32.MaxValue)]
+    [ValidateRange(0, int.MaxValue)]
     public int CancelTimeout { get; set; } = 60 * 1000;
 
-    // TODO: Proxy options - ProxyAccessType, ProxyAuthentication, ProxyCredential
+    [Parameter]
+    [Alias("OperationTimeoutMSec")]
+    [ValidateRange(0, int.MaxValue)]
+    public int OperationTimeout { get; set; } = 3 * 60 * 1000;
 
     [Parameter(
         ParameterSetName = "SimpleTls"
@@ -68,77 +62,65 @@ public sealed class NewPSWSManSessionOption : PSCmdlet
     )]
     public X509Certificate? ClientCertificate { get; set; }
 
-    [Parameter()]
-    [Alias("OperationTimeoutMSec")]
-    [ValidateRange(0, Int32.MaxValue)]
-    public int OperationTimeout { get; set; } = 3 * 60 * 1000;
-
-    [Parameter()]
-    public SwitchParameter NoEncryption { get; set; }
-
-    [Parameter()]
-    public string? SPNService { get; set; }
-
-    [Parameter()]
-    public string? SPNHostName { get; set; }
-
-    [Parameter()]
-    public AuthenticationMethod AuthMethod { get; set; } = AuthenticationMethod.Default;
-
-    [Parameter()]
-    public AuthenticationProvider AuthProvider { get; set; } = AuthenticationProvider.Default;
-
-    [Parameter()]
-    public SwitchParameter RequestKerberosDelegate { get; set; }
-
     [Parameter(
         ParameterSetName = "TlsOption"
     )]
     public SslClientAuthenticationOptions? TlsOption { get; set; }
 
-    [Parameter()]
+    [Parameter]
+    public SwitchParameter NoEncryption { get; set; }
+
+    [Parameter]
+    public string? SPNService { get; set; }
+
+    [Parameter]
+    public string? SPNHostName { get; set; }
+
+    [Parameter]
+    public AuthenticationMethod AuthMethod { get; set; } = AuthenticationMethod.Default;
+
+    [Parameter]
+    public AuthenticationProvider AuthProvider { get; set; } = AuthenticationProvider.Default;
+
+    [Parameter]
+    public SwitchParameter RequestKerberosDelegate { get; set; }
+
+    [Parameter]
     public AuthenticationMethod CredSSPAuthMethod { get; set; } = AuthenticationMethod.Default;
 
-    [Parameter()]
+    [Parameter]
     public SslClientAuthenticationOptions? CredSSPTlsOption { get; set; }
 
-    protected override void BeginProcessing()
+    [Parameter]
+    [ValidateNotNullOrEmpty]
+    public string? TracePath { get; set; }
+
+    protected override void EndProcessing()
     {
-        PSSessionOption options = new()
+        WriteObject(new WinRMSessionOption()
         {
-            MaximumConnectionRedirectionCount = MaximumRedirection,
             NoMachineProfile = NoMachineProfile,
             Culture = Culture,
             UICulture = UICulture,
-            MaximumReceivedDataSizePerCommand = MaximumReceivedDataSizePerCommand,
-            MaximumReceivedObjectSize = MaximumReceivedObjectSize,
             MaxConnectionRetryCount = MaxConnectionRetryCount,
             ApplicationArguments = ApplicationArguments,
             OpenTimeout = TimeSpan.FromMilliseconds(OpenTimeout),
             CancelTimeout = TimeSpan.FromMilliseconds(CancelTimeout),
+            OperationTimeout = TimeSpan.FromMilliseconds(OperationTimeout),
             SkipCACheck = SkipCACheck,
             SkipCNCheck = SkipCNCheck,
-            OperationTimeout = TimeSpan.FromMilliseconds(OperationTimeout),
-            NoEncryption = NoEncryption,
-        };
-
-        PSWSManSessionOption extraOptions = new()
-        {
-            AuthMethod = AuthMethod,
-            AuthProvider = AuthProvider,
-            SPNService = SPNService,
-            SPNHostName = SPNHostName,
-            RequestKerberosDelegate = RequestKerberosDelegate,
             ClientCertificate = ClientCertificate,
             TlsOption = TlsOption,
+            NoEncryption = NoEncryption,
+            SPNService = SPNService,
+            SPNHostName = SPNHostName,
+            AuthMethod = AuthMethod,
+            AuthProvider = AuthProvider,
+            RequestKerberosDelegate = RequestKerberosDelegate,
             CredSSPAuthMethod = CredSSPAuthMethod,
             CredSSPTlsOption = CredSSPTlsOption,
-        };
-        // In order to smuggle the extra options into the patched WSMan connection code the data is added as an ETS
-        // member which can be retrieved in the patched code.
-        PSObject.AsPSObject(options).Properties.Add(
-            new PSNoteProperty(PSWSManSessionOption.PSWSMAN_SESSION_OPTION_PROP, extraOptions));
-
-        WriteObject(options);
+            // Resolved now so the path does not depend on the location when the options are used.
+            TracePath = TracePath is null ? null : SessionState.Path.GetUnresolvedProviderPathFromPSPath(TracePath),
+        });
     }
 }

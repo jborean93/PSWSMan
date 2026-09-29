@@ -51,6 +51,17 @@ Describe "New-WinRSShell and Remove-WinRSShell" {
             }
         }
 
+        It "Takes the shell as the first positional argument" {
+            $params = $server | Get-PSSessionSplat
+            $shell = New-WinRSShell @params
+            try {
+                Invoke-WinRSCommand $shell 'echo positional' | Should-Be 'positional'
+            }
+            finally {
+                Remove-WinRSShell $shell
+            }
+        }
+
         It "Runs each command in its own cmd.exe process" {
             $params = $server | Get-PSSessionSplat
             $shell = New-WinRSShell @params
@@ -196,6 +207,7 @@ Describe "New-WinRSShell and Remove-WinRSShell" {
 
                 $actual | Should-BeSame $shell
                 @(Get-WinRSShell) | Should-ContainCollection @($shell)
+                Get-WinRSShell -ShellId ([Guid]::NewGuid()) | Should-BeNull
             }
             finally {
                 Remove-WinRSShell $shell
@@ -269,6 +281,15 @@ Describe "New-WinRSShell and Remove-WinRSShell" {
     }
 
     Context "Parameter validation" {
+        It "Has the shell at position 0 like the host of the other sets for <_>" -ForEach @('Invoke-WinRSCommand', 'Send-WinRSFile', 'Receive-WinRSFile') {
+            $positions = (Get-Command -Name $_).ParameterSets | ForEach-Object {
+                $first = $_.Parameters | Where-Object Position -EQ 0
+                "$($_.Name)=$($first.Name)"
+            }
+
+            $positions | Should-BeCollection @('ComputerName=ComputerName', 'Shell=Shell', 'ConnectionUri=ConnectionUri')
+        }
+
         It "Only takes the shell in the Shell parameter set of <_>" -ForEach @('Invoke-WinRSCommand', 'Send-WinRSFile', 'Receive-WinRSFile') {
             $set = (Get-Command -Name $_).ParameterSets | Where-Object Name -EQ Shell
 
