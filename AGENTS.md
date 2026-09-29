@@ -71,7 +71,9 @@ pwsh -File ./build.ps1 -Configuration Debug|Release -Task Build|Test
 `-Configuration` defaults to `Debug` and `-Task` defaults to `Build`. The
 faster per-project commands further down are for quick iteration only. Before
 calling a change done, run `-Task Build` followed by `-Task Test` and report
-the result.
+the result. When all the work is finished, also run the Pester tests once
+without a `test.settings.json` (see "Running without a WinRM server" below),
+CI has none so a test that needs a server has to skip rather than fail.
 
 ## Building
 
@@ -182,6 +184,34 @@ Coverage details for a single run:
 pwsh -File ./tools/CoverageReport.ps1 -Path ./output/TestResults/Coverage.cobertura.xml -Detailed
 ```
 
+### Running without a WinRM server
+
+CI has no `test.settings.json`, the Windows jobs configure the runner as a
+WinRM target with `tools/SetupWinCI.ps1` and the others have no server at all.
+`tests/common.ps1` reads the file from the repository root, so run a copy of
+the tests from a directory without one. Do not move the real file aside, it
+holds credentials. `output` and `module` are linked next to the copy as the
+tests load the module relative to their own path.
+
+```powershell
+$dir = Join-Path ([IO.Path]::GetTempPath()) 'pswsman-nosettings'
+Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction Ignore
+$null = New-Item -ItemType Directory -Path $dir
+Copy-Item -Path ./tests -Destination (Join-Path $dir tests) -Recurse
+foreach ($name in 'output', 'module') {
+    $null = New-Item -ItemType SymbolicLink -Path (Join-Path $dir $name) -Target (Resolve-Path "./$name").Path
+}
+$pesterVersion = (Import-PowerShellDataFile ./manifest.psd1).PesterVersion
+$env:PSModulePath = (Resolve-Path ./output/Modules).Path
+pwsh -NoProfile -NonInteractive -File ./tools/PesterTest.ps1 -TestPath (Join-Path $dir tests) `
+    -OutputFile (Join-Path $dir Pester.xml) -PesterVersion $pesterVersion
+```
+
+Every test must pass or skip. Check the `Tests Passed` summary and the
+`Discovery ... failed` lines rather than the exit code, a test file that fails
+discovery still exits with 0. Symbolic links on Windows need Developer Mode or
+an elevated shell.
+
 ### Test conventions and gotchas
 
 - Pester tests that need a real WinRM server are skipped, not failed, when no
@@ -197,7 +227,13 @@ pwsh -File ./tools/CoverageReport.ps1 -Path ./output/TestResults/Coverage.cobert
   particular host. `Get-PSSessionSplat` turns an entry into the
   `New-PSSession` parameters and takes the `New-WinRMSessionOption`
   parameters as a hashtable, so it can disable certificate validation for
-  entries marked `untrusted_certificate`.
+  entries marked `untrusted_certificate`. It is also what skips a test when
+  no server matches, so call it before anything else that needs the server,
+  including a child process that reads the settings file itself.
+- Write test files through the file system path in `$TestDrive`, not a
+  `TestDrive:` path. pwsh 7.6 on Windows creates a new file written with
+  `Set-Content -LiteralPath TestDrive:\...` at the root of the current drive
+  instead, without an error.
 - `cmd.exe` cannot write arbitrary bytes. `Get-RawOutputCommand` in
   `tests/common.ps1` builds an `Invoke-WinRSCommand -Command` that writes
   exact bytes, given as hex or a `byte[]`, to stdout or stderr with a

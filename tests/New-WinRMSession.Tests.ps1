@@ -222,6 +222,10 @@ Describe "New-WinRMSession" {
             @{ Name = 'does not implement SetBufferContents'; ThrowOnClear = $true }
             @{ Name = 'implements SetBufferContents'; ThrowOnClear = $false }
         ) {
+            # Get-PSSessionSplat skips the test when no server is configured, the child process reads the settings
+            # file itself and would fail instead.
+            $null = $server | Get-PSSessionSplat
+
             # This process has Enable-PSWSMan, whose patch also turns the not implemented failure into a clear, so the
             # session runs in a child process without it. Its stdout is captured so Console.Clear() is skipped there.
             $script = {

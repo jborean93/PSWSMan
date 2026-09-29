@@ -91,7 +91,9 @@ Describe "Invoke-WinRMCommand" {
         }
 
         It "Fails for a FilePath with a syntax error" {
-            $path = Join-Path TestDrive: invalid.ps1
+            # The file system path, pwsh 7.6 on Windows writes a new file created with Set-Content -LiteralPath
+            # on a TestDrive: path to the root of the current drive instead.
+            $path = Join-Path $TestDrive invalid.ps1
             Set-Content -LiteralPath $path -Value 'if ('
             $err = { Invoke-WinRMCommand -ComputerName pswsman.invalid -FilePath $path } | Should-Throw
 
@@ -337,7 +339,9 @@ Describe "Invoke-WinRMCommand" {
 
         It "Runs a script from FilePath with arguments and using values" {
             $params = $server | Get-PSSessionSplat
-            $path = Join-Path TestDrive: remote.ps1
+            # The file system path, pwsh 7.6 on Windows writes a new file created with Set-Content -LiteralPath
+            # on a TestDrive: path to the root of the current drive instead.
+            $path = Join-Path $TestDrive remote.ps1
             Set-Content -LiteralPath $path -Value 'param ($Name) "$Name $using:value"'
             $value = 'using value'
 
