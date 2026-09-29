@@ -1087,6 +1087,13 @@ Describe "PSWSMan PSRemoting tests - <_.Name>" -ForEach (Get-PSWSManTestServer -
             $elapsed = (Get-Date) - $start
 
             $elapsed.TotalSeconds | Should-BeLessThan 10
+
+            # PowerShell stops the pipeline before it marks the runspace pool as Broken on the same thread, so
+            # Invoke-Command can return while the session still reports Opened.
+            $wait = [System.Diagnostics.Stopwatch]::StartNew()
+            while ($session.State -ne 'Broken' -and $wait.Elapsed.TotalSeconds -lt 30) {
+                Start-Sleep -Milliseconds 50
+            }
             $session.State | Should-Be Broken
 
             {
