@@ -333,7 +333,10 @@ Describe "Invoke-WinRSCommand" {
         It "Discards input once the process has exited - <_.Name>" -ForEach (Get-PSWSManTestServer -First) {
             $params = $_ | Get-PSSessionSplat
 
-            $actual = 1..30 | Invoke-WinRSCommand @params -Command 'exit 5'
+            # The process never reads stdin, the first chunk of input waits in the pipe until it exits and fails with
+            # the broken pipe fault, the rest is dropped. It waits a second before exiting as the server can report
+            # exit code 0 for a process that exits while a Send is arriving, which made an immediate exit flaky.
+            $actual = , [byte[]]::new(1MB) | Invoke-WinRSCommand @params -Command 'ping -n 2 127.0.0.1 >nul& exit 5'
 
             $actual | Should-BeNull
             $LASTEXITCODE | Should-Be 5

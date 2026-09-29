@@ -63,20 +63,23 @@ internal static class PSWSMan_WSManClientCommandTransportManager
                 "PSWSMan: WSManClientCommandTransportManager.CloseAsync - Sending Stop for {0} CmdId {1}",
                 session.RunspacePoolId, pwshInstanceId);
 
+            // The close always completes like the native transport does, it skips the close of a command that was
+            // never created and ignores a failed one. The pipeline waits for the close to finish, a close that only
+            // raised an error, like the Terminate of a command whose Create had failed, left it waiting forever.
             try
             {
-                session.CloseCommand(pwshInstanceId);
+                if (!session.CloseCommand(pwshInstanceId))
+                {
+                    tracer.WriteLine(
+                        "PSWSMan: WSManClientCommandTransportManager.CloseAsync - {0} CmdId {1} was never created",
+                        session.RunspacePoolId, pwshInstanceId);
+                }
             }
             catch (Exception e)
             {
                 tracer.WriteLine(
                     "PSWSMan: WSManClientCommandTransportManager.CloseAsync - Send failed for {0} CmdId {1}\n{2}",
                     session.RunspacePoolId, pwshInstanceId, e);
-
-                TransportErrorOccuredEventArgs err = new(new PSRemotingTransportException(e.Message, e),
-                    TransportMethodEnum.CloseShellOperationEx);
-                self.RaiseErrorHandler(err);
-                return;
             }
 
             self.RaiseCloseCompleted();
@@ -140,7 +143,10 @@ internal static class PSWSMan_WSManClientCommandTransportManager
         }
         catch (Exception e)
         {
+            // Any failure must reach PowerShell, the pipeline otherwise waits for a command that never runs.
             tracer.WriteLine("PSWSMan: WSManClientCommandTransportManager.CreateAsync - Error\n{0}", e.ToString());
+            self.ProcessWSManTransportError(new(new PSRemotingTransportException(e.Message, e),
+                TransportMethodEnum.RunShellCommandEx));
         }
     }
 

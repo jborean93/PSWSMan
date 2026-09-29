@@ -1,5 +1,7 @@
-using System.Collections.Generic;
+using System;
+using System.Collections;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Management.Automation;
 using System.Management.Automation.Host;
 using System.Management.Automation.Runspaces;
@@ -20,16 +22,28 @@ public sealed class NewRemoteCertificateValidationCallback : PSCmdlet
     )]
     public ScriptBlock ScriptBlock { get; set; } = null!;
 
+    private Hashtable? _usingVars = null;
+
+    protected override void BeginProcessing()
+    {
+        try
+        {
+            _usingVars = UsingVariableParser.GetUsingParameters(SessionState, ScriptBlock.Ast);
+        }
+        catch (ArgumentException e)
+        {
+            ThrowTerminatingError(new ErrorRecord(
+                e,
+                "UsingVariableIsUndefined",
+                ErrorCategory.InvalidArgument,
+                ScriptBlock));
+        }
+    }
+
     protected override void EndProcessing()
     {
-        // Internal S.M.A API: ScriptBlockToPowerShellConverter.GetUsingValuesAsDictionary and Cmdlet.Context are
-        // internal and only reachable through the assembly wide IgnoresAccessChecksTo. They capture the $using:
-        // values the same way Start-ThreadJob and ForEach-Object -Parallel do, which no public API offers. It is a
-        // known risk, a PowerShell release that changes them breaks this cmdlet until PSWSMan is updated.
-        Dictionary<string, object> usingVars = ScriptBlockToPowerShellConverter.GetUsingValuesAsDictionary(
-            ScriptBlock, true, this.Context, null);
-
-        ScriptBlockCertificateValidation sbkDelegate = new(Host, ScriptBlock, usingVars);
+        Debug.Assert(_usingVars != null);
+        ScriptBlockCertificateValidation sbkDelegate = new(Host, ScriptBlock, _usingVars);
         WriteObject((RemoteCertificateValidationCallback)sbkDelegate.Validate);
     }
 }
@@ -38,10 +52,10 @@ public sealed class ScriptBlockCertificateValidation
 {
     public PSHost? Host { get; }
     public ScriptBlock ScriptBlock { get; }
-    public Dictionary<string, object> UsingVars { get; }
+    public Hashtable UsingVars { get; }
 
     public ScriptBlockCertificateValidation(PSHost? host, ScriptBlock scriptBlock,
-        Dictionary<string, object> usingVars)
+        Hashtable usingVars)
     {
         Host = host;
         ScriptBlock = scriptBlock;

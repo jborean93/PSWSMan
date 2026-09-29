@@ -1,11 +1,14 @@
 using System;
 using System.IO;
 using System.Management.Automation;
+using System.Management.Automation.Remoting;
 using System.Management.Automation.Runspaces;
 using System.Net.Http;
 using System.Net.Sockets;
 using System.Security.Authentication;
 using System.Threading;
+using System.Threading.Tasks;
+using PSWSMan.CustomTransport;
 using PSWSMan.Lib;
 
 namespace PSWSMan.Commands;
@@ -13,7 +16,8 @@ namespace PSWSMan.Commands;
 /// <summary>The connection options and error handling shared by the cmdlets that connect to a WinRM endpoint.</summary>
 /// <remarks>
 /// The target itself, -ComputerName or -ConnectionUri, is declared by the derived class as a cmdlet targets either
-/// one host or many. The parameter sets are named after those parameters.
+/// one host or many. The parameter sets are named after those parameters, a cmdlet with more sets than those
+/// re-declares the parameters with new and overrides <see cref="UsesComputerName"/>.
 /// </remarks>
 public abstract class WinRMCmdletBase : PSCmdlet, IDisposable
 {
@@ -78,6 +82,9 @@ public abstract class WinRMCmdletBase : PSCmdlet, IDisposable
 
     private protected CancellationToken StopToken => _cts.Token;
 
+    /// <summary>Whether the bound parameter set targets hosts by -ComputerName.</summary>
+    private protected virtual bool UsesComputerName => ParameterSetName == "ComputerName";
+
     /// <summary>The target named in error records and messages.</summary>
     private protected abstract string ConnectionTarget { get; }
 
@@ -108,7 +115,7 @@ public abstract class WinRMCmdletBase : PSCmdlet, IDisposable
             {
                 problem = "The Authentication parameter and the CertificateThumbprint parameter cannot be used together.";
             }
-            else if (ParameterSetName == "ComputerName" && !UseSSL)
+            else if (UsesComputerName && !UseSSL)
             {
                 problem = HttpsRequiredMessage;
             }
@@ -170,6 +177,69 @@ public abstract class WinRMCmdletBase : PSCmdlet, IDisposable
         // not part of the endpoint URI, the resource a cmdlet uses is given separately when it connects.
         return new WSManConnectionInfo(UseSSL, computerName, port, ApplicationName, shellUri: null,
             credential: null).ConnectionUri;
+    }
+
+    /// <summary>Creates the unopened runspace of a PSSession to the endpoint over PSWSMan's custom transport.</summary>
+    /// <param name="connectionUri">The endpoint to connect to.</param>
+    /// <param name="configurationName">The session configuration name or its full resource URI.</param>
+    /// <param name="openCancellation">Aborts the connection while the runspace is still opening.</param>
+    private protected Runspace CreateSessionRunspace(Uri connectionUri, string configurationName,
+        CancellationToken openCancellation)
+    {
+        string shellUri = configurationName.Contains('/')
+            ? configurationName
+            : $"http://schemas.microsoft.com/powershell/{configurationName}";
+        WinRMConnectionInfo connInfo = new(connectionUri, shellUri, Credential, CertificateThumbprint, Options,
+            Authentication)
+        {
+            OpenCancellation = openCancellation,
+        };
+        // The host calls of the remote session run against this host, the wrapper fixes the remote Clear-Host. It is
+        // a workaround for https://github.com/PowerShell/PowerShell/issues/28115 and will hopefully be removed in a
+        // future version once that is fixed in every PowerShell version PSWSMan supports, see RemoteClearHost.
+        return RunspaceFactory.CreateRunspace(connInfo, new WinRMClientHost(Host), TypeTable.LoadDefaultTypeFiles(),
+            Options.ApplicationArguments);
+    }
+
+    /// <summary>Starts opening a PSSession runspace to the endpoint.</summary>
+    /// <param name="connectionUri">The endpoint to connect to.</param>
+    /// <param name="configurationName">The session configuration name or its full resource URI.</param>
+    /// <param name="target">The name of the endpoint in the error when the session closes while opening.</param>
+    /// <param name="openCancellation">Aborts the connection while the runspace is still opening.</param>
+    /// <returns>
+    /// The runspace and a task that completes once it is open or fails with the reason it could not be opened. The
+    /// caller owns the runspace either way.
+    /// </returns>
+    private protected (Runspace Runspace, Task Opened) StartOpenSession(Uri connectionUri, string configurationName,
+        string target, CancellationToken openCancellation)
+    {
+        Runspace runspace = CreateSessionRunspace(connectionUri, configurationName, openCancellation);
+        TaskCompletionSource opened = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        runspace.StateChanged += (_, e) =>
+        {
+            switch (e.RunspaceStateInfo.State)
+            {
+                case RunspaceState.Opened:
+                    opened.TrySetResult();
+                    break;
+                case RunspaceState.Broken:
+                case RunspaceState.Closed:
+                    opened.TrySetException(e.RunspaceStateInfo.Reason
+                        ?? new PSRemotingTransportException($"The session to '{target}' closed while opening."));
+                    break;
+            }
+        };
+
+        try
+        {
+            runspace.OpenAsync();
+        }
+        catch (Exception e)
+        {
+            opened.TrySetException(e);
+        }
+
+        return (runspace, opened.Task);
     }
 
     /// <summary>Creates the transport from the connection parameters.</summary>

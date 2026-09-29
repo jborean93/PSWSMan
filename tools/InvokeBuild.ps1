@@ -261,7 +261,7 @@ task PesterTests {
     $pwshArguments = @(
         '-NoProfile'
         '-NonInteractive'
-        if (-not $IsUnix) {
+        if ($IsWindows) {
             '-ExecutionPolicy', 'Bypass'
         }
         '-File', $pesterScript
@@ -288,17 +288,29 @@ task PesterTests {
     )
 
     $origEnv = $env:PSModulePath
+    $origCCache = $env:KRB5CCNAME
+    # The Kerberos tests run kinit and kdestroy, a credential cache of their own keeps them away from the user's
+    # tickets. Windows keeps its tickets in LSA and the tests do not touch them there.
+    $ccachePath = [Path]::Combine($Manifest.TestResultsPath, 'krb5cc')
     try {
         $pwshHome = Split-Path -Path $pwsh -Parent
         $env:PSModulePath = @(
             [Path]::Combine($pwshHome, "Modules")
             [Path]::Combine($Manifest.OutputPath, "Modules")
         ) -join ([Path]::PathSeparator)
+        if (-not $IsWindows) {
+            Remove-Item -LiteralPath $ccachePath -Force -ErrorAction Ignore
+            $env:KRB5CCNAME = "FILE:$ccachePath"
+        }
 
         dotnet-coverage @arguments
     }
     finally {
         $env:PSModulePath = $origEnv
+        if (-not $IsWindows) {
+            $env:KRB5CCNAME = $origCCache
+            Remove-Item -LiteralPath $ccachePath -Force -ErrorAction Ignore
+        }
     }
 
     if ($LASTEXITCODE) {

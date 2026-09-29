@@ -74,6 +74,52 @@ Describe "New-WinRMSession" {
             }
         }
 
+        It "Copies files to and from the session" {
+            # Copy-Item drives the session through its own remote helper functions and streams the file content in
+            # chunks, a different path through the transport than a plain command. The large file spans many
+            # envelopes in both directions.
+            $params = $server | Get-PSSessionSplat
+            $session = New-WinRMSession @params
+            $remotePath = $null
+            try {
+                # $TestDrive rather than TestDrive: as the .NET file APIs need the file system path.
+                $source = Join-Path $TestDrive copy-source
+                $null = New-Item -ItemType Directory -Path (Join-Path $source nested) -Force
+                [IO.File]::WriteAllText((Join-Path $source small.txt), 'small text')
+                $bytes = [byte[]]::new(3MB)
+                [Random]::new(0).NextBytes($bytes)
+                [IO.File]::WriteAllBytes((Join-Path $source nested/large.bin), $bytes)
+
+                $remotePath = Invoke-Command -Session $session -ScriptBlock {
+                    Join-Path $env:TEMP "pswsman-copy-$([Guid]::NewGuid())"
+                }
+                Copy-Item -LiteralPath $source -Destination $remotePath -ToSession $session -Recurse
+
+                $remoteFiles = Invoke-Command -Session $session -ScriptBlock {
+                    Get-ChildItem -LiteralPath $using:remotePath -Recurse -File |
+                        Sort-Object -Property Name |
+                        ForEach-Object { "$($_.Name) $($_.Length)" }
+                }
+                $remoteFiles | Should-BeCollection @('large.bin 3145728', 'small.txt 10')
+
+                $destination = Join-Path $TestDrive copy-destination
+                Copy-Item -LiteralPath $remotePath -Destination $destination -FromSession $session -Recurse
+
+                foreach ($relative in 'small.txt', 'nested/large.bin') {
+                    $expected = (Get-FileHash -LiteralPath (Join-Path $source $relative)).Hash
+                    (Get-FileHash -LiteralPath (Join-Path $destination $relative)).Hash | Should-Be $expected
+                }
+            }
+            finally {
+                if ($remotePath) {
+                    Invoke-Command -Session $session -ScriptBlock {
+                        Remove-Item -LiteralPath $using:remotePath -Recurse -Force -ErrorAction SilentlyContinue
+                    }
+                }
+                Remove-PSSession -Session $session
+            }
+        }
+
         It "Applies the culture options" {
             $params = $server | Get-PSSessionSplat
             $params.SessionOption = @{ Culture = 'de-DE'; UICulture = 'fr-FR' }
@@ -110,13 +156,12 @@ Describe "New-WinRMSession" {
         }
 
         It "Prefers -Authentication over the session option AuthMethod" {
-            if ($server.Uri.Scheme -ne 'http') {
-                Set-ItResult -Skipped -Because 'Basic is only rejected without encryption over HTTP'
-            }
             $params = $server | Get-PSSessionSplat -SessionOption @{ AuthMethod = 'Basic' }
             $session = New-WinRMSession @params -Authentication Negotiate
             try {
-                $session.State | Should-Be Opened
+                # The server reports the authentication it accepted, Negotiate shows as the protocol it picked.
+                $actual = Invoke-Command -Session $session -ScriptBlock { $PSSenderInfo.UserInfo.Identity.AuthenticationType }
+                $actual -in 'Kerberos', 'NTLM' | Should-BeTrue -Because "the server reported '$actual'"
             }
             finally {
                 Remove-PSSession -Session $session
@@ -171,6 +216,76 @@ Describe "New-WinRMSession" {
             $lines | Where-Object { $_ -notmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2} \[\d+\] ' } | Should-BeNull
             $packets = $lines | Where-Object { $_ -match 'PSWSMan OutOfProc Packet \[[^\]]+\] (Sent|Received): <' }
             @($packets).Count | Should-BeGreaterThan 0
+        }
+
+        It "Handles a remote Clear-Host when the host <Name>" -TestCases @(
+            @{ Name = 'does not implement SetBufferContents'; ThrowOnClear = $true }
+            @{ Name = 'implements SetBufferContents'; ThrowOnClear = $false }
+        ) {
+            # Get-PSSessionSplat skips the test when no server is configured, the child process reads the settings
+            # file itself and would fail instead.
+            $null = $server | Get-PSSessionSplat
+
+            # This process has Enable-PSWSMan, whose patch also turns the not implemented failure into a clear, so the
+            # session runs in a child process without it. Its stdout is captured so Console.Clear() is skipped there.
+            $script = {
+                param ($ModulePath, $StubPath, $SettingsPath, $ServerName, $ThrowOnClear)
+
+                $ErrorActionPreference = 'Stop'
+                Add-Type -Path $StubPath
+                $entry = (Get-Content -LiteralPath $SettingsPath -Raw | ConvertFrom-Json).servers |
+                    Where-Object name -EQ $ServerName
+                $cred = [PSCredential]::new($entry.username,
+                    (ConvertTo-SecureString -AsPlainText -Force $entry.password))
+                # The same as Get-PSSessionSplat does for an entry marked untrusted_certificate.
+                $sessionOption = @{}
+                if ($entry.untrusted_certificate) {
+                    $sessionOption.SkipCACheck = $true
+                    $sessionOption.SkipCNCheck = $true
+                }
+
+                $stub = [PSWSManTests.RecordingHost]::new($ThrowOnClear)
+                $rs = [RunspaceFactory]::CreateRunspace($stub)
+                $rs.Open()
+                $ps = [PowerShell]::Create()
+                $ps.Runspace = $rs
+                $null = $ps.AddScript({
+                        param ($ModulePath, $Uri, $Credential, $SessionOption)
+                        Import-Module -Name $ModulePath
+                        $session = New-WinRMSession -ConnectionUri $Uri -Credential $Credential -SessionOption $SessionOption
+                        try {
+                            $remote = [PowerShell]::Create()
+                            $remote.Runspace = $session.Runspace
+                            [PSCustomObject]@{
+                                Output = @($remote.AddScript('Clear-Host; "cleared"').Invoke())
+                                Errors = @($remote.Streams.Error | ForEach-Object ToString)
+                            }
+                            $remote.Dispose()
+                        }
+                        finally {
+                            Remove-PSSession -Session $session
+                        }
+                    }).AddArgument($ModulePath).AddArgument($entry.url).AddArgument($cred).AddArgument($sessionOption)
+                $result = $ps.Invoke()
+
+                [PSCustomObject]@{
+                    Output = $result.Output
+                    Errors = @($result.Errors) + @($ps.Streams.Error | ForEach-Object ToString)
+                    Cleared = @($stub.Calls -like 'SetBufferContents(-1,-1,-1,-1,*')
+                }
+            }
+            $modulePath = [IO.Path]::Combine((Get-Module -Name PSWSMan).ModuleBase, 'PSWSMan.psd1')
+            $stubPath = [IO.Path]::Combine($PSScriptRoot, 'data', 'RecordingHost.cs')
+            $settingsPath = [IO.Path]::Combine($PSScriptRoot, '..', 'test.settings.json')
+
+            # A scriptblock is sent as -EncodedCommand, the arguments and output go between the processes as CLIXML.
+            # It only works with the scriptblock and -args written out, not splatted.
+            $actual = & ([Environment]::ProcessPath) -NoProfile -NonInteractive $script -args $modulePath, $stubPath, $settingsPath, $server.Name, $ThrowOnClear
+            $LASTEXITCODE | Should-Be 0
+
+            $actual.Errors | Should-BeNull
+            $actual.Output | Should-Be 'cleared'
+            @($actual.Cleared).Count | Should-Be 1
         }
 
         It "Fails to open an unknown configuration" {
@@ -232,6 +347,20 @@ Describe "New-WinRMSession" {
             $err.Count | Should-Be 1
             $err[0].FullyQualifiedErrorId | Should-Be 'WinRMSessionOpenFailed,PSWSMan.Commands.NewWinRMSession'
             $err[0].TargetObject | Should-Be 'pswsman.invalid'
+        }
+
+        It "Reports why the connection could not be set up" {
+            # The options are rejected before anything is sent, the reason is the error message rather than a
+            # generic PowerShell error with the reason in an inner exception.
+            $cred = [PSCredential]::new('user', (ConvertTo-SecureString -AsPlainText -Force 'pass'))
+            $actual = New-WinRMSession -ComputerName pswsman.invalid -Authentication Basic -Credential $cred -ErrorAction SilentlyContinue -ErrorVariable err
+
+            $actual | Should-BeNull
+            $err.Count | Should-Be 1
+            $err[0].FullyQualifiedErrorId | Should-Be 'WinRMSessionOpenFailed,PSWSMan.Commands.NewWinRMSession'
+            $err[0].Exception | Should-HaveType ([System.Management.Automation.Remoting.PSRemotingTransportException])
+            $err[0].Exception.Message | Should-BeLikeString '*does not support message encryption*'
+            $err[0].Exception.InnerException | Should-HaveType ([ArgumentException])
         }
 
         It "Writes an error for a ConnectionUri that is not http or https" {

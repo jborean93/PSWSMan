@@ -2,10 +2,9 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Management.Automation;
-using System.Management.Automation.Remoting;
 using System.Management.Automation.Runspaces;
 using System.Threading;
-using PSWSMan.CustomTransport;
+using System.Threading.Tasks;
 
 namespace PSWSMan.Commands;
 
@@ -81,10 +80,6 @@ public sealed class NewWinRMSession : WinRMCmdletBase
 
     protected override void EndProcessing()
     {
-        string shellUri = ConfigurationName.Contains('/')
-            ? ConfigurationName
-            : $"http://schemas.microsoft.com/powershell/{ConfigurationName}";
-        WinRMSessionOption options = Options;
         int throttleLimit = ThrottleLimit > 0 ? ThrottleLimit : DefaultThrottleLimit;
 
         // The runspaces open on their own threads, only their results come back here so everything written to the
@@ -103,7 +98,7 @@ public sealed class NewWinRMSession : WinRMCmdletBase
                     int index = next++;
                     CancellationTokenSource abort = new();
                     aborts.Add(abort);
-                    opening[index] = (StartOpen(index, shellUri, options, results, abort.Token), abort);
+                    opening[index] = (StartOpen(index, results, abort.Token), abort);
                 }
 
                 OpenResult result = results.Take(StopToken);
@@ -151,49 +146,13 @@ public sealed class NewWinRMSession : WinRMCmdletBase
         }
     }
 
-    private Runspace StartOpen(int index, string shellUri, WinRMSessionOption options,
-        BlockingCollection<OpenResult> results, CancellationToken abortToken)
+    private Runspace StartOpen(int index, BlockingCollection<OpenResult> results, CancellationToken abortToken)
     {
         (string target, Uri uri) = _targets[index];
-        WinRMConnectionInfo connInfo = new(uri, shellUri, Credential, CertificateThumbprint, options, Authentication)
-        {
-            OpenCancellation = abortToken,
-        };
-        Runspace runspace = RunspaceFactory.CreateRunspace(connInfo, Host, TypeTable.LoadDefaultTypeFiles(),
-            options.ApplicationArguments);
-
-        int reported = 0;
-        void Report(Exception? error)
-        {
-            if (Interlocked.Exchange(ref reported, 1) == 0)
-            {
-                results.Add(new(index, runspace, error));
-            }
-        }
-        runspace.StateChanged += (_, e) =>
-        {
-            switch (e.RunspaceStateInfo.State)
-            {
-                case RunspaceState.Opened:
-                    Report(null);
-                    break;
-                case RunspaceState.Broken:
-                case RunspaceState.Closed:
-                    Report(e.RunspaceStateInfo.Reason
-                        ?? new PSRemotingTransportException($"The session to '{target}' closed while opening."));
-                    break;
-            }
-        };
-
         WriteVerbose($"Opening PSRP session to '{target}'");
-        try
-        {
-            runspace.OpenAsync();
-        }
-        catch (Exception e)
-        {
-            Report(e);
-        }
+        (Runspace runspace, Task opened) = StartOpenSession(uri, ConfigurationName, target, abortToken);
+        opened.ContinueWith(t => results.Add(new(index, runspace, t.Exception?.InnerException)),
+            TaskScheduler.Default);
 
         return runspace;
     }

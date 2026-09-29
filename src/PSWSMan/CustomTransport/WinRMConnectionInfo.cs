@@ -1,6 +1,7 @@
 using System;
 using System.Management.Automation;
 using System.Management.Automation.Internal;
+using System.Management.Automation.Remoting;
 using System.Management.Automation.Remoting.Client;
 using System.Management.Automation.Runspaces;
 using System.Threading;
@@ -112,6 +113,7 @@ internal sealed class WinRMClientTransportManager : ClientSessionTransportManage
     private readonly WinRMConnectionInfo _connInfo;
     private readonly Guid _runspacePoolId;
     private OutOfProcWSManTranslator? _translator;
+    private volatile bool _closed;
 
     public WinRMClientTransportManager(WinRMConnectionInfo connInfo, Guid runspacePoolId,
         PSRemotingCryptoHelper cryptoHelper) : base(runspacePoolId, cryptoHelper)
@@ -121,6 +123,20 @@ internal sealed class WinRMClientTransportManager : ClientSessionTransportManage
     }
 
     public override void CreateAsync()
+    {
+        // PowerShell turns anything thrown here into a generic fatal error with the reason hidden in the inner
+        // exception, a setup failure like invalid options is reported like any other connection error instead.
+        try
+        {
+            StartTranslator();
+        }
+        catch (Exception e)
+        {
+            ReportError(e);
+        }
+    }
+
+    private void StartTranslator()
     {
         WinRMSessionOption options = _connInfo.Options;
         // The internal PowerShell trace sources are off limits here, the TracePath option is the only trace.
@@ -138,7 +154,7 @@ internal sealed class WinRMClientTransportManager : ClientSessionTransportManage
             _runspacePoolId,
             options.NoMachineProfile,
             HandleDataReceived,
-            e => HandleErrorDataReceived(e.Message),
+            ReportError,
             trace,
             _connInfo.OpenCancellation);
         SetMessageWriter(_translator.Writer);
@@ -148,8 +164,27 @@ internal sealed class WinRMClientTransportManager : ClientSessionTransportManage
         SendOneItem();
     }
 
+    /// <summary>Fails the session with the exception as its reason.</summary>
+    /// <remarks>
+    /// HandleErrorDataReceived only takes a message and prefixes it with 'The background process reported an error
+    /// with the following message', raising the transport error directly keeps the message and the exception. Like
+    /// HandleErrorDataReceived, nothing is reported once the transport is closed.
+    /// </remarks>
+    private void ReportError(Exception error)
+    {
+        if (_closed)
+        {
+            return;
+        }
+
+        PSRemotingTransportException transportError = error as PSRemotingTransportException
+            ?? new PSRemotingTransportException(error.Message, error);
+        RaiseErrorHandler(new TransportErrorOccuredEventArgs(transportError, TransportMethodEnum.Unknown));
+    }
+
     protected override void CleanupConnection()
     {
+        _closed = true;
         _translator?.Dispose();
     }
 

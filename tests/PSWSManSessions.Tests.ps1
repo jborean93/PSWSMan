@@ -130,9 +130,6 @@ Describe "PSWSMan Connection tests" {
     }
 
     It "Connects with Devolutions CredSSP + Negotiate (NTLM) - <_.Name>" -ForEach (Get-PSWSManTestServer -Auth CredSSP, NTLM) {
-        # https://github.com/Devolutions/sspi-rs/issues/752
-        Set-ItResult -Skipped -Because 'Devolutions CredSSP using NTLM through Negotiate does not work, will need upstream fix'
-
         # Connecting by IP address stops Negotiate from using Kerberos.
         $sessionParams = $_ | Get-PSSessionSplat -UseIPAddress -SessionOption @{
             AuthProvider = 'Devolutions'

@@ -30,19 +30,22 @@ public enum CredSSPTls
 public class CredSSPTests
 {
     private const string Domain = "TESTDOM";
-    private const string Username = "testuser";
     private const string Password = "Password01";
-    private static readonly AcceptorUser s_user = new(Domain, Username, Password);
     private static readonly string[] s_pureNtlm = ["use_ntlm"];
+
+    // TUnit creates an instance for each test so every test authenticates as a user of its own. Devolutions.Sspi
+    // 2026.9.29 answers every NTLM credential for a user with the password of the last credential acquired for that
+    // user, tests running in parallel with a shared user name changed each other's outcome.
+    private readonly AcceptorUser _user = new(Domain, $"testuser-{Guid.NewGuid():N}", Password);
 
     // The CredSSP context creates the NTLM context from the sub credential during the exchange, so the sub credential
     // must outlive the CredSSP context. The CredSSP credential itself owns nothing native.
-    private static WSManCredential CreateSubCredential(AuthProvider provider, string password = Password)
-        => provider.CreateCredential($"{Domain}\\{Username}", password, NegotiateMethod.NTLM,
+    private WSManCredential CreateSubCredential(AuthProvider provider, string password = Password)
+        => provider.CreateCredential($"{Domain}\\{_user.Username}", password, NegotiateMethod.NTLM,
             new NegotiateOptions { SPNHostName = "acceptor.test" });
 
-    private static CredSSPCredential CreateCredential(WSManCredential subCredential, string password = Password)
-        => new(new TSPasswordCreds(Domain, Username, password), subCredential, sslOptions: null);
+    private CredSSPCredential CreateCredential(WSManCredential subCredential, string password = Password)
+        => new(new TSPasswordCreds(Domain, _user.Username, password), subCredential, sslOptions: null);
 
     [Test]
     [Arguments(TestProviders.Gssapi)]
@@ -51,7 +54,7 @@ public class CredSSPTests
     public async Task Authenticates_AndDelegatesCredentials(string providerName)
     {
         AuthProvider provider = TestProviders.Require(providerName);
-        using Acceptor acceptor = Acceptor.Start(s_user);
+        using Acceptor acceptor = Acceptor.Start(_user);
         acceptor.Create("credssp", s_pureNtlm);
         using WSManCredential subCredential = CreateSubCredential(provider);
         using CredSSPCredential credential = CreateCredential(subCredential);
@@ -66,9 +69,9 @@ public class CredSSPTests
         await Assert.That(client.MaxEncryptionChunkSize).IsEqualTo(16384 - 256);
         await Assert.That(info.Complete).IsTrue();
         await Assert.That(info.NegotiatedProtocol).IsEqualTo("ntlm");
-        await Assert.That(info.ClientPrincipal).IsEqualTo($"{Domain}\\{Username}");
+        await Assert.That(info.ClientPrincipal).IsEqualTo($"{Domain}\\{_user.Username}");
         await Assert.That(info.DelegatedCredentials).IsEqualTo(
-            new AcceptorDelegatedCredentials(Domain, Username, Password));
+            new AcceptorDelegatedCredentials(Domain, _user.Username, Password));
     }
 
     [Test]
@@ -78,7 +81,7 @@ public class CredSSPTests
     public async Task WrongPassword_IsRejected(string providerName)
     {
         AuthProvider provider = TestProviders.Require(providerName);
-        using Acceptor acceptor = Acceptor.Start(s_user);
+        using Acceptor acceptor = Acceptor.Start(_user);
         acceptor.Create("credssp", s_pureNtlm);
         using WSManCredential subCredential = CreateSubCredential(provider, password: "WrongPassword");
         using CredSSPCredential credential = CreateCredential(subCredential, password: "WrongPassword");
@@ -101,7 +104,7 @@ public class CredSSPTests
     public async Task WinRMEncryption_RoundTripsBothWays(string providerName)
     {
         AuthProvider provider = TestProviders.Require(providerName);
-        using Acceptor acceptor = Acceptor.Start(s_user);
+        using Acceptor acceptor = Acceptor.Start(_user);
         acceptor.Create("credssp", s_pureNtlm);
         using WSManCredential subCredential = CreateSubCredential(provider);
         using CredSSPCredential credential = CreateCredential(subCredential);
@@ -133,7 +136,7 @@ public class CredSSPTests
         Skip.When(tls == CredSSPTls.Tls13 && OperatingSystem.IsMacOS(), "TLS 1.3 is not reliably available on macOS");
 
         AuthProvider provider = TestProviders.Require(TestProviders.Devolutions);
-        using Acceptor acceptor = Acceptor.Start(s_user);
+        using Acceptor acceptor = Acceptor.Start(_user);
         acceptor.Create("credssp", s_pureNtlm, tls: tls switch
         {
             CredSSPTls.Tls13 => "tls1.3",

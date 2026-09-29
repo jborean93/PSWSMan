@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Net.Http;
 using System.Net.Sockets;
@@ -213,7 +214,8 @@ internal sealed class WinRSReceivePump
 
                 if (response.State == CommandState.Done)
                 {
-                    Trace("command state Done");
+                    string exitCode = response.ExitCode?.ToString(CultureInfo.InvariantCulture) ?? "none";
+                    Trace($"command state Done, exit code {exitCode}");
                     return new(WinRSReceiveReason.Done, response.ExitCode, null);
                 }
             }

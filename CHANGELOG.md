@@ -56,6 +56,7 @@ The following features have been introduced in this version
   + Windows is unaffected as the MI library is part of the OS
 + `Enter-PSSession` can now be stopped with `Ctrl+C` while it is connecting, previously it ignored the stop until the connection failed
 + `Clear-Host` (`clear`/`cls`) in a remote session to a Windows host now clears the screen on non-Windows clients, previously it only moved the cursor to the top and failed with `The method or operation is not implemented`
+  + This also applies to the sessions of `New-WinRMSession` and `Enter-WinRMSession`, without `Enable-PSWSMan`
 
 The following cmdlets have been added:
 
@@ -67,6 +68,9 @@ The following cmdlets have been added:
   + [New-WinRMSession](./docs/en-US/New-WinRMSession.md) - creates PSSessions with PSWSMan's WinRM client through PowerShell's public custom remoting transport API
     + The sessions work with `Invoke-Command -Session`, `Enter-PSSession -Session` and the other builtin session cmdlets
     + Several hosts can be given or piped in and are opened in parallel up to `-ThrottleLimit`
+  + [Enter-WinRMSession](./docs/en-US/Enter-WinRMSession.md) - starts an interactive session like `Enter-PSSession -ComputerName` with PSWSMan's WinRM client, the session is closed when it is left
+  + [Invoke-WinRMCommand](./docs/en-US/Invoke-WinRMCommand.md) - runs a command on one or more hosts or sessions like `Invoke-Command` with PSWSMan's WinRM client, alias `iwcm`
+    + `-ArgumentList` also takes a hashtable that is bound to the remote command by parameter name, like splatting
   + [New-WinRMSessionOption](./docs/en-US/New-WinRMSessionOption.md) - creates the connection options for every way of connecting
     + Converts to a `PSSessionOption` for `-SessionOption` and `$PSSessionOption` of the builtin cmdlets like `New-PSSession` and `Invoke-Command`
     + Taken as is by `New-WinRMSession` and the WinRS cmdlets, whose `-SessionOption` also accepts a hashtable of the same options or a `PSSessionOption`, which is an error if it sets an option PSWSMan does not support

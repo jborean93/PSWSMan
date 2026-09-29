@@ -17,11 +17,17 @@ Builds a command line for `Invoke-WinRSCommand` that runs an executable with an 
 ### [Enable-PSWSMan](Enable-PSWSMan.md)
 Enables PSWSMan as the transport method for WSMan based transports in PowerShell.
 
+### [Enter-WinRMSession](Enter-WinRMSession.md)
+Starts an interactive session with a remote host over PSWSMan's WinRM client without hooking PowerShell.
+
 ### [Get-PSWSManAuth](Get-PSWSManAuth.md)
 Gets the authentication settings used by PSWSMan.
 
 ### [Get-WinRSShell](Get-WinRSShell.md)
 Gets the WinRS shells created by New-WinRSShell in the current runspace.
+
+### [Invoke-WinRMCommand](Invoke-WinRMCommand.md)
+Runs a command on remote hosts over PSWSMan's WinRM client without hooking PowerShell.
 
 ### [Invoke-WinRSCommand](Invoke-WinRSCommand.md)
 Runs a process on a remote host through a WinRS shell and outputs its stdout and stderr.
