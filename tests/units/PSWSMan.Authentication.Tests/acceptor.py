@@ -48,30 +48,8 @@ import tempfile
 import typing as t
 
 import spnego
-import spnego._ntlm
 import spnego.tls
-from spnego._ntlm_raw.messages import Challenge, NegotiateFlags, Version
 from spnego.channel_bindings import GssChannelBindings
-
-
-class _ChallengeWithVersion(Challenge):
-    """Works around pyspnego <= 0.12.2 building a CHALLENGE without a Version field.
-
-    The NTLM acceptor copies the initiator's flags into the CHALLENGE message,
-    including NTLMSSP_NEGOTIATE_VERSION, but only writes the 8 byte Version
-    structure when one is explicitly supplied. Strict decoders like gssntlmssp
-    place the payload after that structure when the flag is set so every field
-    offset then points 8 bytes too early and the message is rejected. Supplying
-    a version whenever the flag is set produces the layout Windows sends.
-    """
-
-    def __init__(self, flags: int = 0, *args: t.Any, **kwargs: t.Any) -> None:
-        if flags & NegotiateFlags.version and not kwargs.get("version"):
-            kwargs["version"] = Version(major=10, minor=0, build=0, revision=0x0F)
-        super().__init__(flags, *args, **kwargs)
-
-
-spnego._ntlm.Challenge = _ChallengeWithVersion  # type: ignore[misc]
 
 
 def b64(value: bytes | None) -> str | None:

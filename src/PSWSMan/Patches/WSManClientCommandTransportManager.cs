@@ -63,11 +63,11 @@ internal static class PSWSMan_WSManClientCommandTransportManager
                 "PSWSMan: WSManClientCommandTransportManager.CloseAsync - Sending Stop for {0} CmdId {1}",
                 session.RunspacePoolId, pwshInstanceId);
 
-            // The close always completes like the native transport does, it skips the close of a command that was
-            // never created and ignores a failed one. The pipeline waits for the close to finish, a close that only
-            // raised an error, like the Terminate of a command whose Create had failed, left it waiting forever.
             try
             {
+                // A command whose Create failed has nothing on the server to close, the native transport completes
+                // the close straight away in that case. Sending the Terminate instead failed, and the error without a
+                // close completion left the pipeline waiting forever.
                 if (!session.CloseCommand(pwshInstanceId))
                 {
                     tracer.WriteLine(
@@ -77,9 +77,16 @@ internal static class PSWSMan_WSManClientCommandTransportManager
             }
             catch (Exception e)
             {
+                // A command that did run reports the failure, when the host process died this is what breaks the
+                // session.
                 tracer.WriteLine(
                     "PSWSMan: WSManClientCommandTransportManager.CloseAsync - Send failed for {0} CmdId {1}\n{2}",
                     session.RunspacePoolId, pwshInstanceId, e);
+
+                TransportErrorOccuredEventArgs err = new(new PSRemotingTransportException(e.Message, e),
+                    TransportMethodEnum.CloseShellOperationEx);
+                self.RaiseErrorHandler(err);
+                return;
             }
 
             self.RaiseCloseCompleted();
