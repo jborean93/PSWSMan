@@ -1,0 +1,12 @@
+<Project>
+  <!--
+  Only for the coverage instrumenter of projects referencing the module assembly, it needs to resolve
+  System.Management.Automation next to that assembly to see that Cmdlet.ThrowTerminatingError does not return. This is
+  a targets file so the project's ProjectReference items are known.
+  -->
+  <ItemGroup Condition="'@(ProjectReference->WithMetadataValue('Filename', 'PSWSMan'))' != ''">
+    <PackageReference Include="System.Management.Automation" ExcludeAssets="all" PrivateAssets="all" GeneratePathProperty="true" />
+    <None Include="$(PkgSystem_Management_Automation)/runtimes/win/lib/$(TargetFramework)/System.Management.Automation.dll"
+      CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+</Project>

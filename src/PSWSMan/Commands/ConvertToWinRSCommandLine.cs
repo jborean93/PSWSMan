@@ -29,7 +29,7 @@ public sealed class ConvertToWinRSCommandLine : PSCmdlet
 
     protected override void EndProcessing()
     {
-        string commandLine;
+        string? commandLine = null;
         try
         {
             commandLine = WinRSCommandLine.Build(FilePath, ArgumentList?.OfType<string>() ?? []);
@@ -38,7 +38,6 @@ public sealed class ConvertToWinRSCommandLine : PSCmdlet
         {
             ThrowTerminatingError(new ErrorRecord(e, "WinRSCommandLineInvalidArgument", ErrorCategory.InvalidArgument,
                 null));
-            return;
         }
 
         WriteObject(commandLine);

@@ -62,7 +62,6 @@ public sealed class EnterWinRMSession : WinRMCmdletBase
                 "HostDoesNotSupportPushRunspace",
                 ErrorCategory.InvalidArgument,
                 null));
-            return;
         }
 
         // Enter-PSSession refuses to push a runspace from a nested prompt, $NestedPromptLevel is the public way to
