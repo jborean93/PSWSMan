@@ -226,6 +226,7 @@ task UnitTests {
         $arguments = @(
             'test'
             '--project', $_.FullName
+            '--configuration', $Manifest.Configuration
             '--results-directory', $Manifest.TestResultsPath
             '--coverage'
             '--coverage-output', $coveragePath
