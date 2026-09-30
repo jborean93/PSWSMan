@@ -1,23 +1,30 @@
 ---
+document type: cmdlet
 external help file: PSWSMan.dll-Help.xml
+HelpUri: https://www.github.com/jborean93/PSWSMan/blob/main/docs/en-US/PSWSMan/Get-WinRSShell.md
 Module Name: PSWSMan
-online version: https://www.github.com/jborean93/PSWSMan/blob/main/docs/en-US/Get-WinRSShell.md
-schema: 2.0.0
+ms.date: ''
+PlatyPS schema version: 2024-05-01
 ---
 
 # Get-WinRSShell
 
 ## SYNOPSIS
+
 Gets the WinRS shells created by New-WinRSShell in the current runspace.
 
 ## SYNTAX
 
+### __AllParameterSets
+
 ```
-Get-WinRSShell [[-ComputerName] <String[]>] [-ShellId <Guid[]>] [-ProgressAction <ActionPreference>]
- [<CommonParameters>]
+Get-WinRSShell [[-ComputerName] <string[]>] [-ShellId <guid[]>] [<CommonParameters>]
 ```
 
+## ALIASES
+
 ## DESCRIPTION
+
 The `Get-WinRSShell` cmdlet gets the WinRS shells that `New-WinRSShell` created in the current runspace and that have not been removed, oldest first.
 Use it to find a shell again when the variable holding it was lost, or to remove every shell at once.
 
@@ -30,6 +37,7 @@ A shell the remote host has deleted on its own, for example after its idle timeo
 ## EXAMPLES
 
 ### Example 1: List the shells
+
 ```powershell
 PS C:\> $null = New-WinRSShell Server01
 PS C:\> $null = New-WinRSShell Server02
@@ -44,6 +52,7 @@ ShellId                              ComputerName State  ConsoleEncoding
 Lists the two shells created in this runspace.
 
 ### Example 2: Run a command in a shell created earlier
+
 ```powershell
 PS C:\> $shell = Get-WinRSShell Server01 | Select-Object -First 1
 PS C:\> Invoke-WinRSCommand -Shell $shell 'hostname'
@@ -52,6 +61,7 @@ PS C:\> Invoke-WinRSCommand -Shell $shell 'hostname'
 Gets the oldest shell to `Server01` and runs a command in it.
 
 ### Example 3: Remove every shell
+
 ```powershell
 PS C:\> Get-WinRSShell | Remove-WinRSShell
 ```
@@ -61,66 +71,67 @@ Removes all the shells created in this runspace.
 ## PARAMETERS
 
 ### -ComputerName
+
 Only gets the shells whose `ComputerName` matches one of these names.
 Wildcards are supported and the match is case insensitive.
 
 ```yaml
-Type: String[]
-Parameter Sets: (All)
-Aliases: Cn
-
-Required: False
-Position: 0
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: True
-```
-
-### -ProgressAction
-New common parameter introduced in PowerShell 7.4.
-
-```yaml
-Type: ActionPreference
-Parameter Sets: (All)
-Aliases: proga
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.String[]
+DefaultValue: None
+SupportsWildcards: true
+Aliases:
+- Cn
+ParameterSets:
+- Name: (All)
+  Position: 0
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -ShellId
+
 Only gets the shells with one of these shell ids.
 
 ```yaml
-Type: Guid[]
-Parameter Sets: (All)
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.Guid[]
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### CommonParameters
-This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable, -InformationAction, -InformationVariable, -OutVariable, -OutBuffer, -PipelineVariable, -Verbose, -WarningAction, and -WarningVariable. For more information, see [about_CommonParameters](http://go.microsoft.com/fwlink/?LinkID=113216).
+
+This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable,
+-InformationAction, -InformationVariable, -OutBuffer, -OutVariable, -PipelineVariable,
+-ProgressAction, -Verbose, -WarningAction, and -WarningVariable. For more information, see
+[about_CommonParameters](https://go.microsoft.com/fwlink/?LinkID=113216).
 
 ## INPUTS
 
-### None
 ## OUTPUTS
 
 ### PSWSMan.WinRSRemoteShell
+
 The shells created in the current runspace that have not been removed.
 
 ## NOTES
 
 ## RELATED LINKS
 
-[New-WinRSShell](./New-WinRSShell.md)
-
-[Remove-WinRSShell](./Remove-WinRSShell.md)
+- [New-WinRSShell](./New-WinRSShell.md)
+- [Remove-WinRSShell](./Remove-WinRSShell.md)

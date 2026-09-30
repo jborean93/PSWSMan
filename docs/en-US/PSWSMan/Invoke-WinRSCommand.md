@@ -1,40 +1,49 @@
 ---
+document type: cmdlet
 external help file: PSWSMan.dll-Help.xml
+HelpUri: https://www.github.com/jborean93/PSWSMan/blob/main/docs/en-US/PSWSMan/Invoke-WinRSCommand.md
 Module Name: PSWSMan
-online version: https://www.github.com/jborean93/PSWSMan/blob/main/docs/en-US/Invoke-WinRSCommand.md
-schema: 2.0.0
+ms.date: ''
+PlatyPS schema version: 2024-05-01
 ---
 
 # Invoke-WinRSCommand
 
 ## SYNOPSIS
+
 Runs a process on a remote host through a WinRS shell and outputs its stdout and stderr.
 
 ## SYNTAX
 
 ### ComputerName (Default)
+
 ```
-Invoke-WinRSCommand [-Command] <String> [-InputObject <PSObject>] [-ConsoleEncoding <Encoding>] [-AsByteStream]
- [-ComputerName] <String> [-Credential <PSCredential>] [-Port <Int32>] [-UseSSL] [-ApplicationName <String>]
- [-SessionOption <WinRMSessionOption>] [-Authentication <AuthenticationMethod>]
- [-CertificateThumbprint <String>] [-ProgressAction <ActionPreference>] [<CommonParameters>]
+Invoke-WinRSCommand [-ComputerName] <string> [-Command] <string> [-InputObject <psobject>]
+ [-ConsoleEncoding <Encoding>] [-AsByteStream] [-Credential <pscredential>] [-Port <int>] [-UseSSL]
+ [-ApplicationName <string>] [-SessionOption <WinRMSessionOption>]
+ [-Authentication <AuthenticationMethod>] [-CertificateThumbprint <string>] [<CommonParameters>]
 ```
 
 ### Shell
+
 ```
-Invoke-WinRSCommand [-Command] <String> [-InputObject <PSObject>] [-ConsoleEncoding <Encoding>] [-AsByteStream]
- [-Shell] <WinRSRemoteShell> [-ProgressAction <ActionPreference>] [<CommonParameters>]
+Invoke-WinRSCommand [-Shell] <WinRSRemoteShell> [-Command] <string> [-InputObject <psobject>]
+ [-ConsoleEncoding <Encoding>] [-AsByteStream] [<CommonParameters>]
 ```
 
 ### ConnectionUri
+
 ```
-Invoke-WinRSCommand [-Command] <String> [-InputObject <PSObject>] [-ConsoleEncoding <Encoding>] [-AsByteStream]
- [-ConnectionUri] <Uri> [-Credential <PSCredential>] [-SessionOption <WinRMSessionOption>]
- [-Authentication <AuthenticationMethod>] [-CertificateThumbprint <String>]
- [-ProgressAction <ActionPreference>] [<CommonParameters>]
+Invoke-WinRSCommand [-ConnectionUri] <uri> [-Command] <string> [-InputObject <psobject>]
+ [-ConsoleEncoding <Encoding>] [-AsByteStream] [-Credential <pscredential>]
+ [-SessionOption <WinRMSessionOption>] [-Authentication <AuthenticationMethod>]
+ [-CertificateThumbprint <string>] [<CommonParameters>]
 ```
 
+## ALIASES
+
 ## DESCRIPTION
+
 The `Invoke-WinRSCommand` cmdlet runs a command line on a remote Windows host using the WinRS (Windows Remote Shell) protocol over WSMan, the same mechanism `winrs.exe` uses.
 Unlike `Invoke-Command` it does not start a PowerShell session on the remote host, the command line is run by `cmd.exe` in a WinRS shell and only its raw output is sent back.
 
@@ -97,6 +106,7 @@ The default authentication is Negotiate, which uses Kerberos where possible and 
 ## EXAMPLES
 
 ### Example 1: Run a command with an explicit credential
+
 ```powershell
 PS C:\> $cred = Get-Credential
 PS C:\> Invoke-WinRSCommand -ComputerName Server01 -Command 'ipconfig /all' -Credential $cred
@@ -105,6 +115,7 @@ PS C:\> Invoke-WinRSCommand -ComputerName Server01 -Command 'ipconfig /all' -Cre
 Runs `ipconfig /all` on `Server01` and outputs each line of its output as a string.
 
 ### Example 2: Check the exit code of a process
+
 ```powershell
 PS C:\> Invoke-WinRSCommand Server01 'exit 3'
 PS C:\> $LASTEXITCODE
@@ -114,6 +125,7 @@ PS C:\> $LASTEXITCODE
 Runs the command using positional parameters and shows the exit code, `exit` here is the `cmd.exe` builtin as the line runs under `cmd.exe /C`.
 
 ### Example 3: Collect stderr separately from the output
+
 ```powershell
 PS C:\> $stdout = Invoke-WinRSCommand Server01 'dir C:\Windows\win.ini C:\missing.txt' -ErrorAction SilentlyContinue -ErrorVariable err
 PS C:\> $stderr = ($err | ForEach-Object ToString) -join [Environment]::NewLine
@@ -122,6 +134,7 @@ PS C:\> $stderr = ($err | ForEach-Object ToString) -join [Environment]::NewLine
 Hides the stderr lines while collecting them in `$err`, then joins them into a single string.
 
 ### Example 4: Run in a script that stops on errors
+
 ```powershell
 PS C:\> $ErrorActionPreference = 'Stop'
 PS C:\> $output = Invoke-WinRSCommand Server01 'my-tool.exe --verbose' -ErrorAction Continue 2>&1
@@ -132,6 +145,7 @@ Without `-ErrorAction Continue` the first line `my-tool.exe` writes to stderr wo
 Setting it on the cmdlet lets the process run to completion, and the exit code decides whether it failed.
 
 ### Example 5: Use cmd.exe features in the command line
+
 ```powershell
 PS C:\> Invoke-WinRSCommand Server01 'echo %COMPUTERNAME% && whoami /groups 2>&1 | findstr /i admin'
 ```
@@ -139,6 +153,7 @@ PS C:\> Invoke-WinRSCommand Server01 'echo %COMPUTERNAME% && whoami /groups 2>&1
 The command line is interpreted by `cmd.exe` on the remote host, so its variable expansion, command chaining, redirection and pipes are all available.
 
 ### Example 6: Run an executable from a path with spaces
+
 ```powershell
 PS C:\> Invoke-WinRSCommand Server01 '""C:\Program Files\7-Zip\7z.exe" l "C:\temp\my archive.zip""'
 ```
@@ -149,6 +164,7 @@ Without the extra pair `cmd.exe` would remove the quote before `C:\Program Files
 `ConvertTo-WinRSCommandLine` builds an equivalent line without having to work out the quoting, see the next example.
 
 ### Example 7: Build the command line from an executable and its arguments
+
 ```powershell
 PS C:\> $archive = 'C:\temp\100% done & (final).zip'
 PS C:\> $cmd = ConvertTo-WinRSCommandLine 'C:\Program Files\7-Zip\7z.exe' l $archive
@@ -159,6 +175,7 @@ PS C:\> Invoke-WinRSCommand Server01 $cmd
 The `%`, `&`, spaces and parentheses in the value are passed through as they are, where writing the line by hand would need them escaped in ways that differ inside and outside of quotes.
 
 ### Example 8: Run a program that writes in the OEM code page
+
 ```powershell
 PS C:\> Invoke-WinRSCommand Server01 'legacy.exe /report' -ConsoleEncoding 437
 ```
@@ -166,6 +183,7 @@ PS C:\> Invoke-WinRSCommand Server01 'legacy.exe /report' -ConsoleEncoding 437
 Creates the remote shell with code page 437 and decodes the output with it, for a program that ignores the UTF-8 code page and writes in the OEM code page of a US English system.
 
 ### Example 9: Copy a binary file from the remote host
+
 ```powershell
 PS C:\> Invoke-WinRSCommand Server01 'type C:\temp\archive.zip' -AsByteStream |
 >>     Set-Content -Path ./archive.zip -AsByteStream
@@ -175,6 +193,7 @@ Outputs the raw bytes `type` writes as `byte[]` chunks and writes them unchanged
 `Receive-WinRSFile` copies a file the same way but also checks its length and hash before writing it to the destination.
 
 ### Example 10: Send input to the process
+
 ```powershell
 PS C:\> 'apple', 'banana', 'cherry' | Invoke-WinRSCommand Server01 'findstr an'
 banana
@@ -185,6 +204,7 @@ The first command writes each string as a line to the stdin of `findstr` and out
 The second sends the raw bytes of a file to a process reading its stdin.
 
 ### Example 11: Connect over HTTPS with NTLM
+
 ```powershell
 PS C:\> $so = New-WinRMSessionOption -SkipCACheck -SkipCNCheck
 PS C:\> Invoke-WinRSCommand Server01 hostname -UseSSL -Credential $cred -Authentication NTLM -SessionOption $so
@@ -193,6 +213,7 @@ PS C:\> Invoke-WinRSCommand Server01 hostname -UseSSL -Credential $cred -Authent
 Connects to port 5986 over HTTPS without validating the certificate of the server and authenticates with NTLM.
 
 ### Example 12: Connect with a connection URI
+
 ```powershell
 PS C:\> Invoke-WinRSCommand -ConnectionUri https://Server01:5986/custom -Command hostname -Credential $cred
 ```
@@ -200,6 +221,7 @@ PS C:\> Invoke-WinRSCommand -ConnectionUri https://Server01:5986/custom -Command
 Connects to a listener on a non-standard port and application name without having to specify `-Port`, `-UseSSL` and `-ApplicationName` separately.
 
 ### Example 13: Connect with a client certificate
+
 ```powershell
 PS C:\> Invoke-WinRSCommand Server01 whoami -UseSSL -CertificateThumbprint 'E54E20C7E7D2B7D82B3F71B0CB4E4D6A4E5C0A62'
 ```
@@ -207,6 +229,7 @@ PS C:\> Invoke-WinRSCommand Server01 whoami -UseSSL -CertificateThumbprint 'E54E
 Authenticates with the certificate from the current user or local machine certificate store that has the thumbprint.
 
 ### Example 14: Run several commands in the same shell
+
 ```powershell
 PS C:\> $shell = New-WinRSShell Server01
 PS C:\> Invoke-WinRSCommand -Shell $shell 'hostname'
@@ -220,38 +243,51 @@ Each command still runs in its own `cmd.exe` process, a `cd` or `set` in the fir
 ## PARAMETERS
 
 ### -ApplicationName
+
 The application name segment of the connection URI, the default is `wsman`.
 
 ```yaml
-Type: String
-Parameter Sets: ComputerName
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.String
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: ComputerName
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -AsByteStream
+
 Outputs the stdout of the process as raw `byte[]` chunks instead of decoding it into lines of text.
 Each chunk is written to the pipeline as a single object, in the size and order the server returned it, so collect them with `Set-Content -AsByteStream` or flatten them with `ForEach-Object { $_ }` to get one byte array.
 The shell still uses the code page of `-ConsoleEncoding`, which is also used to encode string input and to decode stderr, as stderr is still written as error records.
 
 ```yaml
-Type: SwitchParameter
-Parameter Sets: (All)
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.Management.Automation.SwitchParameter
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -Authentication
+
 The authentication method used to authenticate with the remote host.
 The default selects Negotiate, or certificate authentication when `-CertificateThumbprint` or a client certificate in the session option is set.
 Unlike `-Authentication` on `Invoke-Command` this uses the authentication methods of PSWSMan so `NTLM` and `CredSSP` can be selected directly.
@@ -259,84 +295,129 @@ When set to anything other than `Default` it takes precedence over the `AuthMeth
 `Basic` requires either `-UseSSL` or `NoEncryption` in the session option.
 
 ```yaml
-Type: AuthenticationMethod
-Parameter Sets: ComputerName, ConnectionUri
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: PSWSMan.AuthenticationMethod
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: ComputerName
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+- Name: ConnectionUri
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -CertificateThumbprint
+
 The thumbprint of a client certificate in the current user or local machine certificate store to authenticate with.
 It requires `-UseSSL` or a `https` `-ConnectionUri` and cannot be used with `-Credential` or `-Authentication`.
 
 ```yaml
-Type: String
-Parameter Sets: ComputerName, ConnectionUri
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.String
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: ComputerName
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+- Name: ConnectionUri
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -Command
+
 The command line to run on the remote host.
 It is passed as is to the WinRS service which runs it as `cmd.exe /C $Command`, so it is written and quoted the way `cmd.exe` expects rather than the way PowerShell or `Start-Process` would split arguments.
 See the description for how `cmd.exe` interprets it.
 Use `ConvertTo-WinRSCommandLine` to build it from an executable and a list of arguments.
 
 ```yaml
-Type: String
-Parameter Sets: (All)
-Aliases:
-
-Required: True
-Position: 1
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.String
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 1
+  IsRequired: true
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -ComputerName
+
 The host to run the process on.
 
 ```yaml
-Type: String
-Parameter Sets: ComputerName
-Aliases: Cn
-
-Required: True
-Position: 0
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.String
+DefaultValue: None
+SupportsWildcards: false
+Aliases:
+- Cn
+ParameterSets:
+- Name: ComputerName
+  Position: 0
+  IsRequired: true
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -ConnectionUri
+
 The full URI of the WSMan endpoint, for example `http://Server01:5985/wsman` or `https://Server01:5986/wsman`.
 It must be an absolute `http` or `https` URI and it is used as is, a URI without a port connects to port 80 or 443 as it does for `Invoke-Command`, and one without a path uses `/wsman`.
 It cannot be used with `-ComputerName`, `-Port`, `-UseSSL` or `-ApplicationName`.
 
 ```yaml
-Type: Uri
-Parameter Sets: ConnectionUri
-Aliases: URI, CU
-
-Required: True
-Position: 0
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.Uri
+DefaultValue: None
+SupportsWildcards: false
+Aliases:
+- URI
+- CU
+ParameterSets:
+- Name: ConnectionUri
+  Position: 0
+  IsRequired: true
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -ConsoleEncoding
+
 The encoding of the remote console.
 Its code page is set on the remote shell so `cmd.exe` and the programs it starts read and write in it, and the cmdlet uses it to decode stdout and stderr and to encode string input.
 It accepts an `Encoding` object, a code page number like `437`, one of the names `UTF8`, `UTF8Bom`, `UTF8NoBom`, `ASCII`, `ANSI`, `OEM`, `ConsoleInput` or `ConsoleOutput`, or any other name `[System.Text.Encoding]::GetEncoding()` accepts.
@@ -348,152 +429,197 @@ With `-AsByteStream` it still sets the code page and encodes string input and de
 UTF-16 and UTF-32 cannot be used, the remote host rejects them as `cmd.exe` does not support them as a console code page.
 
 ```yaml
-Type: Encoding
-Parameter Sets: (All)
-Aliases:
-
-Required: False
-Position: Named
-Default value: UTF8
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.Text.Encoding
+DefaultValue: UTF8
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -Credential
+
 The credential used to authenticate with the remote host through Negotiate authentication.
 When not set the credential of the current user is used.
 
 ```yaml
-Type: PSCredential
-Parameter Sets: ComputerName, ConnectionUri
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.Management.Automation.PSCredential
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: ComputerName
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+- Name: ConnectionUri
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -InputObject
+
 The objects to write to the stdin of the process, usually from the pipeline.
 Strings are written as lines, byte arrays and single bytes as raw data, and anything else as its string form.
 
 ```yaml
-Type: PSObject
-Parameter Sets: (All)
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: True (ByValue)
-Accept wildcard characters: False
+Type: System.Management.Automation.PSObject
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: true
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -Port
+
 The port of the WSMan listener, the default is `5985` or `5986` with `-UseSSL`.
 
 ```yaml
-Type: Int32
-Parameter Sets: ComputerName
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
-```
-
-### -ProgressAction
-New common parameter introduced in PowerShell 7.4.
-
-```yaml
-Type: ActionPreference
-Parameter Sets: (All)
-Aliases: proga
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.Int32
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: ComputerName
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -SessionOption
+
 The connection options, the output of `New-WinRMSessionOption` or a hashtable of its option names and values, like `@{ OperationTimeout = 30000; AuthProvider = 'Devolutions' }`.
 A `PSSessionOption`, like the output of `New-PSSessionOption`, is accepted too, but it is an error if it sets an option PSWSMan does not support, like `NoCompression`, `IdleTimeout` or a proxy.
 See `New-WinRMSessionOption` for the options and their defaults.
 Only the options that apply to a WinRS command are used, see the description for the list.
 
 ```yaml
-Type: WinRMSessionOption
-Parameter Sets: ComputerName, ConnectionUri
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: PSWSMan.WinRMSessionOption
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: ComputerName
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+- Name: ConnectionUri
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -Shell
+
 A WinRS shell created by `New-WinRSShell` to run the command in, instead of connecting with the connection parameters.
 The command runs in a new `cmd.exe` process, it does not see the working directory or environment variables set by earlier commands in the shell.
 The shell is left open once the command finishes, remove it with `Remove-WinRSShell`.
 
 ```yaml
-Type: WinRSRemoteShell
-Parameter Sets: Shell
-Aliases:
-
-Required: True
-Position: 0
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: PSWSMan.WinRSRemoteShell
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: Shell
+  Position: 0
+  IsRequired: true
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -UseSSL
+
 Connect over HTTPS instead of HTTP.
 
 ```yaml
-Type: SwitchParameter
-Parameter Sets: ComputerName
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.Management.Automation.SwitchParameter
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: ComputerName
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### CommonParameters
-This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable, -InformationAction, -InformationVariable, -OutVariable, -OutBuffer, -PipelineVariable, -Verbose, -WarningAction, and -WarningVariable. For more information, see [about_CommonParameters](http://go.microsoft.com/fwlink/?LinkID=113216).
+
+This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable,
+-InformationAction, -InformationVariable, -OutBuffer, -OutVariable, -PipelineVariable,
+-ProgressAction, -Verbose, -WarningAction, and -WarningVariable. For more information, see
+[about_CommonParameters](https://go.microsoft.com/fwlink/?LinkID=113216).
 
 ## INPUTS
 
 ### System.Management.Automation.PSObject
+
 Objects piped to the cmdlet are written to the stdin of the process, see `-InputObject`.
 
 ## OUTPUTS
 
 ### System.String
+
 Each line the process writes to stdout. The stderr lines are written to the error stream as `System.Management.Automation.ErrorRecord` objects with the `NativeCommandError` and `NativeCommandErrorMessage` error ids.
 
 ### System.Byte[]
+
 The raw stdout chunks when `-AsByteStream` is used.
 
 ## NOTES
+
 The exit code of the process is stored in `$LASTEXITCODE`.
 
 This cmdlet has the alias `irscm`.
 
 ## RELATED LINKS
 
-[ConvertTo-WinRSCommandLine](./ConvertTo-WinRSCommandLine.md)
-
-[MS-WSMV WinRS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wsmv/)
+- [ConvertTo-WinRSCommandLine](./ConvertTo-WinRSCommandLine.md)
+- [MS-WSMV WinRS](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wsmv/)

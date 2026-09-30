@@ -1,22 +1,30 @@
 ---
+document type: cmdlet
 external help file: PSWSMan.dll-Help.xml
+HelpUri: https://www.github.com/jborean93/PSWSMan/blob/main/docs/en-US/PSWSMan/Enable-PSWSMan.md
 Module Name: PSWSMan
-online version: https://www.github.com/jborean93/PSWSMan/blob/main/docs/en-US/Enable-PSWSMan.md
-schema: 2.0.0
+ms.date: ''
+PlatyPS schema version: 2024-05-01
 ---
 
 # Enable-PSWSMan
 
 ## SYNOPSIS
+
 Enables PSWSMan as the transport method for WSMan based transports in PowerShell.
 
 ## SYNTAX
 
+### __AllParameterSets
+
 ```
-Enable-PSWSMan [-Force] [-ProgressAction <ActionPreference>] [<CommonParameters>]
+Enable-PSWSMan [-Force] [<CommonParameters>]
 ```
 
+## ALIASES
+
 ## DESCRIPTION
+
 The `Enable-PSWSMan` cmdlet injects itself into the PowerShell engine to force it to use the WSMan client it provides for WSMan transports.
 It is used to remove the use of the C omi library that PowerShell ships with which has limited features and support.
 
@@ -33,6 +41,7 @@ Only the builtin remoting cmdlets depend on this patching of internal APIs, `New
 ## EXAMPLES
 
 ### Example 1: Enable PSWSMan can create a connection
+
 ```powershell
 PS C:\> Enable-PSWSMan -Force
 PS C:\> Invoke-Command -ComputerName Server01 -ScriptBlock { "hello world!" }
@@ -44,52 +53,45 @@ If `-Force` is not specified, the cmdlet will prompt for confirmation that it sh
 ## PARAMETERS
 
 ### -Force
+
 Do not prompt for confirmation before enabling PSWSMan injection.
 
 ```yaml
-Type: SwitchParameter
-Parameter Sets: (All)
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
-```
-
-### -ProgressAction
-New common parameter introduced in PowerShell 7.4.
-
-```yaml
-Type: ActionPreference
-Parameter Sets: (All)
-Aliases: proga
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.Management.Automation.SwitchParameter
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### CommonParameters
-This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable, -InformationAction, -InformationVariable, -OutVariable, -OutBuffer, -PipelineVariable, -Verbose, -WarningAction, and -WarningVariable. For more information, see [about_CommonParameters](http://go.microsoft.com/fwlink/?LinkID=113216).
+
+This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable,
+-InformationAction, -InformationVariable, -OutBuffer, -OutVariable, -PipelineVariable,
+-ProgressAction, -Verbose, -WarningAction, and -WarningVariable. For more information, see
+[about_CommonParameters](https://go.microsoft.com/fwlink/?LinkID=113216).
 
 ## INPUTS
 
-### None
-This function does not accept input from the pipeline.
-
 ## OUTPUTS
 
-### None
-This function does not output to the pipeline.
-
 ## NOTES
+
 Once enabled the hooks cannot be undone.
 The whole PowerShell process will need to be restarted to revert back to the build WSMan code.
 
 The patching may not work on a .NET or PowerShell release newer than the ones this version of PSWSMan was tested with, use `New-WinRMSession` until an updated PSWSMan is available.
 
 ## RELATED LINKS
+
+- [about_PSWSMan](./about_PSWSMan.md)
+- [New-WinRMSession](./New-WinRMSession.md)
