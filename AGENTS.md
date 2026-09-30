@@ -127,7 +127,9 @@ The `Test` task runs, in order:
    interpreter is passed to the unit tests through `PSWSMAN_TEST_PYTHON`.
    Without either this warns and the tests needing it skip.
 3. `UnitTests`: for every directory under `tests/units/`, runs `dotnet test
-   --project <dir>` with coverage enabled. Output goes to
+   --project <dir>` with coverage enabled, in the same `-Configuration` as the
+   module so the line sets of both coverage reports match (a Debug build has
+   sequence points on braces that Release does not). Output goes to
    `output/TestResults/Unit.<Project>.Coverage.cobertura.xml`.
 4. `PesterTests`: launches a separate `pwsh` process (downloaded into
    `output/PowerShell-<version>-<arch>/` if it does not match the current one)
