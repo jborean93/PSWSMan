@@ -135,7 +135,13 @@ The `Test` task runs, in order:
    `output/PowerShell-<version>-<arch>/` if it does not match the current one)
    under `dotnet-coverage collect`, running all `tests/*.Tests.ps1`. Results
    go to `output/TestResults/Pester.xml` and
-   `output/TestResults/Integration.Coverage.cobertura.xml`.
+   `output/TestResults/Integration.Coverage.cobertura.xml`. The module
+   assemblies are instrumented first with `dotnet-coverage instrument` in a
+   copy of the `bin` folder next to that `pwsh`'s S.M.A, so the coverage
+   settings' `DoesNotReturnAttribute = AllAssemblies` can see that
+   `ThrowTerminatingError` does not return, and put back once the tests end.
+   `tests/units/Directory.Build.targets` copies S.M.A to the output of the unit
+   test projects referencing `PSWSMan` for the same reason.
 5. `CoverageReport`: merges the cobertura files into
    `output/TestResults/Coverage.cobertura.xml`, writes an HTML report to
    `output/TestResults/CoverageReport/`, and prints a summary table of files

@@ -402,7 +402,7 @@ public sealed class InvokeWinRMCommand : WinRMCmdletBase
             ast = ScriptBlock.Ast;
         }
 
-        Hashtable usingValues;
+        Hashtable? usingValues = null;
         try
         {
             usingValues = UsingVariableParser.GetUsingParameters(SessionState, ast);
@@ -414,7 +414,6 @@ public sealed class InvokeWinRMCommand : WinRMCmdletBase
                 "UsingVariableIsUndefined",
                 ErrorCategory.InvalidArgument,
                 null));
-            throw;
         }
 
         return new(text, usingValues);
