@@ -42,6 +42,7 @@ import base64
 import json
 import os
 import shutil
+import socket
 import ssl
 import sys
 import tempfile
@@ -196,6 +197,11 @@ class Acceptor:
 
 
 def main() -> None:
+    # The NTLM acceptor puts socket.getfqdn() in the CHALLENGE target info. On macOS that resolves the .local host
+    # name over mDNS, which a headless CI runner holds pending the Local Network permission until each of the forward
+    # and reverse lookups times out after 35 seconds. Nothing checks the value so we hardcode one here.
+    socket.getfqdn = lambda name="": "acceptor.test"
+
     acceptor = Acceptor()
     stdin = sys.stdin.buffer
     stdout = sys.stdout.buffer
