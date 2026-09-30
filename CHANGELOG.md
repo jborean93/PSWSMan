@@ -21,12 +21,6 @@ As this is a major shift away from the old PSWSMan module based on a fork of the
 + `Register-TrustedCertificate`
   + The new PSWSMan uses .NET for TLS operations so relies on the behaviour of how .NET interacts with the system TLS library rather than directly linking to OpenSSL
 
-The following platforms are current not supported
-
-+ Linux on musl based libc like Alpine
-  + While this may work it is currently experimental
-  + The Devolutions SSPI library will not not work musl builds, `Negotiate` authentication must be done through the MIT krb5 GSSAPI library
-
 If you still need anything that was removed then it is recommended to pin your dependencies to `2.3.1` to avoid pulling in any new incompatible changes.
 
 ### Changes

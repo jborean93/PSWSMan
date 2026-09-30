@@ -35,7 +35,11 @@ internal static class ProviderLibs
 
     public static string OsName { get; } = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
         ? "win"
-        : RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "osx" : "linux";
+        : RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "osx" : IsMusl() ? "linux-musl" : "linux";
+
+    /// <summary>The runtimes folder name holding the native libraries for this process, like linux-musl-x64.</summary>
+    public static string RuntimeId { get; } =
+        $"{OsName}-{RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant()}";
 
     /// <summary>Gets the Devolutions SSPI library bundled with the module.</summary>
     /// <param name="provider">The loaded provider.</param>
@@ -58,7 +62,7 @@ internal static class ProviderLibs
                 Path.GetDirectoryName(typeof(ProviderLibs).Assembly.Location) ?? "",
                 "..",
                 "runtimes",
-                $"{OsName}-{RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant()}",
+                RuntimeId,
                 "native",
                 $"{LibPrefix}DevolutionsSspi.{LibExt}");
 
@@ -242,4 +246,13 @@ internal static class ProviderLibs
     private static bool IsGssFramework(string gssapiLib)
         => RuntimeInformation.IsOSPlatform(OSPlatform.OSX) &&
             (gssapiLib == MacosGssFramework || gssapiLib.EndsWith("/GSS.framework/GSS", StringComparison.Ordinal));
+
+    /// <summary>Whether the process runs on musl rather than glibc, like on Alpine.</summary>
+    /// <remarks>
+    /// glibc exports gnu_get_libc_version and musl does not. This checks the libc the process was loaded with, so a
+    /// musl loader installed alongside glibc does not affect it.
+    /// </remarks>
+    private static bool IsMusl()
+        => RuntimeInformation.IsOSPlatform(OSPlatform.Linux) &&
+            !NativeLibrary.TryGetExport(NativeLibrary.GetMainProgramHandle(), "gnu_get_libc_version", out _);
 }

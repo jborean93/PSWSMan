@@ -89,7 +89,7 @@ internal static class TestProviders
         string path = Path.Combine(
             AppContext.BaseDirectory,
             "runtimes",
-            $"{ProviderLibs.OsName}-{RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant()}",
+            ProviderLibs.RuntimeId,
             "native",
             $"{ProviderLibs.LibPrefix}DevolutionsSspi.{ProviderLibs.LibExt}");
 
