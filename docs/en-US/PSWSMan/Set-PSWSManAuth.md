@@ -1,23 +1,31 @@
 ---
+document type: cmdlet
 external help file: PSWSMan.dll-Help.xml
+HelpUri: https://www.github.com/jborean93/PSWSMan/blob/main/docs/en-US/PSWSMan/Set-PSWSManAuth.md
 Module Name: PSWSMan
-online version: https://www.github.com/jborean93/PSWSMan/blob/main/docs/en-US/Set-PSWSManAuth.md
-schema: 2.0.0
+ms.date: ''
+PlatyPS schema version: 2024-05-01
 ---
 
 # Set-PSWSManAuth
 
 ## SYNOPSIS
+
 Sets the authentication settings used by PSWSMan.
 
 ## SYNTAX
 
+### __AllParameterSets
+
 ```
-Set-PSWSManAuth [-AuthProvider <AuthenticationProvider>] [-GssapiLib <String>]
- [-ProgressAction <ActionPreference>] [-WhatIf] [-Confirm] [<CommonParameters>]
+Set-PSWSManAuth [-AuthProvider <AuthenticationProvider>] [-GssapiLib <string>] [-WhatIf] [-Confirm]
+ [<CommonParameters>]
 ```
 
+## ALIASES
+
 ## DESCRIPTION
+
 Sets the authentication settings that apply to new PSSessions created in the current runspace.
 The settings are scoped to the runspace, a fresh runspace, such as a new `Start-ThreadJob` or `ForEach-Object -Parallel` job, starts with the default settings.
 Sessions that have already been created are not affected.
@@ -45,6 +53,7 @@ Use [Get-PSWSManAuth](./Get-PSWSManAuth.md) to view the current settings.
 ## EXAMPLES
 
 ### Example 1: Set Devolutions as the default provider
+
 ```powershell
 PS C:\> Set-PSWSManAuth -AuthProvider Devolutions
 ```
@@ -53,6 +62,7 @@ Sets the default authentication provider to the bundled DevolutionsSspi library.
 Any PSSession created after this without an explicit `-AuthProvider` session option will use Devolutions for `NTLM`, `Kerberos`, `Negotiate`, and `CredSSP` authentication.
 
 ### Example 2: Use a specific GSSAPI library
+
 ```powershell
 PS /home/user> Set-PSWSManAuth -GssapiLib /opt/heimdal/lib/libgssapi.so.3
 ```
@@ -60,6 +70,7 @@ PS /home/user> Set-PSWSManAuth -GssapiLib /opt/heimdal/lib/libgssapi.so.3
 Loads the Heimdal GSSAPI library from a custom install location instead of the system default.
 
 ### Example 3: Restore the default GSSAPI library
+
 ```powershell
 PS /home/user> Set-PSWSManAuth -GssapiLib Default
 ```
@@ -69,24 +80,55 @@ Reverts to the GSSAPI library PSWSMan finds on its own, `GSS.Framework` on macOS
 ## PARAMETERS
 
 ### -AuthProvider
+
 The authentication provider to set as the default for the current runspace.
 This must be either `System` or `Devolutions`.
 Using `Default` will result in an error.
 
 ```yaml
-Type: AuthenticationProvider
-Parameter Sets: (All)
-Aliases:
-Accepted values: Default, System, Devolutions
+Type: PSWSMan.AuthenticationProvider
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues:
+- Default
+- System
+- Devolutions
+HelpMessage: ''
+```
 
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+### -Confirm
+
+Prompts you for confirmation before running the cmdlet.
+
+```yaml
+Type: System.Management.Automation.SwitchParameter
+DefaultValue: None
+SupportsWildcards: false
+Aliases:
+- cf
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -GssapiLib
+
 The name or path of the GSSAPI library to load for the `System` provider.
 A bare name like `libgssapi_krb5.so.2` is resolved through the standard library search path while an absolute path loads that file directly.
 Use `Default`, in any casing, to revert to the library PSWSMan picks on its own.
@@ -94,85 +136,64 @@ The library is loaded when the value is set and an error is written if it cannot
 Setting this on Windows results in an error as `SSPI` is always used there and a GSSAPI library would never be loaded.
 
 ```yaml
-Type: String
-Parameter Sets: (All)
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
-```
-
-### -ProgressAction
-New common parameter introduced in PowerShell 7.4.
-
-```yaml
-Type: ActionPreference
-Parameter Sets: (All)
-Aliases: proga
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
-```
-
-### -Confirm
-Prompts you for confirmation before running the cmdlet.
-
-```yaml
-Type: SwitchParameter
-Parameter Sets: (All)
-Aliases: cf
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.String
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -WhatIf
+
 Shows what would happen if the cmdlet runs.
 The cmdlet is not run.
 
 ```yaml
-Type: SwitchParameter
-Parameter Sets: (All)
-Aliases: wi
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.Management.Automation.SwitchParameter
+DefaultValue: None
+SupportsWildcards: false
+Aliases:
+- wi
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### CommonParameters
-This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable, -InformationAction, -InformationVariable, -OutVariable, -OutBuffer, -PipelineVariable, -Verbose, -WarningAction, and -WarningVariable. For more information, see [about_CommonParameters](http://go.microsoft.com/fwlink/?LinkID=113216).
+
+This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable,
+-InformationAction, -InformationVariable, -OutBuffer, -OutVariable, -PipelineVariable,
+-ProgressAction, -Verbose, -WarningAction, and -WarningVariable. For more information, see
+[about_CommonParameters](https://go.microsoft.com/fwlink/?LinkID=113216).
 
 ## INPUTS
 
-### None
-This function does not accept input from the pipeline.
-
 ## OUTPUTS
 
-### None
-This function does not output to the pipeline.
-
 ## NOTES
+
 Only the parameters specified are changed, omitting a parameter leaves that setting as it was.
 The provider and library checks run before `-WhatIf` is evaluated, so `-WhatIf` still reports an error for a value that cannot be loaded.
 A runspace opened from a thread that has no default runspace, for example a host opening one from a thread pool thread, uses the built-in defaults as there is no runspace whose settings could have been changed.
 
 ## RELATED LINKS
 
-[Get-PSWSManAuth](./Get-PSWSManAuth.md)
-
-[New-WinRMSessionOption](./New-WinRMSessionOption.md)
-
-[about_PSWSManAuthentication](./about_PSWSManAuthentication.md)
+- [Get-PSWSManAuth](./Get-PSWSManAuth.md)
+- [New-WinRMSessionOption](./New-WinRMSessionOption.md)
+- [about_PSWSManAuthentication](./about_PSWSManAuthentication.md)

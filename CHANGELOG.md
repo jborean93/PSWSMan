@@ -17,7 +17,7 @@ As this is a major shift away from the old PSWSMan module based on a fork of the
 + `Install-WSMan` - no longer needed
 + `Get-WSManVersion` - no longer needed
 + `Disable-WSManCertVerification` and `Enable-WSManCertVerification`
-  + Certificate verification can be enabled/disabled using the switch parameters `-SkipCACheck` and `-SkipCNCheck` on the `New-PSSessionOption` or [New-WinRMSessionOption](./docs/en-US/New-WinRMSessionOption.md) cmdlets
+  + Certificate verification can be enabled/disabled using the switch parameters `-SkipCACheck` and `-SkipCNCheck` on the `New-PSSessionOption` or [New-WinRMSessionOption](./docs/en-US/PSWSMan/New-WinRMSessionOption.md) cmdlets
 + `Register-TrustedCertificate`
   + The new PSWSMan uses .NET for TLS operations so relies on the behaviour of how .NET interacts with the system TLS library rather than directly linking to OpenSSL
 
@@ -55,27 +55,27 @@ The following features have been introduced in this version
 The following cmdlets have been added:
 
 + Module setup and settings
-  + [Enable-PSWSMan](./docs/en-US/Enable-PSWSMan.md) - hooks the builtin remoting cmdlets like `New-PSSession` and `Invoke-Command` so they use this module's WSMan client
-  + [Get-PSWSManAuth](./docs/en-US/Get-PSWSManAuth.md) - gets the current authentication settings
-  + [Set-PSWSManAuth](./docs/en-US/Set-PSWSManAuth.md) - changes the default authentication provider and GSSAPI library
+  + [Enable-PSWSMan](./docs/en-US/PSWSMan/Enable-PSWSMan.md) - hooks the builtin remoting cmdlets like `New-PSSession` and `Invoke-Command` so they use this module's WSMan client
+  + [Get-PSWSManAuth](./docs/en-US/PSWSMan/Get-PSWSManAuth.md) - gets the current authentication settings
+  + [Set-PSWSManAuth](./docs/en-US/PSWSMan/Set-PSWSManAuth.md) - changes the default authentication provider and GSSAPI library
 + Custom WinRM transport sessions and options, these do not need `Enable-PSWSMan`
-  + [New-WinRMSession](./docs/en-US/New-WinRMSession.md) - creates PSSessions with PSWSMan's WinRM client through PowerShell's public custom remoting transport API
+  + [New-WinRMSession](./docs/en-US/PSWSMan/New-WinRMSession.md) - creates PSSessions with PSWSMan's WinRM client through PowerShell's public custom remoting transport API
     + The sessions work with `Invoke-Command -Session`, `Enter-PSSession -Session` and the other builtin session cmdlets
     + Several hosts can be given or piped in and are opened in parallel up to `-ThrottleLimit`
-  + [Enter-WinRMSession](./docs/en-US/Enter-WinRMSession.md) - starts an interactive session like `Enter-PSSession -ComputerName` with PSWSMan's WinRM client, the session is closed when it is left
-  + [Invoke-WinRMCommand](./docs/en-US/Invoke-WinRMCommand.md) - runs a command on one or more hosts or sessions like `Invoke-Command` with PSWSMan's WinRM client, alias `iwcm`
+  + [Enter-WinRMSession](./docs/en-US/PSWSMan/Enter-WinRMSession.md) - starts an interactive session like `Enter-PSSession -ComputerName` with PSWSMan's WinRM client, the session is closed when it is left
+  + [Invoke-WinRMCommand](./docs/en-US/PSWSMan/Invoke-WinRMCommand.md) - runs a command on one or more hosts or sessions like `Invoke-Command` with PSWSMan's WinRM client, alias `iwcm`
     + `-ArgumentList` also takes a hashtable that is bound to the remote command by parameter name, like splatting
-  + [New-WinRMSessionOption](./docs/en-US/New-WinRMSessionOption.md) - creates the connection options for every way of connecting
+  + [New-WinRMSessionOption](./docs/en-US/PSWSMan/New-WinRMSessionOption.md) - creates the connection options for every way of connecting
     + Converts to a `PSSessionOption` for `-SessionOption` and `$PSSessionOption` of the builtin cmdlets like `New-PSSession` and `Invoke-Command`
     + Taken as is by `New-WinRMSession` and the WinRS cmdlets, whose `-SessionOption` also accepts a hashtable of the same options or a `PSSessionOption`, which is an error if it sets an option PSWSMan does not support
     + `-TracePath` writes the connection trace of `New-WinRMSession` and the WinRS cmdlets to a file
 + WinRS cmdlets, these run commands through `cmd.exe` without a PowerShell session on the remote host and do not need `Enable-PSWSMan`
-  + [Invoke-WinRSCommand](./docs/en-US/Invoke-WinRSCommand.md) - runs a command line on a remote host with a WinRS shell, pipeline input is written to its stdin, alias `irscm`
-  + [ConvertTo-WinRSCommandLine](./docs/en-US/ConvertTo-WinRSCommandLine.md) - builds an `Invoke-WinRSCommand` command line from an executable and a list of arguments, escaping them for `cmd.exe` so the process receives them exactly as given
-  + [Send-WinRSFile](./docs/en-US/Send-WinRSFile.md) and [Receive-WinRSFile](./docs/en-US/Receive-WinRSFile.md) - copy files to and from a remote host without a PowerShell remoting session or file share, each copy is verified with a SHA256 hash before it replaces the destination
-  + [New-WinRSShell](./docs/en-US/New-WinRSShell.md), [Get-WinRSShell](./docs/en-US/Get-WinRSShell.md) and [Remove-WinRSShell](./docs/en-US/Remove-WinRSShell.md) - create, list and delete a WinRS shell that `Invoke-WinRSCommand`, `Send-WinRSFile` and `Receive-WinRSFile` can run their commands in with `-Shell`, rather than connecting and creating a shell on every call
+  + [Invoke-WinRSCommand](./docs/en-US/PSWSMan/Invoke-WinRSCommand.md) - runs a command line on a remote host with a WinRS shell, pipeline input is written to its stdin, alias `irscm`
+  + [ConvertTo-WinRSCommandLine](./docs/en-US/PSWSMan/ConvertTo-WinRSCommandLine.md) - builds an `Invoke-WinRSCommand` command line from an executable and a list of arguments, escaping them for `cmd.exe` so the process receives them exactly as given
+  + [Send-WinRSFile](./docs/en-US/PSWSMan/Send-WinRSFile.md) and [Receive-WinRSFile](./docs/en-US/PSWSMan/Receive-WinRSFile.md) - copy files to and from a remote host without a PowerShell remoting session or file share, each copy is verified with a SHA256 hash before it replaces the destination
+  + [New-WinRSShell](./docs/en-US/PSWSMan/New-WinRSShell.md), [Get-WinRSShell](./docs/en-US/PSWSMan/Get-WinRSShell.md) and [Remove-WinRSShell](./docs/en-US/PSWSMan/Remove-WinRSShell.md) - create, list and delete a WinRS shell that `Invoke-WinRSCommand`, `Send-WinRSFile` and `Receive-WinRSFile` can run their commands in with `-Shell`, rather than connecting and creating a shell on every call
 + Helpers
-  + [New-RemoteCertificateValidationCallback](./docs/en-US/New-RemoteCertificateValidationCallback.md) - creates a thread safe `RemoteCertificateValidationCallback` that validates a server certificate with a scriptblock, for the `-TlsOption` and `-CredSSPTlsOption` of `New-WinRMSessionOption`
+  + [New-RemoteCertificateValidationCallback](./docs/en-US/PSWSMan/New-RemoteCertificateValidationCallback.md) - creates a thread safe `RemoteCertificateValidationCallback` that validates a server certificate with a scriptblock, for the `-TlsOption` and `-CredSSPTlsOption` of `New-WinRMSessionOption`
 
 ## 2.3.1 - 2022-11-28
 

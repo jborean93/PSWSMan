@@ -69,11 +69,30 @@ task BuildModule {
 task BuildDocs {
     Get-ChildItem -LiteralPath $Manifest.DocsPath -Directory | ForEach-Object {
         Write-Host "Building docs for $($_.Name)" -ForegroundColor Cyan
-        $helpParams = @{
-            Path = $_.FullName
-            OutputPath = [Path]::Combine($Manifest.ReleasePath, $_.Name)
+        $outputPath = [Path]::Combine($Manifest.ReleasePath, $_.Name)
+        New-Item -Path $outputPath -ItemType Directory -Force | Out-Null
+
+        $moduleDocs = [Path]::Combine($_.FullName, $Manifest.Module.Name)
+        $commandFiles = Measure-PlatyPSMarkdown -Path ([Path]::Combine($moduleDocs, '*.md')) |
+            Where-Object { $_.FileType -band 'CommandHelp' } |
+            Select-Object -ExpandProperty FilePath
+        $commandHelp = Import-MarkdownCommandHelp -Path $commandFiles
+
+        # Export-MamlCommandHelp writes to a sub folder named after the
+        # module, stage it and move the xml into the culture folder.
+        $stagingPath = [Path]::Combine($Manifest.OutputPath, 'maml', $_.Name)
+        if (Test-Path -LiteralPath $stagingPath) {
+            Remove-Item -LiteralPath $stagingPath -Recurse -Force
         }
-        New-ExternalHelp @helpParams | Out-Null
+        Export-MamlCommandHelp -CommandHelp $commandHelp -OutputFolder $stagingPath -Force |
+            Move-Item -Destination $outputPath -Force
+
+        # PlatyPS no longer converts about topics, the help system reads the
+        # markdown as plain text just fine.
+        Get-ChildItem -LiteralPath $moduleDocs -Filter 'about_*.md' -File | ForEach-Object {
+            $dest = [Path]::Combine($outputPath, "$($_.BaseName).help.txt")
+            Copy-Item -LiteralPath $_.FullName -Destination $dest
+        }
     }
 }
 

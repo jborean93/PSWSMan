@@ -10,11 +10,11 @@
 > PSWSMan before 3.0.0 is built from [jborean93/omi](https://github.com/jborean93/omi), which is based on a completely different stack and is no longer maintained.
 > See the v3.0.0 notes in the [changelog](CHANGELOG.md) for the changes between 2.x and 3.0.0+.
 
-See [about_PSWSMan](docs/en-US/about_PSWSMan.md) for more details.
+See [about_PSWSMan](docs/en-US/PSWSMan/about_PSWSMan.md) for more details.
 
 ## Documentation
 
-Documentation for this module and details on the cmdlets included can be found [here](docs/en-US/PSWSMan.md).
+Documentation for this module and details on the cmdlets included can be found [here](docs/en-US/PSWSMan/PSWSMan.md).
 This is currently an unreleased project and is meant to replace [my omi fork](https://github.com/jborean93/omi) as the way PowerShell uses WSMan as a client.
 
 ## Requirements
@@ -80,7 +80,7 @@ The hooks apply to the whole process and cannot be undone, restart PowerShell to
 Add `Enable-PSWSMan -Force` to your PowerShell profile to have it enabled in every session.
 
 The builtin cmdlets keep their own parameters, `-ComputerName`, `-Credential`, `-Authentication`, `-UseSSL`, and so on, and work as they normally do.
-Use [New-WinRMSessionOption](docs/en-US/New-WinRMSessionOption.md) in place of `New-PSSessionOption`, for `-SessionOption` or `$PSSessionOption`, to set the options that are specific to PSWSMan, like choosing the authentication provider, the Kerberos SPN, CredSSP settings, custom TLS options, or a client certificate that is not in a certificate store.
+Use [New-WinRMSessionOption](docs/en-US/PSWSMan/New-WinRMSessionOption.md) in place of `New-PSSessionOption`, for `-SessionOption` or `$PSSessionOption`, to set the options that are specific to PSWSMan, like choosing the authentication provider, the Kerberos SPN, CredSSP settings, custom TLS options, or a client certificate that is not in a certificate store.
 
 ```powershell
 $so = New-WinRMSessionOption -AuthMethod Kerberos -RequestKerberosDelegate
@@ -90,7 +90,7 @@ $so = New-WinRMSessionOption -SkipCACheck -SkipCNCheck
 Enter-PSSession -ComputerName 192.168.1.2 -UseSSL -Credential $cred -SessionOption $so
 ```
 
-See [about_PSWSManAuthentication](docs/en-US/about_PSWSManAuthentication.md) for details on the authentication methods and how to set them up on each platform.
+See [about_PSWSManAuthentication](docs/en-US/PSWSMan/about_PSWSManAuthentication.md) for details on the authentication methods and how to set them up on each platform.
 
 ## WinRM Sessions
 
@@ -99,9 +99,9 @@ Nothing in PowerShell is hooked, so `Enable-PSWSMan` is not needed and the built
 
 | Cmdlet | Builtin equivalent |
 | --- | --- |
-| [Invoke-WinRMCommand](docs/en-US/Invoke-WinRMCommand.md) | `Invoke-Command`, its `-ArgumentList` also takes a hashtable of named parameters |
-| [Enter-WinRMSession](docs/en-US/Enter-WinRMSession.md) | `Enter-PSSession` |
-| [New-WinRMSession](docs/en-US/New-WinRMSession.md) | `New-PSSession`, the session works with the builtin cmdlets that take a `-Session`, like `Invoke-Command`, `Enter-PSSession`, `Import-PSSession`, `Copy-Item -ToSession`, and `Remove-PSSession` |
+| [Invoke-WinRMCommand](docs/en-US/PSWSMan/Invoke-WinRMCommand.md) | `Invoke-Command`, its `-ArgumentList` also takes a hashtable of named parameters |
+| [Enter-WinRMSession](docs/en-US/PSWSMan/Enter-WinRMSession.md) | `Enter-PSSession` |
+| [New-WinRMSession](docs/en-US/PSWSMan/New-WinRMSession.md) | `New-PSSession`, the session works with the builtin cmdlets that take a `-Session`, like `Invoke-Command`, `Enter-PSSession`, `Import-PSSession`, `Copy-Item -ToSession`, and `Remove-PSSession` |
 
 ```powershell
 Import-Module -Name PSWSMan
@@ -128,14 +128,14 @@ Copy-Item -Path ./setup.ps1 -Destination C:\Temp -ToSession $session
 Remove-PSSession -Session $session
 ```
 
-The connection parameters mirror the builtin cmdlets, including several hosts at once with `-ThrottleLimit`, and the options come from [New-WinRMSessionOption](docs/en-US/New-WinRMSessionOption.md).
+The connection parameters mirror the builtin cmdlets, including several hosts at once with `-ThrottleLimit`, and the options come from [New-WinRMSessionOption](docs/en-US/PSWSMan/New-WinRMSessionOption.md).
 Unlike `New-PSSessionOption` it only has the options PSWSMan supports, and `-SessionOption` also takes a hashtable of the same names, like `-SessionOption @{ OperationTimeout = 30000; AuthProvider = 'Devolutions' }`.
 A `PSSessionOption` from `New-PSSessionOption` is accepted too, but setting an option PSWSMan does not support in it, like `NoCompression` or a proxy, is an error rather than silently ignored.
 The same `New-WinRMSessionOption` object works for all three paths, it converts to a `PSSessionOption` for the builtin cmdlets.
 On every path an explicit `-Authentication` takes precedence over the `AuthMethod` of the options.
 
 These sessions cannot be disconnected and reconnected with `Disconnect-PSSession` and `Connect-PSSession`.
-To troubleshoot a connection set `-TracePath` on `New-WinRMSessionOption`, `Trace-Command` only works for the builtin cmdlets, see [about_PSWSMan](docs/en-US/about_PSWSMan.md#troubleshooting).
+To troubleshoot a connection set `-TracePath` on `New-WinRMSessionOption`, `Trace-Command` only works for the builtin cmdlets, see [about_PSWSMan](docs/en-US/PSWSMan/about_PSWSMan.md#troubleshooting).
 
 ## WinRS Cmdlets
 
@@ -143,11 +143,11 @@ PSWSMan also includes cmdlets that use WinRS (Windows Remote Shell), the protoco
 
 | Cmdlet | Purpose |
 | --- | --- |
-| [Invoke-WinRSCommand](docs/en-US/Invoke-WinRSCommand.md) (`irscm`) | Runs a command line on the remote host and outputs its stdout and stderr. |
-| [ConvertTo-WinRSCommandLine](docs/en-US/ConvertTo-WinRSCommandLine.md) | Builds a safely quoted command line for `Invoke-WinRSCommand` from an executable and its arguments. |
-| [Send-WinRSFile](docs/en-US/Send-WinRSFile.md) | Copies local files to the remote host. |
-| [Receive-WinRSFile](docs/en-US/Receive-WinRSFile.md) | Copies files from the remote host to the local host. |
-| [New-WinRSShell](docs/en-US/New-WinRSShell.md), [Get-WinRSShell](docs/en-US/Get-WinRSShell.md), [Remove-WinRSShell](docs/en-US/Remove-WinRSShell.md) | Creates, lists, and removes a WinRS shell that several of the above commands can share. |
+| [Invoke-WinRSCommand](docs/en-US/PSWSMan/Invoke-WinRSCommand.md) (`irscm`) | Runs a command line on the remote host and outputs its stdout and stderr. |
+| [ConvertTo-WinRSCommandLine](docs/en-US/PSWSMan/ConvertTo-WinRSCommandLine.md) | Builds a safely quoted command line for `Invoke-WinRSCommand` from an executable and its arguments. |
+| [Send-WinRSFile](docs/en-US/PSWSMan/Send-WinRSFile.md) | Copies local files to the remote host. |
+| [Receive-WinRSFile](docs/en-US/PSWSMan/Receive-WinRSFile.md) | Copies files from the remote host to the local host. |
+| [New-WinRSShell](docs/en-US/PSWSMan/New-WinRSShell.md), [Get-WinRSShell](docs/en-US/PSWSMan/Get-WinRSShell.md), [Remove-WinRSShell](docs/en-US/PSWSMan/Remove-WinRSShell.md) | Creates, lists, and removes a WinRS shell that several of the above commands can share. |
 
 ```powershell
 $cred = Get-Credential

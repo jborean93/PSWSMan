@@ -26,7 +26,7 @@ their options as a `WinRMSessionOption`.
 | Path | Purpose |
 | --- | --- |
 | `build.ps1` | Entry point for every build and test action. Wraps InvokeBuild. |
-| `manifest.psd1` | Pinned versions of the PowerShell build/test modules (InvokeBuild, Pester, platyPS, PSResourceGet, OpenAuthenticode) and the Python packages the authentication tests need. |
+| `manifest.psd1` | Pinned versions of the PowerShell build/test modules (InvokeBuild, Pester, Microsoft.PowerShell.PlatyPS, PSResourceGet, OpenAuthenticode) and the Python packages the authentication tests need. |
 | `global.json` | Pins the .NET SDK (10.0.x) and selects `Microsoft.Testing.Platform` as the `dotnet test` runner. |
 | `PSWSMan.slnx` | Solution file listing the three `src/` projects. |
 | `src/PSWSMan/` | The PowerShell module assembly: cmdlets, S.M.A patches, authentication (GSSAPI, SSPI, CredSSP, Basic, certificate), TLS, PSRP session bridge (`WSManPSRPSession.cs`). Compiles against the S.M.A implementation assembly from the `System.Management.Automation` NuGet package. |
@@ -37,7 +37,7 @@ their options as a `WinRMSessionOption`.
 | `src/Directory.Build.props` | Shared compiler settings (C# 12, nullable enabled, unsafe allowed). |
 | `src/Directory.Packages.props` | Central package management. All NuGet versions live here; `.csproj` files reference packages without a `Version`. |
 | `module/` | The `.psd1` manifest and `.psm1` loader script copied verbatim into the built module. `ModuleVersion` here is the single source of truth for the version. |
-| `docs/en-US/` | platyPS markdown help. Compiled to MAML at build time. Edit these when cmdlet parameters or behaviour change. |
+| `docs/en-US/PSWSMan/` | Microsoft.PowerShell.PlatyPS markdown help (PlatyPS always nests pages under a folder named after the module). Cmdlet pages are compiled to MAML and `about_*.md` pages are copied as `about_*.help.txt` at build time. Edit the prose here when cmdlet parameters or behaviour change; run `tools/UpdateDocs.ps1` to sync the syntax and parameter metadata. |
 | `tests/*.Tests.ps1` | Pester tests that run against the built module. Most connection tests need a real WinRM server and skip without one. |
 | `tests/data/` | Files the tests share. `WinRSCommandLine.json` holds the `ConvertTo-WinRSCommandLine` cases that both the `PSWSMan.Lib` unit tests and `tests/ConvertTo-WinRSCommandLine.Tests.ps1` run, and `print_argv.cs` is the argv printer the Pester test compiles on the WinRM host, at the relative `file_path` of the cases under the shell's working directory, to run each expected line verbatim. `RecordingHost.cs` has `PSHost` implementations that record every member called on them, for tests of host calls and the host wrapper. |
 | `tests/common.ps1` | Dot-sourced by every Pester file. Imports the built module and runs `Enable-PSWSMan -Force`. |
@@ -84,7 +84,7 @@ pwsh -File ./build.ps1 -Task Build -Configuration Release   # Release build
 
 The `Build` task runs, in order: `Clean`, `BuildManaged` (`dotnet publish` of
 `src/PSWSMan` for each target framework with `-p:Version` taken from
-`module/PSWSMan.psd1`), `BuildModule` (copy `module/`), `BuildDocs` (platyPS
+`module/PSWSMan.psd1`), `BuildModule` (copy `module/`), `BuildDocs` (PlatyPS
 MAML), `Sign` (no-op unless the Azure Trusted Signing env vars are set), and
 `Package` (produces `output/PSWSMan.<version>.nupkg`).
 
@@ -311,10 +311,17 @@ tests and the .NET unit tests actually execute there. Put protocol logic in
   each `src/` project to fix most of them. The test projects are not checked.
 - Cmdlets live in `src/PSWSMan/Commands/`. Adding a cmdlet means also adding
   it to `CmdletsToExport` in `module/PSWSMan.psd1` and writing
-  `docs/en-US/<Verb-Noun>.md`. Parameter changes must be reflected in the
-  markdown help; `pwsh -File ./tools/UpdateDocs.ps1` (also the VS Code task
-  "update docs") regenerates it from the built module with platyPS and
-  rewrites the pages with LF line endings on non-Windows hosts.
+  `docs/en-US/PSWSMan/<Verb-Noun>.md`. Parameter changes must be reflected
+  in the markdown help. After building, `pwsh -File ./tools/UpdateDocs.ps1`
+  (also the VS Code task "update docs") syncs the markdown with the built
+  cmdlets: it refreshes syntax and parameter metadata, adds new parameters and
+  input/output types, removes deleted ones, creates pages with placeholders
+  for new cmdlets and refreshes the module page, while keeping the existing
+  prose. Fill in any `{{ ... }}` placeholders it adds, including the one it
+  writes for an empty RELATED LINKS section, so every page needs at least one
+  link. Every cmdlet page needs a `HelpUri`, without one PlatyPS reads the
+  online URI from the first related link of the built help and fails on a
+  relative link. Pages for removed cmdlets must be deleted by hand.
 - Add a line to `CHANGELOG.md` under the unreleased heading for anything a
   user would notice.
 - Internal S.M.A members are only meant for the `Enable-PSWSMan` path

@@ -9,27 +9,15 @@ $importModule = Get-Command -Name Import-Module -Module Microsoft.PowerShell.Cor
 $moduleName = [Path]::GetFileNameWithoutExtension($PSCommandPath)
 $loaderName = "$moduleName.Loader.LoadContext"
 
-if ($IsCoreCLR) {
-    $isReload = $true
-    if (-not ($loaderName -as [type])) {
-        $isReload = $false
+$isReload = $true
+if (-not ($loaderName -as [type])) {
+    $isReload = $false
 
-        Add-Type -Path ([Path]::Combine($PSScriptRoot, 'bin', 'net8.0', "$moduleName.Loader.dll"))
-    }
+    Add-Type -Path ([Path]::Combine($PSScriptRoot, 'bin', 'net8.0', "$moduleName.Loader.dll"))
+}
 
-    $mainModule = ($loaderName -as [type])::Initialize($moduleName)
-    $innerMod = & $importModule -Assembly $mainModule -PassThru:$isReload
-}
-else {
-    $innerMod = if ('Yayaml.NewYamlSchemaCommand' -as [type]) {
-        $modAssembly = [Yayaml.NewYamlSchemaCommand].Assembly
-        & $importModule -Assembly $modAssembly -Force -PassThru
-    }
-    else {
-        $modPath = [System.IO.Path]::Combine($PSScriptRoot, 'bin', 'net472', "$moduleName.dll")
-        & $importModule -Name $modPath -ErrorAction Stop -PassThru
-    }
-}
+$mainModule = ($loaderName -as [type])::Initialize($moduleName)
+$innerMod = & $importModule -Assembly $mainModule -PassThru:$isReload
 
 if ($innerMod) {
     # Bug in pwsh, Import-Module in an assembly will pick up a cached instance

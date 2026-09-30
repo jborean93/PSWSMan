@@ -1,40 +1,50 @@
 ---
+document type: cmdlet
 external help file: PSWSMan.dll-Help.xml
+HelpUri: https://www.github.com/jborean93/PSWSMan/blob/main/docs/en-US/PSWSMan/New-WinRMSessionOption.md
 Module Name: PSWSMan
-online version:
-schema: 2.0.0
+ms.date: ''
+PlatyPS schema version: 2024-05-01
 ---
 
 # New-WinRMSessionOption
 
 ## SYNOPSIS
+
 Creates the connection options for PSWSMan and the builtin remoting cmdlets.
 
 ## SYNTAX
 
 ### SimpleTls (Default)
+
 ```
-New-WinRMSessionOption [-NoMachineProfile] [-Culture <CultureInfo>] [-UICulture <CultureInfo>]
- [-MaxConnectionRetryCount <Int32>] [-ApplicationArguments <PSPrimitiveDictionary>] [-OpenTimeout <Int32>]
- [-CancelTimeout <Int32>] [-OperationTimeout <Int32>] [-SkipCACheck] [-SkipCNCheck]
- [-ClientCertificate <X509Certificate>] [-NoEncryption] [-SPNService <String>] [-SPNHostName <String>]
- [-AuthMethod <AuthenticationMethod>] [-AuthProvider <AuthenticationProvider>] [-RequestKerberosDelegate]
+New-WinRMSessionOption [-NoMachineProfile] [-Culture <cultureinfo>] [-UICulture <cultureinfo>]
+ [-MaxConnectionRetryCount <int>] [-ApplicationArguments <psprimitivedictionary>]
+ [-OpenTimeout <int>] [-CancelTimeout <int>] [-OperationTimeout <int>] [-SkipCACheck] [-SkipCNCheck]
+ [-ClientCertificate <X509Certificate>] [-NoEncryption] [-SPNService <string>]
+ [-SPNHostName <string>] [-AuthMethod <AuthenticationMethod>]
+ [-AuthProvider <AuthenticationProvider>] [-RequestKerberosDelegate]
  [-CredSSPAuthMethod <AuthenticationMethod>] [-CredSSPTlsOption <SslClientAuthenticationOptions>]
- [-TracePath <String>] [-ProgressAction <ActionPreference>] [<CommonParameters>]
+ [-TracePath <string>] [<CommonParameters>]
 ```
 
 ### TlsOption
+
 ```
-New-WinRMSessionOption [-NoMachineProfile] [-Culture <CultureInfo>] [-UICulture <CultureInfo>]
- [-MaxConnectionRetryCount <Int32>] [-ApplicationArguments <PSPrimitiveDictionary>] [-OpenTimeout <Int32>]
- [-CancelTimeout <Int32>] [-OperationTimeout <Int32>] [-TlsOption <SslClientAuthenticationOptions>]
- [-NoEncryption] [-SPNService <String>] [-SPNHostName <String>] [-AuthMethod <AuthenticationMethod>]
+New-WinRMSessionOption [-NoMachineProfile] [-Culture <cultureinfo>] [-UICulture <cultureinfo>]
+ [-MaxConnectionRetryCount <int>] [-ApplicationArguments <psprimitivedictionary>]
+ [-OpenTimeout <int>] [-CancelTimeout <int>] [-OperationTimeout <int>]
+ [-TlsOption <SslClientAuthenticationOptions>] [-NoEncryption] [-SPNService <string>]
+ [-SPNHostName <string>] [-AuthMethod <AuthenticationMethod>]
  [-AuthProvider <AuthenticationProvider>] [-RequestKerberosDelegate]
  [-CredSSPAuthMethod <AuthenticationMethod>] [-CredSSPTlsOption <SslClientAuthenticationOptions>]
- [-TracePath <String>] [-ProgressAction <ActionPreference>] [<CommonParameters>]
+ [-TracePath <string>] [<CommonParameters>]
 ```
 
+## ALIASES
+
 ## DESCRIPTION
+
 The `New-WinRMSessionOption` cmdlet creates an object with the connection options for every way PSWSMan connects to a host.
 It has the options of `New-PSSessionOption` that PSWSMan supports and the options specific to PSWSMan, like the authentication provider, the Kerberos SPN, the CredSSP settings and custom TLS options.
 
@@ -73,6 +83,7 @@ The following options of `New-PSSessionOption` are not available:
 ## EXAMPLES
 
 ### Example 1: Create the default options
+
 ```powershell
 PS C:\> New-WinRMSessionOption
 ```
@@ -80,6 +91,7 @@ PS C:\> New-WinRMSessionOption
 Creates an options object with the default values.
 
 ### Example 2: Use Kerberos with delegation for a session
+
 ```powershell
 PS C:\> $so = New-WinRMSessionOption -AuthMethod Kerberos -RequestKerberosDelegate
 PS C:\> $session = New-WinRMSession -ComputerName Server01 -SessionOption $so
@@ -88,6 +100,7 @@ PS C:\> $session = New-WinRMSession -ComputerName Server01 -SessionOption $so
 Creates a session on `Server01` that authenticates with Kerberos and requests a delegatable ticket so the session can authenticate to other hosts.
 
 ### Example 3: Use a hashtable instead of this cmdlet
+
 ```powershell
 PS C:\> Invoke-WinRSCommand Server01 hostname -UseSSL -SessionOption @{ SkipCNCheck = $true; OperationTimeout = 30000 }
 ```
@@ -95,6 +108,7 @@ PS C:\> Invoke-WinRSCommand Server01 hostname -UseSSL -SessionOption @{ SkipCNCh
 Passes the options as a hashtable, the same as `-SessionOption (New-WinRMSessionOption -SkipCNCheck -OperationTimeout 30000)`.
 
 ### Example 4: Use the options with the builtin remoting cmdlets
+
 ```powershell
 PS C:\> Enable-PSWSMan -Force
 PS C:\> $so = New-WinRMSessionOption -AuthProvider Devolutions -Culture en-AU
@@ -106,6 +120,7 @@ PS C:\> Enter-PSSession -ComputerName Server01
 Uses the Devolutions authentication provider and the `en-AU` culture with `Invoke-Command`, then sets the options as the default for the builtin remoting cmdlets through `$PSSessionOption`.
 
 ### Example 5: Set a builtin option that this cmdlet does not have
+
 ```powershell
 PS C:\> $pso = [System.Management.Automation.Remoting.PSSessionOption](New-WinRMSessionOption -AuthMethod Kerberos)
 PS C:\> $pso.MaximumReceivedObjectSize = 500MB
@@ -116,6 +131,7 @@ Converts the options to a `PSSessionOption` so the builtin `MaximumReceivedObjec
 Such an object is only for the builtin cmdlets, `New-WinRMSession` and the WinRS cmdlets reject it as they cannot apply the limit.
 
 ### Example 6: Validate the server certificate with a scriptblock
+
 ```powershell
 PS C:\> $tlsOption = [System.Net.Security.SslClientAuthenticationOptions]@{
 >>     TargetHost = 'Server01'
@@ -129,6 +145,7 @@ Accepts the server certificate only when it was issued by `CN=My CA`.
 ## PARAMETERS
 
 ### -ApplicationArguments
+
 A `PSPrimitiveDictionary` that is sent to the remote PowerShell session.
 Commands and scripts in the remote session, including startup scripts in the session configuration, can find this dictionary with `$PSSenderInfo.ApplicationArguments`.
 A `PSPrimitiveDictionary` is limited to case-insensitive keys and a subset of primitive value types, like `string`, `int`, `datetime`, etc.
@@ -136,36 +153,53 @@ A hashtable is converted to one.
 The WinRS cmdlets do not start a PowerShell session so they ignore it.
 
 ```yaml
-Type: PSPrimitiveDictionary
-Parameter Sets: (All)
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.Management.Automation.PSPrimitiveDictionary
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -AuthMethod
+
 The authentication method to use.
 If omitted, or set to `Default`, Negotiate is used, or certificate authentication when a client certificate is set.
 The `-Authentication` parameter of the cmdlet using the options, including the builtin remoting cmdlets, takes precedence when it is set to anything other than `Default`.
 
 ```yaml
-Type: AuthenticationMethod
-Parameter Sets: (All)
-Aliases:
-Accepted values: Default, Basic, Negotiate, NTLM, Kerberos, CredSSP
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: PSWSMan.AuthenticationMethod
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues:
+- Default
+- Basic
+- Negotiate
+- NTLM
+- Kerberos
+- CredSSP
+HelpMessage: ''
 ```
 
 ### -AuthProvider
+
 The authentication provider to use when doing `NTLM`, `Kerberos`, `Negotiate`, or `CredSSP` authentication.
 If omitted, or set to `Default`, then the default provider of the current runspace is used.
 Use [Get-PSWSManAuth](./Get-PSWSManAuth.md) to get the runspace default and [Set-PSWSManAuth](./Set-PSWSManAuth.md) to set it.
@@ -176,35 +210,50 @@ On Windows this is `SSPI`, on Linux this is `GSSAPI`, and on macOS this is `GSS.
 Using `Devolutions` will use the [sspi-rs](https://github.com/Devolutions/sspi-rs) provider from Devolutions which is a standalone Kerberos and NTLM implementation written in Rust.
 
 ```yaml
-Type: AuthenticationProvider
-Parameter Sets: (All)
-Aliases:
-Accepted values: Default, System, Devolutions
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: PSWSMan.AuthenticationProvider
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues:
+- Default
+- System
+- Devolutions
+HelpMessage: ''
 ```
 
 ### -CancelTimeout
+
 How long, in milliseconds, PowerShell waits for a cancel operation (`ctrl + c`) of a command in a session to finish.
 The default value is `60000` (one minute).
 
 ```yaml
-Type: Int32
-Parameter Sets: (All)
-Aliases: CancelTimeoutMSec
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.Int32
+DefaultValue: None
+SupportsWildcards: false
+Aliases:
+- CancelTimeoutMSec
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -ClientCertificate
+
 The `X509Certificate` used for TLS client authentication, otherwise known as certificate authentication with WinRM.
 The certificate must have a private key and the connection must use HTTPS.
 Use the `-CertificateThumbprint` parameter of the cmdlet using the options for a certificate in the `Cert:\CurrentUser\My` or `Cert:\LocalMachine\My` store instead.
@@ -212,68 +261,97 @@ Use the `-CertificateThumbprint` parameter of the cmdlet using the options for a
 You cannot use this parameter with `-TlsOption`, set the `ClientCertificates` property of the TLS options instead.
 
 ```yaml
-Type: X509Certificate
-Parameter Sets: SimpleTls
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.Security.Cryptography.X509Certificates.X509Certificate
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: SimpleTls
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -CredSSPAuthMethod
+
 The sub-authentication protocol that CredSSP uses.
 By default CredSSP uses `Negotiate` but it can be set to `Negotiate`, `NTLM` or `Kerberos`.
 The `Basic` and `CredSSP` options cannot be specified here.
 
 ```yaml
-Type: AuthenticationMethod
-Parameter Sets: (All)
-Aliases:
-Accepted values: Default, Basic, Negotiate, NTLM, Kerberos, CredSSP
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: PSWSMan.AuthenticationMethod
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues:
+- Default
+- Basic
+- Negotiate
+- NTLM
+- Kerberos
+- CredSSP
+HelpMessage: ''
 ```
 
 ### -CredSSPTlsOption
+
 The TLS options used by CredSSP when it establishes its TLS connection to the server.
 This allows you to control the TLS behaviour of the CredSSP connection, like validating the server certificate, or the TLS protocol and cipher suites.
 
 ```yaml
-Type: SslClientAuthenticationOptions
-Parameter Sets: (All)
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.Net.Security.SslClientAuthenticationOptions
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -Culture
+
 The culture to use for the remote session or shell, like `ja-JP` or `en-US`, or a `CultureInfo` object.
 The default is the culture of the current thread.
 
 ```yaml
-Type: CultureInfo
-Parameter Sets: (All)
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.Globalization.CultureInfo
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -MaxConnectionRetryCount
+
 The number of times a `Receive` request is resent on a new connection if it fails due to network issues, for example when the remote command restarts the network adapter and the response is lost.
 WSMan returns the same response for a repeated request so the retry does not lose or duplicate any output.
 Each retry waits twice as long as the previous one, starting at 2 seconds.
@@ -281,133 +359,162 @@ Set to `0` to fail on the first network failure.
 The default value is `5`.
 
 ```yaml
-Type: Int32
-Parameter Sets: (All)
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.Int32
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -NoEncryption
+
 Turns off the message encryption used by `NTLM`, `Kerberos`, and `CredSSP` authentication over HTTP.
 This should only be used for testing purposes as any data exchanged over the network will be in plaintext.
 
 ```yaml
-Type: SwitchParameter
-Parameter Sets: (All)
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.Management.Automation.SwitchParameter
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -NoMachineProfile
+
 Prevents loading the user's Windows user profile on the remote host.
 The session or shell might be created faster, but user-specific registry settings, environment variables, and certificates are not available in it.
 
 ```yaml
-Type: SwitchParameter
-Parameter Sets: (All)
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.Management.Automation.SwitchParameter
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -OpenTimeout
+
 How long, in milliseconds, to wait for a connection to the remote host to be established.
 The default is `180000` (3 minutes) and a value of `0` uses a 10 second timeout.
 Pressing `Ctrl+C` stops a connection attempt before the timeout expires.
 
 ```yaml
-Type: Int32
-Parameter Sets: (All)
-Aliases: OpenTimeoutMSec
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.Int32
+DefaultValue: None
+SupportsWildcards: false
+Aliases:
+- OpenTimeoutMSec
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -OperationTimeout
+
 The maximum time, in milliseconds, the WinRM service on the remote host waits to complete an operation, like creating a shell or waiting for output, before it replies.
 The client waits 30 seconds longer than this for a reply before it treats the request as lost.
 The default and the value used for `0` is `180000` (3 minutes).
 
 ```yaml
-Type: Int32
-Parameter Sets: (All)
-Aliases: OperationTimeoutMSec
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
-```
-
-### -ProgressAction
-New common parameter introduced in PowerShell 7.4.
-
-```yaml
-Type: ActionPreference
-Parameter Sets: (All)
-Aliases: proga
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.Int32
+DefaultValue: None
+SupportsWildcards: false
+Aliases:
+- OperationTimeoutMSec
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -RequestKerberosDelegate
+
 When using Kerberos auth, or Kerberos through Negotiate, this requests the ticket from the KDC to have delegation enabled.
 For this to work on Linux and macOS the ticket retrieved through `kinit` must be forwardable, or if an explicit credential is specified then the `krb5.conf` used must be configured to request forwardable tickets.
 
 ```yaml
-Type: SwitchParameter
-Parameter Sets: (All)
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.Management.Automation.SwitchParameter
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -SkipCACheck
+
 Specifies that when it connects over HTTPS, the client does not validate that the server certificate is signed by a trusted certification authority (CA).
 This option is mutually exclusive to `-TlsOption`.
 
 Use this option only when the remote computer is trusted by using another mechanism.
 
 ```yaml
-Type: SwitchParameter
-Parameter Sets: SimpleTls
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.Management.Automation.SwitchParameter
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: SimpleTls
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -SkipCNCheck
+
 Specifies that the certificate common name (CN) of the server does not have to match the hostname of the server.
 This option is used only when connecting over HTTPS.
 This option is mutually exclusive to `-TlsOption`.
@@ -415,54 +522,72 @@ This option is mutually exclusive to `-TlsOption`.
 Use this option only when the remote computer is trusted by using another mechanism.
 
 ```yaml
-Type: SwitchParameter
-Parameter Sets: SimpleTls
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.Management.Automation.SwitchParameter
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: SimpleTls
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -SPNHostName
+
 Override the hostname portion used for the Service Principal Name (SPN) requested by Kerberos.
 By default the hostname of the connection is used.
 
 The SPN is built in the form `$SPNService/$SPNHostName` where the `$SPNService` can be specified by `-SPNService`.
 
 ```yaml
-Type: String
-Parameter Sets: (All)
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.String
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -SPNService
+
 Override the service portion used for the Service Principal Name (SPN) requested by Kerberos.
 By default the service `host` is used.
 
 The SPN is built in the form `$SPNService/$SPNHostName` where `$SPNHostName` can be specified by `-SPNHostName`.
 
 ```yaml
-Type: String
-Parameter Sets: (All)
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.String
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -TlsOption
+
 The TLS options used on a HTTPS connection.
 This option is mutually exclusive to `-SkipCACheck`, `-SkipCNCheck`, and `-ClientCertificate`.
 
@@ -473,18 +598,24 @@ An explicit `-TlsOption` ignores the `-CertificateThumbprint` parameter of the c
 Use the `ClientCertificates` property of the TLS options for certificate authentication, `AllowTlsResume` is then set to `$false` on the object as a resumed TLS session skips the client certificate exchange.
 
 ```yaml
-Type: SslClientAuthenticationOptions
-Parameter Sets: TlsOption
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.Net.Security.SslClientAuthenticationOptions
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: TlsOption
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -TracePath
+
 The path of a file that the diagnostic messages of the connection are appended to, useful for troubleshooting connection and authentication problems.
 A relative path is resolved against the current location when this cmdlet runs, or when the cmdlet using a hashtable of options runs.
 The file is created if it does not exist and several connections can write to the same file.
@@ -498,52 +629,64 @@ For `New-WinRMSession` they also include every PowerShell remoting (OutOfProc) p
 Authentication tokens are not written but the packets contain the commands and output of the session, treat the file as sensitive and remove it once it is no longer needed.
 
 ```yaml
-Type: String
-Parameter Sets: (All)
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.String
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -UICulture
+
 The UI culture to use for the remote session or shell, like `ja-JP` or `en-US`, or a `CultureInfo` object.
 The default is the UI culture of the current thread.
 
 ```yaml
-Type: CultureInfo
-Parameter Sets: (All)
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+Type: System.Globalization.CultureInfo
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### CommonParameters
-This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable, -InformationAction, -InformationVariable, -OutVariable, -OutBuffer, -PipelineVariable, -Verbose, -WarningAction, and -WarningVariable. For more information, see [about_CommonParameters](http://go.microsoft.com/fwlink/?LinkID=113216).
+
+This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable,
+-InformationAction, -InformationVariable, -OutBuffer, -OutVariable, -PipelineVariable,
+-ProgressAction, -Verbose, -WarningAction, and -WarningVariable. For more information, see
+[about_CommonParameters](https://go.microsoft.com/fwlink/?LinkID=113216).
 
 ## INPUTS
 
-### None
 ## OUTPUTS
 
 ### PSWSMan.WinRMSessionOption
+
 The connection options, pass them to the `-SessionOption` parameter of `New-WinRMSession`, the WinRS cmdlets, or the builtin remoting cmdlets.
 
 ## NOTES
 
 ## RELATED LINKS
 
-[New-WinRMSession](./New-WinRMSession.md)
-
-[Invoke-WinRSCommand](./Invoke-WinRSCommand.md)
-
-[New-RemoteCertificateValidationCallback](./New-RemoteCertificateValidationCallback.md)
-
-[Enable-PSWSMan](./Enable-PSWSMan.md)
+- [New-WinRMSession](./New-WinRMSession.md)
+- [Invoke-WinRSCommand](./Invoke-WinRSCommand.md)
+- [New-RemoteCertificateValidationCallback](./New-RemoteCertificateValidationCallback.md)
+- [Enable-PSWSMan](./Enable-PSWSMan.md)
