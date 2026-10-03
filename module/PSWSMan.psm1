@@ -5,18 +5,38 @@ using namespace System.IO
 using namespace System.Management.Automation
 using namespace System.Reflection
 
-$importModule = Get-Command -Name Import-Module -Module Microsoft.PowerShell.Core
+# Resolve the cmdlet through $ExecutionContext to ensure we don't load a
+# shadowed version of Import-Module.
+$importModule = $ExecutionContext.InvokeCommand.GetCommand(
+    'Microsoft.PowerShell.Core\Import-Module',
+    [CommandTypes]::Cmdlet)
+
 $moduleName = [Path]::GetFileNameWithoutExtension($PSCommandPath)
 $loaderName = "$moduleName.Loader.LoadContext"
+$loaderPath = [Path]::Combine($PSScriptRoot, 'bin', 'net8.0', "$moduleName.Loader.dll")
 
 $isReload = $true
-if (-not ($loaderName -as [type])) {
+$loaderType = $loaderName -as [type]
+if (-not $loaderType) {
     $isReload = $false
 
-    Add-Type -Path ([Path]::Combine($PSScriptRoot, 'bin', 'net8.0', "$moduleName.Loader.dll"))
+    $null = [Assembly]::LoadFrom($loaderPath)
+    $loaderType = $loaderName -as [type]
+}
+elseif ($loaderType.Assembly.Location -ne $loaderPath) {
+    # Assemblies cannot be unloaded so once a version of this module is loaded
+    # in the process it is the only one that can be used.
+    $msg = "Cannot import $moduleName from '$PSScriptRoot' as a different copy is already loaded in this process " +
+    "from '$($loaderType.Assembly.Location)'. Start a new PowerShell process to use this copy."
+    $err = [ErrorRecord]::new(
+        [InvalidOperationException]::new($msg),
+        'ModuleAlreadyLoadedFromDifferentPath',
+        [ErrorCategory]::ResourceExists,
+        $PSScriptRoot)
+    throw $err
 }
 
-$mainModule = ($loaderName -as [type])::Initialize($moduleName)
+$mainModule = $loaderType::Initialize($moduleName)
 $innerMod = & $importModule -Assembly $mainModule -PassThru:$isReload
 
 if ($innerMod) {

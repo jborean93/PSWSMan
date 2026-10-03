@@ -28,7 +28,6 @@ task BuildManaged {
         "-p:Version=$($Manifest.Module.Version)"
     )
 
-    $first = $true
     $csproj = (Get-Item -Path "$($Manifest.DotnetPath)/*.csproj").FullName
     foreach ($framework in $Manifest.TargetFrameworks) {
         Write-Host "Compiling for $framework" -ForegroundColor Cyan
@@ -40,18 +39,12 @@ task BuildManaged {
             throw "Failed to compiled code for $framework"
         }
 
+        # RID specific assets stay next to PSWSMan.deps.json so the loader's
+        # AssemblyDependencyResolver can find them. Prune RIDs PowerShell
+        # does not run on.
         $runtimesDir = [Path]::Combine($outputDir, 'runtimes')
-        if ($first) {
-            Remove-Item ([Path]::Combine($outputDir, 'runtimes', 'android*')) -Recurse -Force
-            Remove-Item ([Path]::Combine($outputDir, 'runtimes', 'ios*')) -Recurse -Force
-            Remove-Item ([Path]::Combine($outputDir, 'runtimes', 'osx-universal')) -Recurse -Force
-            $destRuntimes = [Path]::GetFullPath([Path]::Combine(
-                    $outputDir, '..', 'runtimes'))
-            Move-Item -LiteralPath $runtimesDir -Destination $destRuntimes
-            $first = $false
-        }
-        else {
-            Remove-Item -LiteralPath $runtimesDir -Recurse -Force
+        foreach ($rid in 'android*', 'ios*', 'osx-universal') {
+            Remove-Item ([Path]::Combine($runtimesDir, $rid)) -Recurse -Force -ErrorAction Ignore
         }
     }
 }
@@ -159,10 +152,13 @@ task TestSetup {
     # cannot rely on the default in case external pdbs are found by dotnet.
     # The integration tests ignore this option as PesterTests instruments the
     # same assemblies explicitly.
+    # The Loader is ALC boilerplate and is excluded from coverage.
     $includedAssemblies = @(
-        Get-ChildItem -LiteralPath $watchFolder -Filter "*.pdb" | ForEach-Object {
-            "$wildcardBase$([regex]::Escape($_.BaseName))\.dll$"
-        }
+        Get-ChildItem -LiteralPath $watchFolder -Filter "*.pdb" |
+            Where-Object BaseName -NE "$($Manifest.Module.Name).Loader" |
+            ForEach-Object {
+                "$wildcardBase$([regex]::Escape($_.BaseName))\.dll$"
+            }
     )
 
     $config = @{
@@ -298,48 +294,35 @@ task PesterTests {
     $coveragePath = [Path]::Combine($Manifest.TestResultsPath, "Integration.Coverage.cobertura.xml")
     $pwshHome = Split-Path -Path $pwsh -Parent
 
-    # DoesNotReturnAttribute = AllAssemblies needs the instrumenter to resolve
-    # S.M.A to see any pwsh [DoesNotReturn] attribute, for example
-    # Cmdlet.ThrowTerminatingError, and not include the return path as a missed
-    # coverage branch. As the instrumenter needs to resolve the assemblies
-    # correctly, it is important to have the instrumented files in place before
-    # running the tests. Our assemblies (the ones with a pdb) are instrumented
-    # in a copy of the bin folder with the S.M.A of the pwsh under test and then
-    # copied over the module until the tests finish.
-    $sessionId = [Guid]::NewGuid().Guid
-    $instrumentPath = [Path]::Combine($Manifest.TestResultsPath, 'Instrumented')
-    Remove-Item -LiteralPath $instrumentPath -Recurse -Force -ErrorAction Ignore
-    $null = New-Item -Path $instrumentPath -ItemType Directory
-    Copy-Item -Path ([Path]::Combine($watchFolder, '*')) -Destination $instrumentPath
-    Copy-Item -LiteralPath ([Path]::Combine($pwshHome, 'System.Management.Automation.dll')) -Destination $instrumentPath
-
-    $instrumentedFiles = @(
-        Get-ChildItem -LiteralPath $watchFolder -Filter "*.pdb" | ForEach-Object {
-            $dll = "$($_.BaseName).dll"
-            $instrumentArgs = @(
-                'instrument'
-                [Path]::Combine($instrumentPath, $dll)
-                '--session-id', $sessionId
-                '--settings', $Manifest.TestSettingsPath
-                '--nologo'
-            )
-            dotnet-coverage @instrumentArgs | Out-Host
-            if ($LASTEXITCODE) {
-                throw "Failed to instrument $dll"
+    # Our assemblies are the ones with a pdb, the Loader is ALC boilerplate
+    # and is excluded. dotnet-coverage collect instruments them for the run
+    # with --include-files.
+    $includeFiles = @(
+        Get-ChildItem -LiteralPath $watchFolder -Filter "*.pdb" |
+            Where-Object BaseName -NE "$($Manifest.Module.Name).Loader" |
+            ForEach-Object {
+                [Path]::Combine($watchFolder, "$($_.BaseName).dll")
             }
-
-            $dll
-            $_.Name
-        }
     )
+
+    # DoesNotReturnAttribute = AllAssemblies needs the instrumenter to resolve
+    # S.M.A next to our assemblies to see any pwsh [DoesNotReturn] attribute,
+    # for example Cmdlet.ThrowTerminatingError, and not include the return
+    # path as a missed coverage branch. The S.M.A of the pwsh under test is
+    # copied there for the run. The module still uses the pwsh copy as the
+    # loader only resolves the assemblies in PSWSMan.deps.json, see
+    # tests/Alc.Tests.ps1.
+    $smaPath = [Path]::Combine($watchFolder, 'System.Management.Automation.dll')
 
     $arguments = @(
         'collect'
         $pwsh
         $pwshArguments
-        '--session-id', $sessionId
         '--output', $coveragePath
         '--settings', $Manifest.TestSettingsPath
+        foreach ($file in $includeFiles) {
+            '--include-files', $file
+        }
     )
 
     $origEnv = $env:PSModulePath
@@ -348,9 +331,10 @@ task PesterTests {
     # tickets. Windows keeps its tickets in LSA and the tests do not touch them there.
     $ccachePath = [Path]::Combine($Manifest.TestResultsPath, 'krb5cc')
     try {
-        foreach ($name in $instrumentedFiles) {
-            Copy-Item -LiteralPath ([Path]::Combine($instrumentPath, $name)) -Destination $watchFolder -Force
-        }
+        $pwshSma = [Path]::Combine(
+            $pwshHome,
+            'System.Management.Automation.dll')
+        Copy-Item -LiteralPath $pwshSma -Destination $smaPath
 
         $env:PSModulePath = @(
             [Path]::Combine($pwshHome, "Modules")
@@ -364,13 +348,7 @@ task PesterTests {
         dotnet-coverage @arguments
     }
     finally {
-        # instrument keeps the original of each file it changes as .orig.
-        foreach ($name in $instrumentedFiles) {
-            Copy-Item -LiteralPath ([Path]::Combine($instrumentPath, "$name.orig")) `
-                -Destination ([Path]::Combine($watchFolder, $name)) -Force
-        }
-        Remove-Item -LiteralPath $instrumentPath -Recurse -Force
-
+        Remove-Item -LiteralPath $smaPath -Force -ErrorAction Ignore
         $env:PSModulePath = $origEnv
         if (-not $IsWindows) {
             $env:KRB5CCNAME = $origCCache
@@ -395,24 +373,24 @@ task CoverageReport {
         Remove-Item $mergedCoveragePath -Force
     }
 
+    # ReportGenerator merges the unit test and Pester reports by file and
+    # line, keeping the line and branch coverage of both.
     $coverageFiles = Get-ChildItem -Path $Manifest.TestResultsPath -Filter "*.Coverage.cobertura.xml"
-    dotnet-coverage merge $coverageFiles.FullName --output $mergedCoveragePath --output-format cobertura
-    if ($LASTEXITCODE) {
-        throw "Failed to merge coverage files"
-    }
-
     $reportPath = [Path]::Combine($Manifest.TestResultsPath, "CoverageReport")
     $reportArgs = @(
-        "-reports:$mergedCoveragePath"
+        "-reports:$($coverageFiles.FullName -join ';')"
         "-sourcedirs:$($Manifest.RepositoryPath)/src"
         "-targetdir:$reportPath"
         '-filefilters:-*.g.cs'  # Filter out source generated files
-        '-reporttypes:Html_Dark;JsonSummary'
+        '-reporttypes:Html_Dark;JsonSummary;Cobertura'
     )
     reportgenerator @reportArgs
     if ($LASTEXITCODE) {
         throw "reportgenerator failed with RC of $LASTEXITCODE"
     }
+
+    $mergedReport = [Path]::Combine($reportPath, 'Cobertura.xml')
+    Copy-Item -LiteralPath $mergedReport -Destination $mergedCoveragePath
 
     $coverageScript = [Path]::Combine($PSScriptRoot, 'CoverageReport.ps1')
     & $coverageScript -Path $mergedCoveragePath

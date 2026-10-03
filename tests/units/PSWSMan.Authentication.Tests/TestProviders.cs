@@ -83,18 +83,7 @@ internal static class TestProviders
     }
 
     private static AuthProvider? LoadDevolutions()
-    {
-        // The package's runtimes folder is copied next to the test assembly by the project reference, which is a
-        // different layout from the built module so the path is resolved here rather than by ProviderLibs.
-        string path = Path.Combine(
-            AppContext.BaseDirectory,
-            "runtimes",
-            ProviderLibs.RuntimeId,
-            "native",
-            $"{ProviderLibs.LibPrefix}DevolutionsSspi.{ProviderLibs.LibExt}");
-
-        return NativeLibrary.TryLoad(path, out IntPtr lib)
-            ? AuthProvider.FromSspi(Devolutions, new SspiProvider(lib))
+        => ProviderLibs.TryGetDevolutionsSspi(out SspiProvider? provider, out _)
+            ? AuthProvider.FromSspi(Devolutions, provider)
             : null;
-    }
 }

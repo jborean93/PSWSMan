@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using System.IO;
+using System.Reflection;
 using System.Runtime.InteropServices;
 
 namespace PSWSMan.Authentication.Native;
@@ -27,20 +27,6 @@ internal static class ProviderLibs
     private static GssapiProvider? s_systemGssapi;
     private static readonly Dictionary<string, GssapiProvider> s_gssapiCache = new(StringComparer.Ordinal);
 
-    public static string LibPrefix { get; } = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "" : "lib";
-
-    public static string LibExt { get; } = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-        ? "dll"
-        : RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "dylib" : "so";
-
-    public static string OsName { get; } = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-        ? "win"
-        : RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "osx" : IsMusl() ? "linux-musl" : "linux";
-
-    /// <summary>The runtimes folder name holding the native libraries for this process, like linux-musl-x64.</summary>
-    public static string RuntimeId { get; } =
-        $"{OsName}-{RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant()}";
-
     /// <summary>Gets the Devolutions SSPI library bundled with the module.</summary>
     /// <param name="provider">The loaded provider.</param>
     /// <param name="error">Why the library could not be loaded.</param>
@@ -58,15 +44,12 @@ internal static class ProviderLibs
                 return true;
             }
 
-            string devolutionsPath = Path.Combine(
-                Path.GetDirectoryName(typeof(ProviderLibs).Assembly.Location) ?? "",
-                "..",
-                "runtimes",
-                RuntimeId,
-                "native",
-                $"{LibPrefix}DevolutionsSspi.{LibExt}");
-
-            if (TryLoadProvider("Devolutions SSPI", devolutionsPath, h => new SspiProvider(h), out provider, out error))
+            // Resolved by name against the module assembly, so the load
+            // context (or the host for a project referencing the assembly)
+            // picks the runtimes/<rid>/native asset of this RID from the
+            // .deps.json.
+            if (TryLoadProvider("Devolutions SSPI", "DevolutionsSspi", typeof(ProviderLibs).Assembly,
+                h => new SspiProvider(h), out provider, out error))
             {
                 s_devolutionsSspi = provider;
                 return true;
@@ -178,7 +161,7 @@ internal static class ProviderLibs
         }
 
         bool isGssFramework = IsGssFramework(gssapiLib);
-        if (TryLoadProvider("GSSAPI", gssapiLib, h => new GssapiProvider(h, isGssFramework), out provider, out error))
+        if (TryLoadProvider("GSSAPI", gssapiLib, null, h => new GssapiProvider(h, isGssFramework), out provider, out error))
         {
             s_gssapiCache[gssapiLib] = provider;
             return true;
@@ -190,12 +173,16 @@ internal static class ProviderLibs
     /// <summary>Loads a native library and builds its provider, describing any failure.</summary>
     /// <param name="kind">What the library is, used in the failure message.</param>
     /// <param name="lib">The library name or path to load.</param>
+    /// <param name="assembly">
+    /// The assembly whose load context and deps.json resolve a bare name, or null to use the system search path.
+    /// </param>
     /// <param name="factory">Builds the provider from the loaded handle and takes ownership of it.</param>
     /// <param name="provider">The built provider.</param>
     /// <param name="error">Why the library could not be loaded or is missing a required export.</param>
     private static bool TryLoadProvider<T>(
         string kind,
         string lib,
+        Assembly? assembly,
         Func<IntPtr, T> factory,
         [NotNullWhen(true)] out T? provider,
         [NotNullWhen(false)] out Exception? error)
@@ -204,7 +191,7 @@ internal static class ProviderLibs
         IntPtr handle;
         try
         {
-            handle = NativeLibrary.Load(lib);
+            handle = assembly is null ? NativeLibrary.Load(lib) : NativeLibrary.Load(lib, assembly, null);
         }
         catch (Exception e) when (e is DllNotFoundException or BadImageFormatException)
         {
@@ -246,13 +233,4 @@ internal static class ProviderLibs
     private static bool IsGssFramework(string gssapiLib)
         => RuntimeInformation.IsOSPlatform(OSPlatform.OSX) &&
             (gssapiLib == MacosGssFramework || gssapiLib.EndsWith("/GSS.framework/GSS", StringComparison.Ordinal));
-
-    /// <summary>Whether the process runs on musl rather than glibc, like on Alpine.</summary>
-    /// <remarks>
-    /// glibc exports gnu_get_libc_version and musl does not. This checks the libc the process was loaded with, so a
-    /// musl loader installed alongside glibc does not affect it.
-    /// </remarks>
-    private static bool IsMusl()
-        => RuntimeInformation.IsOSPlatform(OSPlatform.Linux) &&
-            !NativeLibrary.TryGetExport(NativeLibrary.GetMainProgramHandle(), "gnu_get_libc_version", out _);
 }

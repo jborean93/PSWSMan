@@ -33,8 +33,8 @@ their options as a `WinRMSessionOption`.
 | `src/PSWSMan/Connection/` | The synchronous HTTP transport (`PSWSMan.Connection` namespace): one authenticated socket per `WSManHttpConnection`, a `WSManConnectionPool` handing them out under exclusive leases, and `WinRSShell`/`WinRSReceivePump` driving a WinRS shell with dedicated receive threads. Nothing in this folder may reference S.M.A types so it can be loaded by a plain unit test project. |
 | `src/PSWSMan/CustomTransport/` | The hook-free PSSession behind `New-WinRMSession`: `WinRMConnectionInfo` and its transport manager plug into PowerShell's public custom transport API. The protocol work is done by `OutOfProcWSManTranslator` in `src/PSWSMan/Connection/`, which turns the OutOfProc packets PowerShell writes into WSMan shell operations through `IWSManShellOperations` and the Receive output back into packets, it has no S.M.A dependency so `PSWSMan.Connection.Tests` covers it with a fake shell. Only public or protected S.M.A members may be used here; the project compiles with `IgnoresAccessChecksTo` so the compiler will not catch a slip. The `TracePath` session option (`New-WinRMSessionOption -TracePath`) logs the translated traffic to a file. |
 | `src/PSWSMan.Lib/` | Protocol-only library: WSMan/WinRS envelope building and response parsing. No PowerShell dependency, so it is unit testable with plain `dotnet test`. |
-| `src/PSWSMan.Loader/` | Tiny `AssemblyLoadContext` used by `module/PSWSMan.psm1` to isolate the module's dependencies from the host process. |
-| `src/Directory.Build.props` | Shared compiler settings (C# 12, nullable enabled, unsafe allowed). |
+| `src/PSWSMan.Loader/` | Tiny `AssemblyLoadContext` used by `module/PSWSMan.psm1` to isolate the module's dependencies from the host process. It resolves them from `bin/<tfm>/PSWSMan.deps.json`, see "Dependencies and the load context". `tests/Alc.Tests.ps1` checks what lands in which context. |
+| `src/Directory.Build.props` | Shared compiler settings (nullable enabled, unsafe allowed). |
 | `src/Directory.Packages.props` | Central package management. All NuGet versions live here; `.csproj` files reference packages without a `Version`. |
 | `module/` | The `.psd1` manifest and `.psm1` loader script copied verbatim into the built module. `ModuleVersion` here is the single source of truth for the version. |
 | `docs/en-US/PSWSMan/` | Microsoft.PowerShell.PlatyPS markdown help (PlatyPS always nests pages under a folder named after the module). Cmdlet pages are compiled to MAML and `about_*.md` pages are copied as `about_*.help.txt` at build time. Edit the prose here when cmdlet parameters or behaviour change; run `tools/UpdateDocs.ps1` to sync the syntax and parameter metadata. |
@@ -136,16 +136,20 @@ The `Test` task runs, in order:
    under `dotnet-coverage collect`, running all `tests/*.Tests.ps1`. Results
    go to `output/TestResults/Pester.xml` and
    `output/TestResults/Integration.Coverage.cobertura.xml`. The module
-   assemblies are instrumented first with `dotnet-coverage instrument` in a
-   copy of the `bin` folder next to that `pwsh`'s S.M.A, so the coverage
-   settings' `DoesNotReturnAttribute = AllAssemblies` can see that
-   `ThrowTerminatingError` does not return, and put back once the tests end.
-   `tests/units/Directory.Build.targets` copies S.M.A to the output of the unit
-   test projects referencing `PSWSMan` for the same reason.
-5. `CoverageReport`: merges the cobertura files into
-   `output/TestResults/Coverage.cobertura.xml`, writes an HTML report to
-   `output/TestResults/CoverageReport/`, and prints a summary table of files
-   with missing coverage.
+   assemblies (those with a `.pdb`, minus `PSWSMan.Loader`) are passed with
+   `--include-files` so `collect` instruments them for the run. That `pwsh`'s
+   S.M.A is copied next to them for the duration so the coverage settings'
+   `DoesNotReturnAttribute = AllAssemblies` can see that
+   `ThrowTerminatingError` does not return. The module keeps using
+   PowerShell's S.M.A because the loader only resolves what
+   `PSWSMan.deps.json` lists. `tests/units/Directory.Build.targets` copies
+   S.M.A to the output of the unit test projects referencing `PSWSMan` for
+   the same reason.
+5. `CoverageReport`: merges the cobertura files with ReportGenerator, which
+   combines the line and branch coverage of the unit and Pester runs per
+   file, into `output/TestResults/Coverage.cobertura.xml`, writes an HTML
+   report to `output/TestResults/CoverageReport/`, and prints a summary table
+   of files with missing coverage.
 
 Useful variations:
 
@@ -298,7 +302,7 @@ tests and the .NET unit tests actually execute there. Put protocol logic in
 
 ## Code conventions
 
-- C# 12, `Nullable` enabled, file-scoped namespaces, 4-space indent. Public
+- The target framework's default C# version, `Nullable` enabled, file-scoped namespaces, 4-space indent. Public
   API in `PSWSMan.Lib` has XML doc comments. Private static fields use the
   `s_` prefix.
 - Line endings are LF everywhere (`.gitattributes` sets `text=auto`). Trim
@@ -340,6 +344,57 @@ tests and the .NET unit tests actually execute there. Put protocol logic in
   `ref/<tfm>/System.Management.Automation.dll` of the NuGet package without
   `IgnoresAccessChecksTo` and without the `Enable-PSWSMan` path files, every
   compile error is an internal use.
+
+### Dependencies and the load context
+
+`PSWSMan.dll` and its dependencies (`PSWSMan.Lib`, MonoMod, Devolutions.Sspi,
+...) live in a private `AssemblyLoadContext` created by `PSWSMan.Loader`.
+PowerShell can resolve types in `PSWSMan.dll` by name because the module
+imports that assembly directly (`Import-Module -Assembly`). It cannot resolve
+types from the dependencies (`[PSWSMan.Lib.WSManClient]` and `-as [type]`
+fail), and those types can clash with copies of the same assembly in the
+default context. So:
+
+- Cmdlet parameter types must be either built-in types (BCL or
+  `System.Management.Automation`) or types defined in `PSWSMan.dll` itself.
+  Never use a dependency's type as a parameter type.
+- Never write a dependency's object directly to the pipeline or expose one
+  as a property type. Wrap it in a `PSWSMan` type that exposes the needed
+  data through built-in or `PSWSMan` types. The wrapper may keep the
+  dependency object internally.
+- `PSWSMan.Loader` is shared by every runspace and stays loaded for the life
+  of the process. Only one copy of the module can be loaded per process;
+  `PSWSMan.psm1` refuses to import a copy from a different path.
+- Dependencies are resolved from `bin/<tfm>/PSWSMan.deps.json` with
+  `AssemblyDependencyResolver`, so keep the standard `dotnet publish` layout
+  (RID specific assets in `bin/<tfm>/runtimes/`) intact. The native
+  Devolutions library is loaded by name with `NativeLibrary.Load` against
+  the module assembly in `ProviderLibs`, so the load context's
+  `LoadUnmanagedDll` picks the `runtimes/<rid>/native` asset for the current
+  RID from the deps.json. A project referencing `PSWSMan`, like the unit
+  tests, gets the same from the host and its own deps.json.
+
+The loader only loads assemblies listed in `PSWSMan.deps.json` into the
+`PSWSMan` context. Anything not listed falls back to the default context,
+which is the copy shipped with PowerShell or .NET. Whether a dependency is
+bundled is therefore decided at build time by the `PackageReference`:
+
+- To use PowerShell's copy, exclude the runtime assets like
+  `System.Management.Automation` does. Only do this when every supported
+  PowerShell version ships an assembly version at least as high as the one
+  compiled against.
+- To bundle a copy, use a plain `PackageReference`. Do not add
+  `PrivateAssets="all"`: the SDK treats it as `Publish="false"` and the
+  assembly is silently not published.
+- An assembly that is part of the .NET shared framework, such as
+  `System.Formats.Asn1`, is only published when the package version is
+  higher than the runtime's. Otherwise build conflict resolution drops it and
+  the runtime copy is used, whatever the `PackageReference` says.
+- A bundled copy of an assembly PowerShell also loads has different types
+  from PowerShell's copy, which is another reason for the rules above.
+
+Check `PSWSMan.deps.json` and `bin/<tfm>/` in the built module to confirm
+what was bundled.
 
 ### Verifying manually against a WinRM host
 
