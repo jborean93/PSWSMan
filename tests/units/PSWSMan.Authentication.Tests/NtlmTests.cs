@@ -80,11 +80,6 @@ public class NtlmTests
     [Arguments(TestProviders.Devolutions)]
     public async Task Credentials_ForTheSameUser_KeepTheirOwnPassword(string providerName)
     {
-        // Devolutions.Sspi 2026.9.29 answers with the password of the last credential acquired for the user, so a
-        // wrong password authenticates once a right one is acquired after it and the right one is then rejected.
-        // Enable it for Devolutions again once the package is updated with the fix.
-        Skip.When(providerName == TestProviders.Devolutions,
-            "Devolutions.Sspi 2026.9.29 uses the password of the last credential acquired for the user");
         AuthProvider provider = TestProviders.Require(providerName);
         using WSManCredential wrong = CreateCredential(provider, password: "WrongPassword");
         using WSManCredential right = CreateCredential(provider);
