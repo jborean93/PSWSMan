@@ -14,9 +14,6 @@
     <PackageVersion Include="MonoMod.RuntimeDetour" Version="25.3.6" />
     <PackageVersion Include="System.Formats.Asn1" Version="8.0.0" />
     <PackageVersion Include="System.Management.Automation" Version="7.4.0" />
-
-    <!-- Build/CI -->
-    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="8.0.0" />
   </ItemGroup>
 
 </Project>

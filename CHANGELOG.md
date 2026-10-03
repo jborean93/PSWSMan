@@ -48,6 +48,7 @@ The following features have been introduced in this version
   + `Enable-PSWSMan` now hooks the deserializer on non-Windows platforms so these objects no longer depend on `libmi` at all, they keep the same properties and formatting
   + They are no longer a `CimInstance` so `CimClass`, `CimSystemProperties` and `Invoke-CimMethod -InputObject` are not available on the client, and arrays are returned as `ArrayList`
   + Windows is unaffected as the MI library is part of the OS
++ Importing a second copy of the module from another path in the same process now fails with `ModuleAlreadyLoadedFromDifferentPath`, a binary module cannot be unloaded so the first copy is the only one that process can use
 + `Enter-PSSession` can now be stopped with `Ctrl+C` while it is connecting, previously it ignored the stop until the connection failed
 + `Clear-Host` (`clear`/`cls`) in a remote session to a Windows host now clears the screen on non-Windows clients, previously it only moved the cursor to the top and failed with `The method or operation is not implemented`
   + This also applies to the sessions of `New-WinRMSession` and `Enter-WinRMSession`, without `Enable-PSWSMan`
