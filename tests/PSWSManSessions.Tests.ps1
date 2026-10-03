@@ -854,6 +854,8 @@ Describe "PSWSMan PSRemoting tests - <_.Name>" -ForEach (Get-PSWSManTestServer -
                     Write-Information -MessageData 'information message'
                     Write-Host 'host message'
                     Write-Progress -Activity 'activity' -Status 'status' -PercentComplete 50 -Id 7
+                    # The records reach the local host, an activity left open stays on screen for the rest of the run.
+                    Write-Progress -Activity 'activity' -Id 7 -Completed
                     Write-Error -Message 'error message' -ErrorId MyErrorId -TargetObject 'target'
                     'output'
                 })
@@ -874,10 +876,12 @@ Describe "PSWSMan PSRemoting tests - <_.Name>" -ForEach (Get-PSWSManTestServer -
 
             # The server may add its own progress records, like preparing modules for first use.
             $progress = @($ps.Streams.Progress | Where-Object ActivityId -eq 7)
-            $progress.Count | Should-Be 1
+            $progress.Count | Should-Be 2
             $progress[0].Activity | Should-Be activity
             $progress[0].StatusDescription | Should-Be status
             $progress[0].PercentComplete | Should-Be 50
+            $progress[0].RecordType | Should-Be Processing
+            $progress[1].RecordType | Should-Be Completed
 
             $ps.Streams.Error.Count | Should-Be 1
             $ps.Streams.Error[0].Exception | Should-HaveType ([System.Management.Automation.RemoteException])

@@ -380,6 +380,27 @@ foreach (`$p in @($paths)) {
             $err[0].Exception.Message | Should-Be "The remote path 'C:\' does not have a file name."
         }
 
+        It "Reports a command line too long for cmd.exe with <_>" -ForEach @('Send-WinRSFile', 'Receive-WinRSFile') {
+            $file = New-Item -Path "$TestDrive/long.txt" -ItemType File -Force
+            $cmdlet = $_
+            # The remote path is embedded in the command line, one this long cannot fit in what cmd.exe accepts.
+            $remotePath = 'C:\' + ('a' * 8191)
+            $params = if ($cmdlet -eq 'Send-WinRSFile') {
+                @{ Path = $file.FullName; Destination = $remotePath }
+            }
+            else {
+                @{ Path = $remotePath; Destination = $TestDrive }
+            }
+
+            & $cmdlet -ComputerName 'pswsman.invalid' @params -ErrorAction SilentlyContinue -ErrorVariable err
+
+            $err.Count | Should-Be 1
+            $err[0].Exception.Message | Should-BeLikeString 'The remote PowerShell command line is * characters, more than the 8191 cmd.exe accepts. Use shorter paths.'
+            $err[0].FullyQualifiedErrorId | Should-BeLikeString 'WinRS*FileFailed,PSWSMan.Commands.*WinRSFile'
+            $err[0].CategoryInfo.Category | Should-Be 'InvalidArgument'
+            Get-ChildItem -LiteralPath $TestDrive -Filter '.*.tmp' -Force | Should-BeNull
+        }
+
         It "Does not connect with WhatIf" {
             $file = New-Item -Path "$TestDrive/whatif.txt" -ItemType File -Force
 
