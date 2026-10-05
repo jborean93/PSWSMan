@@ -26,7 +26,7 @@ their options as a `WinRMSessionOption`.
 | Path | Purpose |
 | --- | --- |
 | `build.ps1` | Entry point for every build and test action. Wraps InvokeBuild. |
-| `manifest.psd1` | Pinned versions of the PowerShell build/test modules (InvokeBuild, Pester, Microsoft.PowerShell.PlatyPS, PSResourceGet, OpenAuthenticode) and the Python packages the authentication tests need. |
+| `manifest.psd1` | Pinned versions of the PowerShell build/test modules (InvokeBuild, Pester, Microsoft.PowerShell.PlatyPS, PSResourceGet, OpenAuthenticode, Obol for the test KDC) and the Python packages the authentication tests need. |
 | `global.json` | Pins the .NET SDK (10.0.x) and selects `Microsoft.Testing.Platform` as the `dotnet test` runner. |
 | `PSWSMan.slnx` | Solution file listing the three `src/` projects. |
 | `src/PSWSMan/` | The PowerShell module assembly: cmdlets, S.M.A patches, authentication (GSSAPI, SSPI, CredSSP, Basic, certificate), TLS, PSRP session bridge (`WSManPSRPSession.cs`). Compiles against the S.M.A implementation assembly from the `System.Management.Automation` NuGet package. |
@@ -42,7 +42,7 @@ their options as a `WinRMSessionOption`.
 | `tests/data/` | Files the tests share. `WinRSCommandLine.json` holds the `ConvertTo-WinRSCommandLine` cases that both the `PSWSMan.Lib` unit tests and `tests/ConvertTo-WinRSCommandLine.Tests.ps1` run, and `print_argv.cs` is the argv printer the Pester test compiles on the WinRM host, at the relative `file_path` of the cases under the shell's working directory, to run each expected line verbatim. `RecordingHost.cs` has `PSHost` implementations that record every member called on them, for tests of host calls and the host wrapper. |
 | `tests/common.ps1` | Dot-sourced by every Pester file. Imports the built module and runs `Enable-PSWSMan -Force`. |
 | `tests/units/<Project>/` | .NET unit test projects (TUnit). Each directory is discovered and run automatically by the `Test` task. |
-| `tests/units/PSWSMan.Authentication.Tests/` | Drives the module's authentication contexts (GSSAPI, Windows SSPI, Devolutions) against an independent acceptor, the pyspnego library, over stdin/stdout. `acceptor.py` is the Python side. These tests skip when Python with pyspnego is not available. |
+| `tests/units/PSWSMan.Authentication.Tests/` | Drives the module's authentication contexts (GSSAPI, Windows SSPI, Devolutions) against an independent acceptor, the pyspnego library, over stdin/stdout. `acceptor.py` is the Python side. These tests skip when Python with pyspnego is not available. The Kerberos tests also need the Obol KDC that `build.ps1` starts around the unit test run (`Invoke-WithTestKdc` in `tools/common.ps1`) and skip without it, see "Testing". |
 | `tools/` | Scripts used by `build.ps1`. `InvokeBuild.ps1` defines the tasks; `common.ps1` holds the `Manifest` class and helpers. `UpdateDocs.ps1` regenerates the markdown help from the built module. `SetupWinCI.ps1` configures the Windows CI runner as a WinRM target (listeners, local user, certificate auth, JEA) and writes the matching `test.settings.json`. Run it under Windows PowerShell as an administrator. |
 | `output/` | Git-ignored. Built module, nupkg, downloaded PowerShell versions, cached build modules, and test results all land here. Never commit or hand-edit it. |
 | `CHANGELOG.md` | Update under the top (unreleased) heading for any user-visible change. |
@@ -125,12 +125,24 @@ The `Test` task runs, in order:
    installs the `PythonRequirements` pinned in `manifest.psd1`, with `uv`
    when it is on the PATH and otherwise with `python` and `pip`. Its
    interpreter is passed to the unit tests through `PSWSMAN_TEST_PYTHON`.
-   Without either this warns and the tests needing it skip.
+   Without either this warns and the tests needing it skip. The `kerberos`
+   extra of pyspnego is python-gssapi, which the Kerberos acceptor needs on
+   Linux and macOS; on Windows pyspnego uses SSPI and the extra adds nothing.
 3. `UnitTests`: for every directory under `tests/units/`, runs `dotnet test
    --project <dir>` with coverage enabled, in the same `-Configuration` as the
    module so the line sets of both coverage reports match (a Debug build has
    sequence points on braces that Release does not). Output goes to
-   `output/TestResults/Unit.<Project>.Coverage.cobertura.xml`.
+   `output/TestResults/Unit.<Project>.Coverage.cobertura.xml`. The whole run
+   is wrapped in `Invoke-WithTestKdc` (`tools/common.ps1`), which starts an
+   Obol KDC for the realm `PSWSMAN.TEST` with a user and a service account
+   whose alias is the SPN `HTTP/winrm.pswsman.test`, and runs the tests in
+   its krb5 environment (`KRB5_CONFIG`, `KRB5_KTNAME`, ...). On Windows the
+   realm is also registered with Windows Kerberos machine wide
+   (`Use-ObolSspiEnvironment -Scope MitRealm`, the `ksetup` registry keys),
+   which needs an elevated session. The settings the tests read are passed as
+   JSON in `PSWSMAN_TEST_KERBEROS`. Obol needs PowerShell 7.6, so with an
+   older `pwsh`, or a non-elevated one on Windows, this warns and the
+   Kerberos tests skip.
 4. `PesterTests`: launches a separate `pwsh` process (downloaded into
    `output/PowerShell-<version>-<arch>/` if it does not match the current one)
    under `dotnet-coverage collect`, running all `tests/*.Tests.ps1`. Results
@@ -176,6 +188,22 @@ dotnet test --project tests/units/PSWSMan.Lib.Tests -- --treenode-filter "/*/*/W
 
 # The authentication tests need pyspnego, point them at the venv the Test task made (absolute path)
 PSWSMAN_TEST_PYTHON=$PWD/output/python-venv/bin/python dotnet test --project tests/units/PSWSMan.Authentication.Tests
+```
+
+The Kerberos tests in that project also need the KDC, run them through the
+same wrapper the build uses. It needs PowerShell 7.6 for Obol, which the
+`Test` task installs into `output/Modules`, and an elevated session on
+Windows. On Linux and macOS set `KRB5CCNAME` first as for the Pester tests
+below, the module's GSSAPI provider keeps its tickets in memory but the
+variable keeps any stray `kinit` away from your own cache.
+
+```powershell
+pwsh -NoProfile -Command {
+    Import-Module ./output/Modules/Obol
+    . ./tools/common.ps1
+    $env:PSWSMAN_TEST_PYTHON = (Resolve-Path ./output/python-venv/bin/python).Path
+    Invoke-WithTestKdc { dotnet test --project tests/units/PSWSMan.Authentication.Tests }
+}
 ```
 
 Pester tests need a built module. Run them in a fresh process so a stale
@@ -274,7 +302,11 @@ an elevated shell.
   may spawn is the pyspnego acceptor in `PSWSMan.Authentication.Tests`, which
   checks the token exchange and message protection of each security library
   against an independent implementation without any HTTP involved. Tests
-  needing it must go through `Acceptor.Start` so they skip cleanly. `Trace-Command -Name
+  needing it must go through `Acceptor.Start` so they skip cleanly, and tests
+  needing the Kerberos realm through `KerberosRealm.Require`. The KDC is
+  started by `build.ps1` around the run, never by a test, so the realm is the
+  same for every test: one user, one service, pick the acceptor protocol and
+  options per test instead. `Trace-Command -Name
   ClientTransport -FilePath ...` captures the transport and pump activity of the
   patched builtin cmdlets, `-SessionOption @{ TracePath = '...' }` that of
   `New-WinRMSession` and the WinRS cmdlets.
@@ -297,7 +329,9 @@ gss-ntlmssp so MIT krb5 can do NTLM. Coverage goes to Codecov. Pushes to `main` 
 tagged releases (`v*`) build in `Release` configuration; pull requests build
 `Debug`. Releases are signed with Azure Trusted Signing and published to the
 PowerShell Gallery. CI has no WinRM server, so only the non-connection Pester
-tests and the .NET unit tests actually execute there. Put protocol logic in
+tests and the .NET unit tests actually execute there. The Kerberos unit
+tests do run in CI: the runner images have PowerShell 7.6 for Obol and the
+Windows runners are elevated. Put protocol logic in
 `PSWSMan.Lib` so it can be covered by unit tests.
 
 ## Code conventions

@@ -18,7 +18,11 @@ Operations:
     protocol, hostname, service, options (list of NegotiateOptions names),
     context_req (int, optional), channel_bindings (base64 application data,
     optional), tls (optional, CredSSP only: ``tls1.3``, ``tls1.2-aead`` or
-    ``tls1.2-cbc`` pins the acceptor's TLS version and cipher family).
+    ``tls1.2-cbc`` pins the acceptor's TLS version and cipher family),
+    username and password (optional, the credential the acceptor accepts
+    with; without them the default credential is used, for Kerberos the
+    keytab ``KRB5_KTNAME`` points to on GSSAPI, which SSPI does not read so
+    a Kerberos acceptor on Windows is given the service account's password).
     Creates the acceptor context.
 ``step``
     token (base64 or null). Returns token (base64 or null) and complete.
@@ -125,6 +129,8 @@ class Acceptor:
             kwargs["context_req"] = spnego.ContextReq(request["context_req"])
         if request.get("tls") is not None:
             kwargs["credssp_tls_context"] = create_tls_context(request["tls"])
+        if request.get("username") is not None:
+            kwargs["credentials"] = spnego.Password(username=request["username"], password=request["password"])
 
         self.context = spnego.server(
             hostname=request.get("hostname", "unspecified"),
@@ -201,6 +207,16 @@ def main() -> None:
     # name over mDNS, which a headless CI runner holds pending the Local Network permission until each of the forward
     # and reverse lookups times out after 35 seconds. Nothing checks the value so we hardcode one here.
     socket.getfqdn = lambda name="": "acceptor.test"
+
+    # python-gssapi holds back a step error that comes with an output token, such as the KRB-ERROR for mismatched
+    # channel bindings, to raise it on the next call. pyspnego reads the context flags straight after the step and
+    # trips over the unstarted context instead, so have the step raise the error itself.
+    try:
+        import gssapi
+
+        gssapi.SecurityContext.__DEFER_STEP_ERRORS__ = False
+    except ImportError:
+        pass
 
     acceptor = Acceptor()
     stdin = sys.stdin.buffer
