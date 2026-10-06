@@ -119,8 +119,15 @@ internal sealed class Acceptor : IDisposable
     /// <param name="service">The acceptor service used to build its SPN.</param>
     /// <param name="channelBindings">The application data of the channel bindings the acceptor expects.</param>
     /// <param name="tls">CredSSP only, pins the acceptor's TLS version and cipher family, see acceptor.py.</param>
+    /// <param name="username">
+    /// The user the acceptor accepts as, null for the default credential, which for a GSSAPI Kerberos acceptor is
+    /// the keytab KRB5_KTNAME points to. SSPI does not read KRB5_KTNAME so a Kerberos acceptor on Windows is given
+    /// the password of the service account instead.
+    /// </param>
+    /// <param name="password">The password of <paramref name="username"/>.</param>
     public void Create(string protocol, string[]? options = null, string hostname = "unspecified",
-        string service = "host", byte[]? channelBindings = null, string? tls = null)
+        string service = "host", byte[]? channelBindings = null, string? tls = null, string? username = null,
+        string? password = null)
     {
         Send(new
         {
@@ -131,6 +138,8 @@ internal sealed class Acceptor : IDisposable
             service,
             channel_bindings = channelBindings,
             tls,
+            username,
+            password,
         });
     }
 

@@ -18,23 +18,31 @@ internal static class AuthExchange
     public static int Authenticate(IWSManAuthenticationContext client, Acceptor acceptor)
     {
         byte[]? inToken = null;
-        int rounds = 0;
+        int tokens = 0;
         while (!client.Complete)
         {
-            if (++rounds > MaxRounds)
+            if (tokens >= MaxRounds)
             {
                 throw new InvalidOperationException($"Authentication did not complete after {MaxRounds} rounds");
             }
 
             byte[]? outToken = client.Step(inToken);
+            inToken = null;
             if (outToken is null || outToken.Length == 0)
             {
+                // Kerberos completes on the AP-REP without answering it, NTLM completes with the AUTHENTICATE message
+                // the acceptor still has to see.
+                if (client.Complete)
+                {
+                    break;
+                }
+
                 throw new InvalidOperationException(
-                    $"Client produced no token on round {rounds} but is not complete ({client.AuthenticationStage})");
+                    $"Client produced no token on round {tokens + 1} but is not complete ({client.AuthenticationStage})");
             }
 
-            AcceptorStepResult result = acceptor.Step(outToken);
-            inToken = result.Token;
+            tokens++;
+            inToken = acceptor.Step(outToken).Token;
         }
 
         if (inToken is { Length: > 0 })
@@ -42,7 +50,7 @@ internal static class AuthExchange
             throw new InvalidOperationException("Acceptor returned a token after the client completed");
         }
 
-        return rounds;
+        return tokens;
     }
 
     /// <summary>Wraps with the client and unwraps with the acceptor, returning what the acceptor recovered.</summary>

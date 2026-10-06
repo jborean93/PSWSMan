@@ -387,40 +387,172 @@ function Install-BuildDependencies {
     )
 
     begin {
-        $modules = [List[IDictionary]]::new()
+        $specifications = [List[string]]::new()
+        $modulePaths = [List[string]]::new()
         $modulePath = [Path]::Combine($PSScriptRoot, "..", "output", "Modules")
     }
     process {
         foreach ($dep in $Requirements) {
-            $currentModPath = [Path]::Combine($modulePath, $dep.ModuleName)
-            if (Test-Path -LiteralPath $currentModPath) {
-                Import-Module -Name $currentModPath
+            # A requirement can name the PowerShell version it needs, it is
+            # left out on an older host instead of failing the import.
+            if ($dep.PowerShellVersion -and $PSVersionTable.PSVersion -lt [Version]$dep.PowerShellVersion) {
+                Write-Warning "Skipping the module $($dep.ModuleName), it needs PowerShell $($dep.PowerShellVersion) or newer"
                 continue
             }
-            $modules.Add($dep)
+
+            $currentModPath = [Path]::Combine($modulePath, $dep.ModuleName)
+            if (-not (Test-Path -LiteralPath $currentModPath)) {
+                # ModuleFast specification strings, a RequiredVersion with a
+                # prerelease label cannot be given as a hashtable.
+                $specifications.Add($dep.RequiredVersion ?
+                    "$($dep.ModuleName):[$($dep.RequiredVersion)]" :
+                    "$($dep.ModuleName)>=$($dep.ModuleVersion)")
+            }
+            $modulePaths.Add($currentModPath)
         }
     }
     end {
-        if (-not $modules) {
+        if ($specifications) {
+            Assert-ModuleFast -Version v0.6.1
+
+            $installParams = @{
+                Specification = $specifications
+                Destination = $modulePath
+                DestinationOnly = $true
+                NoPSModulePathUpdate = $true
+                NoProfileUpdate = $true
+                Update = $true
+            }
+            if (-not (Test-Path -LiteralPath $installParams.Destination)) {
+                New-Item -Path $installParams.Destination -ItemType Directory -Force | Out-Null
+            }
+            Install-ModuleFast @installParams
+        }
+
+        foreach ($path in $modulePaths) {
+            Import-Module -Name $path
+        }
+    }
+}
+
+function Invoke-WithTestKdc {
+    <#
+    .SYNOPSIS
+    Runs a scriptblock with a Kerberos realm for the authentication unit tests.
+
+    .DESCRIPTION
+    Starts an Obol KDC for the realm PSWSMAN.TEST and runs the scriptblock in
+    its krb5 environment, so a child process such as dotnet test finds the KDC
+    through KRB5_CONFIG and the service keytab through KRB5_KTNAME. On Windows
+    the realm is also registered with Windows Kerberos for the whole machine
+    the way ksetup does, SSPI ignores krb5.conf and a per-thread registration
+    would not reach the test or acceptor processes. What the tests need to know
+    is passed as JSON in the PSWSMAN_TEST_KERBEROS environment variable, see
+    KerberosRealm in tests/units/PSWSMan.Authentication.Tests.
+
+    The scriptblock runs without a realm, after a warning, when the Obol module
+    is not loaded (it needs PowerShell 7.6) or the session is not elevated on
+    Windows. The Kerberos tests then skip.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [scriptblock]
+        $ScriptBlock
+    )
+
+    if (-not (Get-Command -Name Use-ObolKrb5Environment -ErrorAction Ignore)) {
+        Write-Warning "The Obol module is not loaded, the Kerberos unit tests will skip"
+        & $ScriptBlock
+        return
+    }
+
+    if ($IsWindows) {
+        $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+        if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            Write-Warning "Registering the test KDC with Windows Kerberos needs an elevated session, the Kerberos unit tests will skip"
+            & $ScriptBlock
             return
         }
+    }
 
-        Assert-ModuleFast -Version v0.6.1
+    $realm = 'PSWSMAN.TEST'
+    $user = 'user'
+    $service = 'HTTP'
+    $hostname = 'winrm.pswsman.test'
+    $serviceAccount = 'svc-winrm'
+    $userPassword = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(16))
+    $servicePassword = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(16))
 
-        $installParams = @{
-            ModulesToInstall = $modules
-            Destination = $modulePath
-            DestinationOnly = $true
-            NoPSModulePathUpdate = $true
-            NoProfileUpdate = $true
-            Update = $true
+    # The SPN is an alias of an account, like an AD service account. The SSPI
+    # acceptor on Windows does not read KRB5_KTNAME and logs on with the
+    # account's password instead, and for an account name Windows derives the
+    # same keys from it as the KDC did, which it does not for a name with a
+    # slash in it.
+    # NoAuthDataRequired leaves the PAC out of the service tickets, a Windows
+    # acceptor without SeTcbPrivilege would otherwise ask a domain controller
+    # to validate it. TrustedForDelegation sets OK-AS-DELEGATE on the tickets,
+    # Windows only forwards a TGT to a service that has it.
+    $servicePrincipal = "$service/$hostname"
+    $serviceParams = @{
+        Alias = $servicePrincipal
+        Flag = 'NoAuthDataRequired', 'TrustedForDelegation'
+        Password = ConvertTo-SecureString -AsPlainText -Force $servicePassword
+    }
+    $serviceSetting = New-ObolPrincipalSetting @serviceParams
+    $kdcParams = @{
+        Realm = $realm
+        Principal = [ordered]@{
+            $user = ConvertTo-SecureString -AsPlainText -Force $userPassword
+            $serviceAccount = $serviceSetting
         }
-        if (-not (Test-Path -LiteralPath $installParams.Destination)) {
-            New-Item -Path $installParams.Destination -ItemType Directory -Force | Out-Null
-        }
-        Install-ModuleFast @installParams
+        ServicePrincipal = $servicePrincipal
+        # Windows Kerberos only contacts port 88, which needs no rights to bind
+        # on Windows. Elsewhere any free port does.
+        Port = $IsWindows ? 88 : 0
+    }
+    $settings = @{
+        Realm = $realm
+        Username = "$user@$realm"
+        Password = $userPassword
+        Service = $service
+        Hostname = $hostname
+        AcceptorUsername = "$serviceAccount@$realm"
+        AcceptorPassword = $servicePassword
+    } | ConvertTo-Json -Compress
 
-        Get-ChildItem -LiteralPath $modulePath -Directory |
-            ForEach-Object { Import-Module -Name $_.FullName }
+    Use-ObolKrb5Environment @kdcParams {
+        param ($kdc)
+
+        Write-Host "Started the test KDC for $realm on $($kdc.Endpoint)" -ForegroundColor Cyan
+
+        # MIT krb5 only forwards a TGT that is forwardable and does not ask for
+        # one unless configured to, the delegation test needs it. KRB5_CONFIG is
+        # a list of files, the extra one lives in the directory Obol removes
+        # with the environment. Obol only restores a variable that still holds
+        # the value it set, so the value is put back before it exits.
+        $obolConfig = $env:KRB5_CONFIG
+        $forwardableConfig = Join-Path -Path (Split-Path -Path $obolConfig -Parent) -ChildPath 'forwardable.conf'
+        Set-Content -LiteralPath $forwardableConfig -Value "[libdefaults]`n    forwardable = true`n" -NoNewline
+        $env:KRB5_CONFIG = "$obolConfig$([Path]::PathSeparator)$forwardableConfig"
+        $env:PSWSMAN_TEST_KERBEROS = $settings
+        try {
+            if ($IsWindows) {
+                # MitRealm registers the realm and its KDC in the registry like
+                # ksetup /addkdc, machine wide, so the test process, the
+                # acceptor processes and the Devolutions provider, which reads
+                # the same key, all find it. DcLocator would do the same
+                # through DNS and an LDAP ping responder, more moving parts for
+                # no difference the tests can see as the tickets have no PAC.
+                Use-ObolSspiEnvironment -Kdc $kdc -Scope MitRealm -ScriptBlock $ScriptBlock
+            }
+            else {
+                & $ScriptBlock
+            }
+        }
+        finally {
+            Remove-Item -LiteralPath Env:PSWSMAN_TEST_KERBEROS -ErrorAction Ignore
+            $env:KRB5_CONFIG = $obolConfig
+        }
     }
 }

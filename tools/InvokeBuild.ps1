@@ -238,23 +238,26 @@ task UnitTests {
         return
     }
 
-    Get-ChildItem -LiteralPath $testsPath -Directory | ForEach-Object {
-        Write-Host "Running unit tests for $($_.Name)" -ForegroundColor Cyan
+    # The authentication tests need a KDC, it runs for the whole unit test run.
+    Invoke-WithTestKdc {
+        Get-ChildItem -LiteralPath $testsPath -Directory | ForEach-Object {
+            Write-Host "Running unit tests for $($_.Name)" -ForegroundColor Cyan
 
-        $coveragePath = [Path]::Combine($Manifest.TestResultsPath, "Unit.$($_.Name).Coverage.cobertura.xml")
-        $arguments = @(
-            'test'
-            '--project', $_.FullName
-            '--configuration', $Manifest.Configuration
-            '--results-directory', $Manifest.TestResultsPath
-            '--coverage'
-            '--coverage-output', $coveragePath
-            '--coverage-settings', $Manifest.TestSettingsPath
-        )
+            $coveragePath = [Path]::Combine($Manifest.TestResultsPath, "Unit.$($_.Name).Coverage.cobertura.xml")
+            $arguments = @(
+                'test'
+                '--project', $_.FullName
+                '--configuration', $Manifest.Configuration
+                '--results-directory', $Manifest.TestResultsPath
+                '--coverage'
+                '--coverage-output', $coveragePath
+                '--coverage-settings', $Manifest.TestSettingsPath
+            )
 
-        dotnet @arguments
-        if ($LASTEXITCODE) {
-            throw "Unit tests $($_.Name) failed"
+            dotnet @arguments
+            if ($LASTEXITCODE) {
+                throw "Unit tests $($_.Name) failed"
+            }
         }
     }
 }

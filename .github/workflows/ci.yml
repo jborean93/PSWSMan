@@ -108,11 +108,13 @@ jobs:
       with:
         python-version: '3.14'
 
-    - name: Install gss-ntlmssp
+    # gss-ntlmssp gives MIT krb5 NTLM for the GSSAPI provider. python-gssapi has
+    # no Linux wheels, the Kerberos acceptor's build needs the krb5 headers.
+    - name: Install gss-ntlmssp and the krb5 headers
       if: runner.os == 'Linux'
       run: |
         sudo apt-get update
-        sudo apt-get install -y gss-ntlmssp
+        sudo apt-get install -y gss-ntlmssp libkrb5-dev
 
     - name: Setup WinRM and JEA on Windows
       if: runner.os == 'Windows'

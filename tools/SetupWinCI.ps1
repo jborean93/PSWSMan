@@ -307,8 +307,18 @@ Function New-JEAConfiguration {
 }
 
 $UserName = 'PSWSMan-user'
-$passwordChars = [char[]]((48..57) + (65..90) + (97..122)) + [char[]]'!@#$%&*'
-$Password = -join ($passwordChars | Get-Random -Count 16)
+# The password policy wants three of the four character classes, a random pick
+# from the combined set does not always have them. Take one from each class and
+# fill the rest from all of them, then shuffle.
+$digits = [char[]](48..57)
+$upper = [char[]](65..90)
+$lower = [char[]](97..122)
+$symbols = [char[]]'!@#$%&*'
+$passwordChars = @(
+    ($digits | Get-Random), ($upper | Get-Random), ($lower | Get-Random), ($symbols | Get-Random)
+    ($digits + $upper + $lower + $symbols) | Get-Random -Count 12
+)
+$Password = -join ($passwordChars | Get-Random -Count $passwordChars.Count)
 $RepoPath = [Path]::GetFullPath("$PSScriptRoot\..")
 $CertPath = [Path]::Combine($RepoPath, "output", "certs")
 if (-not (Test-Path -Path $CertPath)) {
