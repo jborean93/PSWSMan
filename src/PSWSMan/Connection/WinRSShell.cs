@@ -25,6 +25,15 @@ internal sealed class WinRSShell : IDisposable
     private static readonly TimeSpan s_pumpJoinTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan s_abortDeleteTimeout = TimeSpan.FromSeconds(10);
 
+    // When creating the shell there are two places ERROR_KEY_DELETED could occur:
+    //   1. When DCOM attempts to launch wsmprovhost and hits a registry key marked for deletion (0x3FA).
+    //   2. In WinRS when it goes to load the user environment block (0x800703FA).
+    // In both cases we can safely retry the operation as the error is transient.
+    private static readonly WSManFaultRetry[] s_createRetries =
+    {
+        new("ERROR_KEY_DELETED", 2, TimeSpan.FromMilliseconds(500), 0x000003FA, unchecked((int)0x800703FA)),
+    };
+
     private readonly object _lock = new();
     private readonly WSManConnectionPool _pool;
     private readonly WinRSClient _winrs;
@@ -98,9 +107,19 @@ internal sealed class WinRSShell : IDisposable
             }
         }
 
-        WSManRequest request = _winrs.Create(inputStreams, outputStreams, shellId, extra, options);
-        Trace("sending Create");
-        WSManCreateResponse response = Invoke<WSManCreateResponse>(request, cancellationToken);
+        using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken,
+            _cts.Token);
+        WSManCreateResponse response = WSManFaultRetry.Invoke(
+            "Create",
+            s_createRetries,
+            () => _winrs.Create(inputStreams, outputStreams, shellId, extra, options),
+            request =>
+            {
+                Trace("sending Create");
+                return _pool.Invoke<WSManCreateResponse>(request, linked.Token);
+            },
+            Trace,
+            linked.Token);
         _winrs.ProcessCreateResponse(response);
 
         lock (_lock)
