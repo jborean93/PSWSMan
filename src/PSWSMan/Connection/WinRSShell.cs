@@ -31,10 +31,7 @@ internal sealed class WinRSShell : IDisposable
     // In both cases we can safely retry the operation as the error is transient.
     private static readonly WSManFaultRetry[] s_createRetries =
     {
-        new("ERROR_KEY_DELETED", 2, TimeSpan.FromMilliseconds(500), 0x000003FA, unchecked((int)0x800703FA))
-        {
-            WriteToConsole = true, // TEMP: CI diagnostics for the Create retry, remove before merging.
-        },
+        new("ERROR_KEY_DELETED", 2, TimeSpan.FromMilliseconds(500), 0x000003FA, unchecked((int)0x800703FA)),
     };
 
     private readonly object _lock = new();
