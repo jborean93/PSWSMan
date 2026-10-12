@@ -52,7 +52,7 @@ The following features have been introduced in this version
 + `Enter-PSSession` can now be stopped with `Ctrl+C` while it is connecting, previously it ignored the stop until the connection failed
 + `Clear-Host` (`clear`/`cls`) in a remote session to a Windows host now clears the screen on non-Windows clients, previously it only moved the cursor to the top and failed with `The method or operation is not implemented`
   + This also applies to the sessions of `New-WinRMSession` and `Enter-WinRMSession`, without `Enable-PSWSMan`
-+ Creating a shell is retried up to twice when the server fails to launch its host process with `0x000003FA` (`ERROR_KEY_DELETED`), a transient DCOM registry race on the server that leaves nothing behind to clean up
++ Creating a shell is retried up to twice when the server fails to launch its host process with `ERROR_KEY_DELETED` (`0x000003FA` or `0x800703FA`), a transient DCOM registry race on the server that leaves nothing behind to clean up
 
 The following cmdlets have been added:
 

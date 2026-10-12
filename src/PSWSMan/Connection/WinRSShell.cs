@@ -24,12 +24,18 @@ internal sealed class WinRSShell : IDisposable
 {
     private static readonly TimeSpan s_pumpJoinTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan s_abortDeleteTimeout = TimeSpan.FromSeconds(10);
-    private static readonly TimeSpan s_createRetryDelay = TimeSpan.FromMilliseconds(500);
-    private const int CreateRetries = 2;
 
-    // ERROR_KEY_DELETED - the server could not launch wsmprovhost for a Create because DCOM hit a registry key
-    // marked for deletion.
-    private const int KeyDeleted = 0x000003FA;
+    // When creating the shell there are two places ERROR_KEY_DELETED could occur:
+    //   1. When DCOM attempts to launch wsmprovhost and hits a registry key marked for deletion (0x3FA).
+    //   2. In WinRS when it goes to load the user environment block (0x800703FA).
+    // In both cases we can safely retry the operation as the error is transient.
+    private static readonly WSManFaultRetry[] s_createRetries =
+    {
+        new("ERROR_KEY_DELETED", 2, TimeSpan.FromMilliseconds(500), 0x000003FA, unchecked((int)0x800703FA))
+        {
+            WriteToConsole = true, // TEMP: CI diagnostics for the Create retry, remove before merging.
+        },
+    };
 
     private readonly object _lock = new();
     private readonly WSManConnectionPool _pool;
@@ -104,45 +110,19 @@ internal sealed class WinRSShell : IDisposable
             }
         }
 
-        WSManCreateResponse response;
-        int attempt = 0;
-        while (true)
-        {
-            WSManRequest request = _winrs.Create(inputStreams, outputStreams, shellId, extra, options);
-            Trace(attempt == 0 ? "sending Create" : $"resending Create, retry {attempt}");
-            try
+        using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken,
+            _cts.Token);
+        WSManCreateResponse response = WSManFaultRetry.Invoke(
+            "Create",
+            s_createRetries,
+            () => _winrs.Create(inputStreams, outputStreams, shellId, extra, options),
+            request =>
             {
-                response = Invoke<WSManCreateResponse>(request, cancellationToken);
-                // TEMP: CI diagnostics for the Create retry, remove before merging.
-                if (attempt > 0)
-                {
-                    Console.WriteLine($"PSWSMan TEMP: Create succeeded after {attempt} retry(s)");
-                }
-                break;
-            }
-            catch (WSManFault e) when (e.WSManFaultCode == KeyDeleted && attempt < CreateRetries &&
-                !cancellationToken.IsCancellationRequested && !_cts.IsCancellationRequested)
-            {
-                // The server failed to activate wsmprovhost through DCOM due to a transient registry race. It
-                // fails before any host or shell exists so a new Create is safe.
-                attempt++;
-                Trace($"Create failed to launch the host process, retry {attempt}/{CreateRetries}", e);
-                // TEMP: CI diagnostics for the Create retry, remove before merging.
-                Console.WriteLine($"PSWSMan TEMP: Create failed with 0x{KeyDeleted:X8}, retry {attempt}/{CreateRetries}\n{e.Message}");
-                using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(
-                    cancellationToken, _cts.Token);
-                if (linked.Token.WaitHandle.WaitOne(s_createRetryDelay))
-                {
-                    throw;
-                }
-            }
-            // TEMP: CI diagnostics for the Create retry, remove before merging.
-            catch (WSManFault e) when (attempt > 0)
-            {
-                Console.WriteLine($"PSWSMan TEMP: Create failed after {attempt} retry(s) with 0x{e.WSManFaultCode ?? 0:X8}\n{e.Message}");
-                throw;
-            }
-        }
+                Trace("sending Create");
+                return _pool.Invoke<WSManCreateResponse>(request, linked.Token);
+            },
+            Trace,
+            linked.Token);
         _winrs.ProcessCreateResponse(response);
 
         lock (_lock)

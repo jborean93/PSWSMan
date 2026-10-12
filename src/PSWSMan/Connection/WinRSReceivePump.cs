@@ -29,7 +29,12 @@ internal sealed class WinRSReceivePump
 {
     private const int ThreadStackSize = 256 * 1024;
 
-    private const int OperationTimedOut = unchecked((int)0x80338029);
+    // ERROR_WSMAN_OPERATION_TIMEDOUT - the server hit its operation timeout with no data, just ask again. The server
+    // has finished with the old message id so this is a new request.
+    private static readonly WSManFaultRetry[] s_receiveRetries =
+    {
+        new("ERROR_WSMAN_OPERATION_TIMEDOUT", WSManFaultRetry.Always, TimeSpan.Zero, unchecked((int)0x80338029)),
+    };
 
     // ERROR_INTERNAL_ERROR - what the server answers when a Receive repeats the message id of one it is still
     // processing.
@@ -201,10 +206,13 @@ internal sealed class WinRSReceivePump
             {
                 _token.ThrowIfCancellationRequested();
 
-                // The same request object is used for every attempt so a retry carries the message id the server
-                // has already answered.
-                WSManRequest request = _winrs.Receive(Streams, commandId: CommandId);
-                WSManReceiveResponse response = SendReceive(request, ref lease);
+                WSManReceiveResponse response = WSManFaultRetry.Invoke(
+                    "Receive",
+                    s_receiveRetries,
+                    () => _winrs.Receive(Streams, commandId: CommandId),
+                    request => SendReceive(request, ref lease),
+                    Trace,
+                    _token);
 
                 // In the server's order so stdout and stderr stay interleaved as the command wrote them.
                 foreach (WSManStreamChunk chunk in response.Chunks)
@@ -228,6 +236,8 @@ internal sealed class WinRSReceivePump
 
     private WSManReceiveResponse SendReceive(WSManRequest request, ref WSManConnectionLease lease)
     {
+        // The same request object is used for every attempt so a retry carries the message id the server has already
+        // answered.
         int attempt = 0;
         int duplicate = 0;
         long firstSent = Stopwatch.GetTimestamp();
@@ -248,16 +258,6 @@ internal sealed class WinRSReceivePump
                 WSManReceiveResponse response = WSManReceiveResponse.Parse(raw.Span, request.MessageId);
                 Trace("received response");
                 return response;
-            }
-            catch (WSManFault e) when (e.WSManFaultCode == OperationTimedOut)
-            {
-                // ERROR_WSMAN_OPERATION_TIMEDOUT - the server hit its operation timeout with no data, just ask
-                // again. This is a new request as the server has finished with the old message id.
-                Trace("operation timeout received, retrying");
-                request = _winrs.Receive(Streams, commandId: CommandId);
-                attempt = 0;
-                duplicate = 0;
-                firstSent = Stopwatch.GetTimestamp();
             }
             catch (WSManFault e) when (attempt > 0 && e.WSManFaultCode == InternalError &&
                 OriginalMayBePending(firstSent, duplicate) && !_token.IsCancellationRequested)
