@@ -168,13 +168,13 @@ public class WSManFaultRetryTests
     }
 
     [Test]
-    public async Task Invoke_DoesNotRetryOnceCancelled()
+    public async Task Invoke_RetriedFaultOnceCancelledThrowsCancelled()
     {
         WSManFaultRetry rule = new("ERROR_KEY_DELETED", 2, TimeSpan.Zero, KeyDeleted);
         using CancellationTokenSource cts = new();
         int sent = 0;
 
-        Assert.Throws<WSManFault>(() => WSManFaultRetry.Invoke<string>(
+        Assert.Throws<OperationCanceledException>(() => WSManFaultRetry.Invoke<string>(
             "Create",
             new[] { rule },
             CreateRequest,

@@ -65,7 +65,9 @@ internal sealed class WSManFaultRetry
     /// <param name="createRequest">Builds the request, called once per attempt so each has a new message id.</param>
     /// <param name="send">Sends the request and parses the response.</param>
     /// <param name="trace">Optional callback for trace messages.</param>
-    /// <param name="cancellationToken">Stops the retries, a wait for the next attempt throws when cancelled.</param>
+    /// <param name="cancellationToken">
+    /// Stops the retries, a retried fault or a wait for the next attempt throws when cancelled.
+    /// </param>
     /// <returns>The response.</returns>
     public static T Invoke<T>(
         string operation,
@@ -90,9 +92,11 @@ internal sealed class WSManFaultRetry
                 }
                 return response;
             }
-            catch (WSManFault e) when (!cancellationToken.IsCancellationRequested &&
-                TryGetRule(rules, retried, e, out int index))
+            catch (WSManFault e) when (TryGetRule(rules, retried, e, out int index))
             {
+                // The fault would be retried, report it as cancelled like a cancelled request rather than as a fault.
+                cancellationToken.ThrowIfCancellationRequested();
+
                 WSManFaultRetry rule = rules[index];
                 lastRule = rule;
                 int attempt = ++retried[index];
