@@ -85,8 +85,14 @@ pwsh -File ./build.ps1 -Task Build -Configuration Release   # Release build
 The `Build` task runs, in order: `Clean`, `BuildManaged` (`dotnet publish` of
 `src/PSWSMan` for each target framework with `-p:Version` taken from
 `module/PSWSMan.psd1`), `BuildModule` (copy `module/`), `BuildDocs` (PlatyPS
-MAML), `Sign` (no-op unless the Azure Trusted Signing env vars are set), and
-`Package` (produces `output/PSWSMan.<version>.nupkg`).
+MAML) and `Package` (produces `output/PSWSMan.<version>.nupkg`). The build
+is never signed.
+
+`-Task Sign -ModuleNupkg <path>` signs an already built nupkg: it expands it
+into `output/PSWSMan/<version>/`, signs the scripts and `PSWSMan*.dll` with
+Azure Trusted Signing, and repackages it as `output/PSWSMan.<version>.nupkg`.
+It needs an `az login` session and the `AZURE_TS_NAME`, `AZURE_TS_PROFILE`
+and `AZURE_TS_ENDPOINT` env vars, and fails without them.
 
 The built module is at `output/PSWSMan/<version>/` and can be imported with
 `Import-Module ./output/PSWSMan`.
@@ -327,11 +333,15 @@ on Windows, Linux, and macOS on both Apple silicon and Intel. Each test job
 sets up Python for the authentication tests, and the Linux jobs install
 gss-ntlmssp so MIT krb5 can do NTLM. Coverage goes to Codecov. Pushes to `main` and
 tagged releases (`v*`) build in `Release` configuration; pull requests build
-`Debug`. Releases are signed with Azure Trusted Signing and published to the
-PowerShell Gallery. CI has no WinRM server, so only the non-connection Pester
-tests and the .NET unit tests actually execute there. The Kerberos unit
-tests do run in CI: the runner images have PowerShell 7.6 for Obol and the
-Windows runners are elevated. Put protocol logic in
+`Debug`. For a tagged release the `sign` job runs `build.ps1 -Task Sign` on
+the built nupkg in the `signing` environment and uploads the result as the
+`PSModuleSigned` artifact. The test matrix then runs against that signed
+nupkg, otherwise the unsigned `PSModule` one, and once it passes the `publish`
+job, in the `publish` environment, attaches it to the GitHub release and
+pushes it to the PowerShell Gallery. CI has no WinRM server, so only the
+non-connection Pester tests and the .NET unit tests actually execute there.
+The Kerberos unit tests do run in CI: the runner images have PowerShell 7.6
+for Obol and the Windows runners are elevated. Put protocol logic in
 `PSWSMan.Lib` so it can be covered by unit tests.
 
 ## Code conventions

@@ -12,6 +12,8 @@ on:
     types:
     - published
 
+permissions: {}
+
 env:
   DOTNET_CLI_TELEMETRY_OPTOUT: 1
   POWERSHELL_TELEMETRY_OPTOUT: 1
@@ -24,15 +26,48 @@ jobs:
     name: build
     runs-on: ubuntu-latest
     permissions:
+      contents: read  # Repo checkout
+
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+
+    - name: Build module
+      shell: pwsh
+      run: ./build.ps1 -Configuration $env:BUILD_CONFIGURATION -Task Build
+
+    - name: Capture PowerShell Module
+      uses: actions/upload-artifact@v7
+      with:
+        name: PSModule
+        path: output/*.nupkg
+
+  sign:
+    name: sign
+    needs:
+    - build
+    if: startsWith(github.event.release.tag_name, 'v')
+    runs-on: ubuntu-latest
+    environment: signing
+    permissions:
       id-token: write  # Azure OIDC auth
       contents: read  # Repo checkout
 
     steps:
     - name: Check out repository
       uses: actions/checkout@v7
+      with:
+        persist-credentials: false
 
-    - name: OIDC Login to Azure - Release only
-      if: startsWith(github.event.release.tag_name, 'v')
+    - name: Restore Built PowerShell Module
+      uses: actions/download-artifact@v8
+      with:
+        name: PSModule
+        path: unsigned
+
+    - name: OIDC Login to Azure
       shell: pwsh
       run: |
         $loginParams = @{
@@ -41,25 +76,33 @@ jobs:
         }
         ./tools/AzLoginOIDC.ps1 @loginParams
 
-    - name: Build module
+    - name: Sign module
       shell: pwsh
-      run: ./build.ps1 -Configuration $env:BUILD_CONFIGURATION -Task Build
+      run: ./build.ps1 -Task Sign -ModuleNupkg unsigned/*.nupkg
       env:
-        AZURE_TS_NAME: ${{ startsWith(github.event.release.tag_name, 'v') && secrets.AZURE_TS_NAME || '' }}
-        AZURE_TS_PROFILE: ${{ startsWith(github.event.release.tag_name, 'v') && secrets.AZURE_TS_PROFILE || '' }}
-        AZURE_TS_ENDPOINT: ${{ startsWith(github.event.release.tag_name, 'v') && secrets.AZURE_TS_ENDPOINT || '' }}
+        AZURE_TS_NAME: ${{ secrets.AZURE_TS_NAME }}
+        AZURE_TS_PROFILE: ${{ secrets.AZURE_TS_PROFILE }}
+        AZURE_TS_ENDPOINT: ${{ secrets.AZURE_TS_ENDPOINT }}
 
-    - name: Capture PowerShell Module
+    - name: Capture Signed PowerShell Module
       uses: actions/upload-artifact@v7
       with:
-        name: PSModule
+        name: PSModuleSigned
         path: output/*.nupkg
 
   test:
     name: test
     needs:
     - build
+    - sign
+    # sign only runs for a release, test the unsigned build when it is skipped.
+    if: >-
+      !cancelled()
+      && needs.build.result == 'success'
+      && contains(fromJSON('["success", "skipped"]'), needs.sign.result)
     runs-on: ${{ matrix.info.os }}
+    permissions:
+      contents: read  # Repo checkout
     strategy:
       fail-fast: false
       matrix:
@@ -90,12 +133,15 @@ jobs:
           os: macos-26-intel
 
     steps:
-    - uses: actions/checkout@v7
+    - name: Check out repository
+      uses: actions/checkout@v7
+      with:
+        persist-credentials: false
 
     - name: Restore Built PowerShell Module
       uses: actions/download-artifact@v8
       with:
-        name: PSModule
+        name: ${{ needs.sign.result == 'success' && 'PSModuleSigned' || 'PSModule' }}
         path: output
 
     - name: Set up .NET
@@ -161,14 +207,15 @@ jobs:
     - test
     if: startsWith(github.event.release.tag_name, 'v')
     runs-on: ubuntu-latest
+    environment: publish
     permissions:
       contents: write  # Needed for GitHub release asset task
 
     steps:
-    - name: Restore Built PowerShell Module
+    - name: Restore Signed PowerShell Module
       uses: actions/download-artifact@v8
       with:
-        name: PSModule
+        name: PSModuleSigned
         path: ./
 
     - name: Upload to release asset

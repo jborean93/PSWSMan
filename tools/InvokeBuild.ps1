@@ -89,12 +89,12 @@ task BuildDocs {
     }
 }
 
-task Sign {
+task SignModule {
     $accountName = $env:AZURE_TS_NAME
     $profileName = $env:AZURE_TS_PROFILE
     $endpoint = $env:AZURE_TS_ENDPOINT
     if (-not $accountName -or -not $profileName -or -not $endpoint) {
-        return
+        throw "AZURE_TS_NAME, AZURE_TS_PROFILE and AZURE_TS_ENDPOINT must be set to sign the module"
     }
 
     Write-Host "Authenticating with Azure TrustedSigning $accountName $profileName for signing" -ForegroundColor Cyan
@@ -401,6 +401,9 @@ task CoverageReport {
 
 #endregion Test
 
-task Build -Jobs Clean, BuildManaged, BuildModule, BuildDocs, Sign, Package
+task Build -Jobs Clean, BuildManaged, BuildModule, BuildDocs, Package
 
 task Test -Jobs TestSetup, PythonSetup, UnitTests, PesterTests, CoverageReport
+
+# build.ps1 expands the -ModuleNupkg into the release path first.
+task Sign -Jobs SignModule, Package
