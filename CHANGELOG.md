@@ -1,6 +1,6 @@
 # Changelog for PSWSMan
 
-## v3.0.0 - TBD
+## v3.0.0 - 2026-10-13
 
 This is a major change in the `PSWSMan` module away from shipping a custom `libmi` and `libpsrpclient` C library to a pure .NET WSMan client.
 It is designed to hook the PowerShell WSMan client classes with its own mechanisms to avoid needing the C library altogether.
