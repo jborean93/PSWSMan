@@ -113,7 +113,8 @@ public sealed class EnterWinRMSession : WinRMCmdletBase
         // IgnoresAccessChecksTo. Exit-PSSession and exit in the remote session pop the runspace through a host call
         // that closes it only when this is set, the same as Enter-PSSession -ComputerName does for the runspace it
         // creates. The host has no public pop event to close it otherwise. It is a known risk, a PowerShell release
-        // that changes it breaks this cmdlet until PSWSMan is updated.
+        // that changes it breaks this cmdlet until PSWSMan is updated. A public API for it is in progress in
+        // https://github.com/PowerShell/PowerShell/pull/28197.
         ((RemoteRunspace)runspace).ShouldCloseOnPop = true;
 
         try

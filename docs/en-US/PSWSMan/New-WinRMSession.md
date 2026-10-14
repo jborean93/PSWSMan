@@ -42,6 +42,7 @@ The session can be used with the builtin cmdlets that take a PSSession, like `In
 Unlike `New-PSSession` this cmdlet does not require `Enable-PSWSMan`.
 It plugs into PowerShell through the public custom remoting transport API of PowerShell 7.3 and newer, so nothing in the PowerShell engine is modified and the builtin WSMan client is left as is for any other session.
 The PowerShell Remoting Protocol (PSRP) messages exchanged with the remote host are the same as a session created by `New-PSSession`, only the client that sends them over WinRM differs.
+Events the remote session forwards, for example with `Register-EngineEvent -Forward`, are added to the local event queue the same as for `New-PSSession` and can be received with `Wait-Event`, `Get-Event` or a local `Register-EngineEvent`.
 
 Several sessions can be created at once by passing more than one host to `-ComputerName` or `-ConnectionUri`, or by piping the host names in.
 The sessions are opened at the same time, up to `-ThrottleLimit` at once, and each one is output as soon as it is open, so they are not necessarily in the order of the hosts.

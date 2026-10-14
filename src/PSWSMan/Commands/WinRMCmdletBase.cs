@@ -196,7 +196,8 @@ public abstract class WinRMCmdletBase : PSCmdlet, IDisposable
         };
         // The host calls of the remote session run against this host, the wrapper fixes the remote Clear-Host. It is
         // a workaround for https://github.com/PowerShell/PowerShell/issues/28115 and will hopefully be removed in a
-        // future version once that is fixed in every PowerShell version PSWSMan supports, see RemoteClearHost.
+        // future version once that is fixed in every PowerShell version PSWSMan supports, see RemoteClearHost. The
+        // fix is in progress in https://github.com/PowerShell/PowerShell/pull/28116.
         return RunspaceFactory.CreateRunspace(connInfo, new WinRMClientHost(Host), TypeTable.LoadDefaultTypeFiles(),
             Options.ApplicationArguments);
     }
@@ -214,6 +215,17 @@ public abstract class WinRMCmdletBase : PSCmdlet, IDisposable
         string target, CancellationToken openCancellation)
     {
         Runspace runspace = CreateSessionRunspace(connectionUri, configurationName, openCancellation);
+
+        // Events the remote side forwards with Register-EngineEvent -Forward land in the remote runspace's event
+        // queue, New-PSSession and Invoke-Command move them into the caller's queue the same way.
+        // Internal S.M.A API: PSEventManager.AddForwardedEvent is internal and only reachable through the assembly
+        // wide IgnoresAccessChecksTo. The public GenerateEvent creates a new event as a local one, which loses the
+        // ComputerName, RunspaceId and TimeGenerated of the remote event. It is a known risk, a PowerShell release
+        // that changes it breaks event forwarding until PSWSMan is updated. A public API for it is in progress in
+        // https://github.com/PowerShell/PowerShell/pull/28199.
+        PSEventManager events = Events;
+        runspace.Events.ReceivedEvents.PSEventReceived += (_, e) => events.AddForwardedEvent(e);
+
         TaskCompletionSource opened = new(TaskCreationOptions.RunContinuationsAsynchronously);
         runspace.StateChanged += (_, e) =>
         {

@@ -249,6 +249,24 @@ Describe "Invoke-WinRMCommand" {
             $actual | Should-Be 0
         }
 
+        It "Forwards remote events to the local event queue" {
+            $params = $server | Get-PSSessionSplat
+            try {
+                Invoke-WinRMCommand @params -ScriptBlock {
+                    $null = Register-EngineEvent -SourceIdentifier PSWSMan.Forwarded -Forward
+                    $null = New-Event -SourceIdentifier PSWSMan.Forwarded -MessageData 'extra data'
+                }
+
+                $actual = Wait-Event -SourceIdentifier PSWSMan.Forwarded -Timeout 5
+                $actual | Should-NotBeNull
+                $actual.ComputerName | Should-Be $params.ComputerName
+                $actual.MessageData | Should-Be 'extra data'
+            }
+            finally {
+                Get-Event -SourceIdentifier PSWSMan.Forwarded -ErrorAction Ignore | Remove-Event
+            }
+        }
+
         It "Writes remote errors with the host they came from" {
             $params = $server | Get-PSSessionSplat
             $actual = Invoke-WinRMCommand @params -ScriptBlock {
