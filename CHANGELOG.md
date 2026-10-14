@@ -2,6 +2,8 @@
 
 ## v3.1.0 - TBD
 
++ `New-WinRMSession` and `Invoke-WinRMCommand` now forward events from the remote session to the local event queue like `New-PSSession` and `Invoke-Command`, events registered remotely with `Register-EngineEvent -Forward` can be received with `Wait-Event`, `Get-Event` or a local `Register-EngineEvent`
+
 ## v3.0.0 - 2026-10-13
 
 This is a major change in the `PSWSMan` module away from shipping a custom `libmi` and `libpsrpclient` C library to a pure .NET WSMan client.

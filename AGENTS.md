@@ -379,10 +379,12 @@ for Obol and the Windows runners are elevated. Put protocol logic in
   else in `src/PSWSMan`. Outside that path prefer a public API; when there is
   none, mark the use with an `// Internal S.M.A API:` comment that says what
   it is, why no public API works and that it is a known risk. The current ones
-  are `ErrorRecord.PreserveInvocationInfoOnce` (`Invoke-WinRSCommand`) and
+  are `ErrorRecord.PreserveInvocationInfoOnce` (`Invoke-WinRSCommand`),
   the `ScriptBlock` constructor behind
-  `New-RemoteCertificateValidationCallback` and
-  `RemoteRunspace.ShouldCloseOnPop` (`Enter-WinRMSession`). `$using:` values are captured
+  `New-RemoteCertificateValidationCallback`,
+  `RemoteRunspace.ShouldCloseOnPop` (`Enter-WinRMSession`) and
+  `PSEventManager.AddForwardedEvent` (event forwarding of `New-WinRMSession`
+  and `Invoke-WinRMCommand`). `$using:` values are captured
   with the public AST and session state APIs in `UsingVariableParser`. `src/PSWSMan/CustomTransport/` must
   never use one. To audit, build a copy of the project against
   `ref/<tfm>/System.Management.Automation.dll` of the NuGet package without

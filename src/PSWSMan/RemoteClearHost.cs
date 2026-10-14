@@ -19,6 +19,7 @@ namespace PSWSMan;
 /// RemoteHostCall.ExecuteVoidMethod. Both should be removed if/when PowerShell fixes the problem.
 ///
 /// https://github.com/PowerShell/PowerShell/issues/28115
+/// Fix in progress: https://github.com/PowerShell/PowerShell/pull/28116
 /// https://github.com/PowerShell/PowerShell/blob/3f3d79d4758704c8dad5ca7c12690ba62fd03a3b/src/System.Management.Automation/engine/InitialSessionState.cs#L4090
 /// https://github.com/PowerShell/PowerShell/blob/3f3d79d4758704c8dad5ca7c12690ba62fd03a3b/src/System.Management.Automation/engine/remoting/common/WireDataFormat/RemoteHost.cs#L169
 /// </remarks>

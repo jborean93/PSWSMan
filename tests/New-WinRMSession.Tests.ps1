@@ -155,6 +155,29 @@ Describe "New-WinRMSession" {
             }
         }
 
+        It "Forwards remote events to the local event queue" {
+            $params = $server | Get-PSSessionSplat
+            $session = New-WinRMSession @params
+            try {
+                Invoke-Command -Session $session -ScriptBlock {
+                    $null = Register-EngineEvent -SourceIdentifier PSWSMan.Forwarded -Forward
+                    $null = New-Event -SourceIdentifier PSWSMan.Forwarded -Sender sender -EventArguments my, args -MessageData 'extra data'
+                }
+
+                $actual = Wait-Event -SourceIdentifier PSWSMan.Forwarded -Timeout 5
+                $actual | Should-NotBeNull
+                $actual.ComputerName | Should-Be $session.ComputerName
+                $actual.RunspaceId | Should-Be $session.Runspace.InstanceId
+                $actual.Sender | Should-Be sender
+                $actual.SourceArgs | Should-BeCollection @('my', 'args')
+                $actual.MessageData | Should-Be 'extra data'
+            }
+            finally {
+                Get-Event -SourceIdentifier PSWSMan.Forwarded -ErrorAction Ignore | Remove-Event
+                Remove-PSSession -Session $session
+            }
+        }
+
         It "Prefers -Authentication over the session option AuthMethod" {
             $params = $server | Get-PSSessionSplat -SessionOption @{ AuthMethod = 'Basic' }
             $session = New-WinRMSession @params -Authentication Negotiate
